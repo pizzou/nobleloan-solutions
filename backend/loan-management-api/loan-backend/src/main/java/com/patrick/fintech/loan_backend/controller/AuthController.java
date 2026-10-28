@@ -52,6 +52,9 @@ public class AuthController {
     @Value("${app.jwt.expiration-ms:900000}")
     private long sessionMaxAgeMs;
 
+    @Value("${app.auth.idle-timeout-ms:300000}")
+    private long idleTimeoutMs;
+
     @GetMapping("/csrf")
     public ResponseEntity<Map<String, Object>> csrf(CsrfToken token) {
         return ResponseEntity.ok(Map.of(
@@ -367,6 +370,27 @@ public class AuthController {
                 .body(body);
     }
 
+    /**
+     * Rotate the HttpOnly session cookie only on a deliberate, authenticated
+     * browser activity renewal. Background polling must never call this route.
+     * Authentication and token-version checks are enforced by JwtAuthFilter.
+     */
+    @PostMapping("/renew")
+    public ResponseEntity<Map<String, Object>> renew(Authentication auth) {
+        if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
+            return ResponseEntity.status(401).body(Map.of("success", false));
+        }
+        User user = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
+        if (user == null || user.getStatus() != User.UserStatus.ACTIVE
+                || user.getDeletedAt() != null || user.getPurgedAt() != null) {
+            return ResponseEntity.status(401).body(Map.of("success", false));
+        }
+        return ResponseEntity.ok()
+                .header("Set-Cookie", sessionCookie(jwtUtils.generateToken(user), false).toString())
+                .header("Cache-Control", "no-store")
+                .body(Map.of("success", true));
+    }
+
     @PostMapping("/logout")
     @Transactional
     public ResponseEntity<Map<String, Object>> logout(Authentication auth) {
@@ -397,7 +421,9 @@ public class AuthController {
                 .secure(sessionCookieSecure)
                 .sameSite(sameSite)
                 .path("/")
-                .maxAge(clear ? java.time.Duration.ZERO : java.time.Duration.ofMillis(Math.max(1000L, sessionMaxAgeMs)))
+                .maxAge(clear ? java.time.Duration.ZERO
+                        : java.time.Duration
+                                .ofMillis(Math.min(Math.max(1000L, sessionMaxAgeMs), Math.max(1000L, idleTimeoutMs))))
                 .build();
     }
 

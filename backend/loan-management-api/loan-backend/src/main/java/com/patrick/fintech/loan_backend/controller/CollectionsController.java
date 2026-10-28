@@ -32,7 +32,8 @@ public class CollectionsController {
             @RequestParam(required = false) CollectionCase.CollectionStatus status,
             @RequestParam(required = false) Long agentId) {
         return ResponseEntity.ok(ApiResponse.safe(
-                collectionsService.getQueue(currentUserUtil.getCurrentOrganizationId(), bucket, status, agentId)));
+                collectionsService.getQueueResponses(currentUserUtil.getCurrentOrganizationId(), bucket, status,
+                        agentId)));
     }
 
     @GetMapping("/stats")
@@ -43,7 +44,8 @@ public class CollectionsController {
 
     @GetMapping("/cases/{id}")
     public ResponseEntity<ApiResponse<Object>> getCase(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.safe(collectionsService.getCase(id)));
+        return ResponseEntity.ok(ApiResponse.safe(
+                collectionsService.getCaseResponse(id, currentUserUtil.getCurrentOrganizationId())));
     }
 
     @GetMapping("/cases/{id}/actions")
@@ -69,8 +71,11 @@ public class CollectionsController {
         if (type == CollectionAction.ActionType.WRITE_OFF) {
             boolean authorized = SecurityContextHolder.getContext().getAuthentication()
                     .getAuthorities().stream()
-                    .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()) || "ROLE_BUSINESS_OWNER".equals(a.getAuthority()));
-            if (!authorized) throw new AccessDeniedException("Only ADMIN, MANAGER or BUSINESS_OWNER may initiate a controlled write-off");
+                    .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority())
+                            || "ROLE_BUSINESS_OWNER".equals(a.getAuthority()));
+            if (!authorized)
+                throw new AccessDeniedException(
+                        "Only ADMIN, MANAGER or BUSINESS_OWNER may initiate a controlled write-off");
         }
 
         String notes = (String) body.get("notes");

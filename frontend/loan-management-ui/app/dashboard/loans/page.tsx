@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { loanApi } from "@/services/api";
@@ -323,12 +323,16 @@ function LoanRow({
   locale,
   canDelete,
   onDelete,
+  onVisibility,
+  visibilityUpdating,
 }: {
   loan: Loan;
   currency: string;
   locale: string;
   canDelete: boolean;
   onDelete: (loan: Loan) => void;
+  onVisibility: (loan: Loan) => void;
+  visibilityUpdating: boolean;
 }) {
   const borrowerName = getBorrowerName(loan);
   const borrowerInitials = getBorrowerInitials(loan);
@@ -528,6 +532,9 @@ function LoanRow({
             {formatCurrency(outstanding, currency, locale)}
           </div>
 
+          <div className="mt-1 text-[11px] text-slate-500">
+            Principal balance (excludes accrued interest and fees)
+          </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full bg-teal-600 transition-all duration-500"
@@ -537,8 +544,22 @@ function LoanRow({
             />
           </div>
 
+          <div className="mt-1 text-xs font-semibold text-teal-800">
+            Paid: {formatCurrency(totalPaid, currency, locale)}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            Principal{" "}
+            {formatCurrency(toNumber(loan.principalPaid), currency, locale)} ·
+            Interest{" "}
+            {formatCurrency(toNumber(loan.interestPaid), currency, locale)}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            Management fees paid:{" "}
+            {formatCurrency(toNumber(loan.managementFeePaid), currency, locale)}
+            {loan.imported ? " · Historical opening amounts included" : ""}
+          </div>
           <div className="mt-1 text-[11px] text-slate-400">
-            {progress}% collected
+            {progress}% collected · Principal balance shown above
           </div>
         </div>
       </td>
@@ -558,11 +579,26 @@ function LoanRow({
           </div>
         ) : null}
 
-        {overdue > 0 ? (
+        {loan.imported &&
+        loan.nextDueDate &&
+        loan.startDate &&
+        loan.nextDueDate <= loan.startDate ? (
+          <div
+            className="mt-2 text-xs font-semibold text-amber-700"
+            title="Review the oldest unpaid contractual installment date before relying on days past due"
+          >
+            Review due date — cannot measure arrears from disbursement
+          </div>
+        ) : overdue > 0 ? (
           <div className="mt-2 flex items-center justify-end gap-1 text-xs font-bold text-red-600">
             <IconAlertTriangle className="h-3.5 w-3.5" />
             {overdue} day
             {overdue === 1 ? "" : "s"} overdue
+            {loan.imported && loan.nextDueDate && (
+              <span className="font-normal text-slate-500">
+                (from {formatDate(loan.nextDueDate, locale)})
+              </span>
+            )}
           </div>
         ) : loan.nextDueDate ? (
           <div className="mt-2 text-xs text-slate-400">
@@ -573,6 +609,23 @@ function LoanRow({
 
       {canDelete ? (
         <td className="px-5 py-4 align-top">
+          <div className="mb-2 text-[11px] font-semibold text-slate-600">
+            {loan.businessOwnerOnly
+              ? "Business Owner only"
+              : "Normal · everyone authorized"}
+          </div>
+          <button
+            type="button"
+            disabled={visibilityUpdating}
+            onClick={() => onVisibility(loan)}
+            className="mb-2 block rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {visibilityUpdating
+              ? "Saving…"
+              : loan.businessOwnerOnly
+                ? "Make normal"
+                : "Owner only"}
+          </button>
           <button
             type="button"
             onClick={() => onDelete(loan)}
@@ -602,8 +655,12 @@ export default function LoanListPage() {
   );
 
   const [loading, setLoading] = useState(true);
+  const [initialLoadFinished, setInitialLoadFinished] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [visibilityUpdatingId, setVisibilityUpdatingId] = useState<
+    number | null
+  >(null);
 
   const [deleteLoan, setDeleteLoan] = useState<Loan | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -625,6 +682,7 @@ export default function LoanListPage() {
   const [query, setQuery] = useState("");
 
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const latestPortfolioRequest = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -640,6 +698,7 @@ export default function LoanListPage() {
      ========================================================== */
 
   const loadPortfolio = useCallback(async () => {
+    const requestId = ++latestPortfolioRequest.current;
     const cacheKey = `/loans/list?page=${page}&size=${PAGE_SIZE}&status=${status}&type=${type}&search=${encodeURIComponent(debouncedQuery)}`;
 
     setError(null);
@@ -653,6 +712,7 @@ export default function LoanListPage() {
           : Promise.resolve(null),
       ]);
 
+      if (requestId !== latestPortfolioRequest.current) return;
       const pageLoans = getPageLoans(listResponse);
 
       const meta = getPageMeta(listResponse);
@@ -673,6 +733,7 @@ export default function LoanListPage() {
         dashboard: dashboardResponse ?? undefined,
       });
     } catch (requestError) {
+      if (requestId !== latestPortfolioRequest.current) return;
       console.error("Failed to load loan portfolio", requestError);
 
       try {
@@ -682,6 +743,7 @@ export default function LoanListPage() {
           dashboard?: LoanDashboardResponse;
         }>(cacheKey);
 
+        if (requestId !== latestPortfolioRequest.current) return;
         if (cached) {
           const cachedData = cached.data;
 
@@ -745,6 +807,7 @@ export default function LoanListPage() {
 
       if (mounted) {
         setLoading(false);
+        setInitialLoadFinished(true);
       }
     };
 
@@ -765,6 +828,34 @@ export default function LoanListPage() {
     await loadPortfolio();
 
     setRefreshing(false);
+  };
+
+  const handleVisibilityChange = async (loan: Loan) => {
+    if (!isBusinessOwner || visibilityUpdatingId !== null) return;
+    const desired = !Boolean(loan.businessOwnerOnly);
+    const label = desired
+      ? "Business Owner only"
+      : "Normal reporting (all authorized staff)";
+    if (
+      !window.confirm(
+        `Change ${loan.referenceNumber} to ${label}? This changes visibility and report scope, not the loan balance. The action is audited.`,
+      )
+    )
+      return;
+    setVisibilityUpdatingId(loan.id);
+    setError(null);
+    try {
+      await loanApi.changeReportingVisibility(loan.id, desired);
+      await loadPortfolio();
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Unable to change reporting visibility",
+      );
+    } finally {
+      setVisibilityUpdatingId(null);
+    }
   };
 
   const handleDeleteLoan = async () => {
@@ -947,7 +1038,7 @@ export default function LoanListPage() {
      LOADING
      ========================================================== */
 
-  if (loading) {
+  if (loading && !initialLoadFinished) {
     return <PageSpinner />;
   }
 
@@ -1313,7 +1404,7 @@ export default function LoanListPage() {
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Loan ID, reference, borrower, phone…"
+                    placeholder="Loan reference or borrower name…"
                     className="
                       h-10
                       w-full
@@ -1440,7 +1531,7 @@ export default function LoanListPage() {
                     "Status & risk",
                     "Original principal",
                     "Disbursed",
-                    "Outstanding",
+                    "Principal outstanding / payments",
                     "Type / repayment",
                     ...(isBusinessOwner ? ["Actions"] : []),
                   ].map((label) => (
@@ -1482,6 +1573,8 @@ export default function LoanListPage() {
                       locale={locale}
                       canDelete={isBusinessOwner}
                       onDelete={setDeleteLoan}
+                      onVisibility={handleVisibilityChange}
+                      visibilityUpdating={visibilityUpdatingId === loan.id}
                     />
                   ))
                 )}

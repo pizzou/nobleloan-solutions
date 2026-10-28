@@ -514,16 +514,58 @@ export default function ImportLegacyLoansPage() {
             Financial fields that must be accurate
           </p>
           <p className="mt-1 text-sm leading-6 text-amber-900">
-            Use the downloaded template. For open loans, provide the contractual
-            <span className="font-semibold"> next_due_date</span>, set
-            <span className="font-semibold"> business_owner_only</span> to true
-            or false, and distinguish
-            <span className="font-semibold"> principal_balance</span> (principal
-            only) from{" "}
-            <span className="font-semibold">outstanding_balance</span>
-            (the total contractual amount still due). References supplied from
-            old systems are retained with the required NLS prefix; blank source
-            references receive a stable NLS reference to prevent repeat imports.
+            All legacy loans are imported with{" "}
+            <strong>normal visibility</strong>
+            (business_owner_only = false). Only the Business Owner can change
+            this later from the loan list or loan details. For loans still owing
+            money, provide the verified <strong>next_due_date</strong> and the
+            historical paid and outstanding amounts separately. The system
+            assigns the final unique NLS reference when each loan is saved;
+            preview numbers are proposals only.
+          </p>
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700 shadow-sm">
+          <h2 className="font-bold text-slate-900">
+            How historical repayments are interpreted
+          </h2>
+          <p className="mt-2">
+            The legacy monthly workbook uses the{" "}
+            <strong>PRINCIPLE PAID (AA)</strong>,{" "}
+            <strong>TOTAL PAID INTEREST (Z)</strong> and{" "}
+            <strong>PAID MANAGEMENT FEE (X)</strong> columns as amounts actually
+            received. It does <strong>not</strong> treat monthly scheduled
+            interest columns (I–N) as payments.
+          </p>
+          <p className="mt-2">
+            For a partially paid loan:{" "}
+            <strong>
+              principal remaining = original principal − principal paid
+            </strong>
+            . Unpaid interest (AC), unpaid management fees (V) and assessed
+            unpaid penalties (AB) are separate obligations. When payments and
+            unpaid amounts disagree, import validation blocks the row for
+            reconciliation. The old monthly format has no separate
+            penalties-paid column, so any AB penalty is treated as unpaid unless
+            imported using a detailed template with penalties_paid.
+          </p>
+          <p className="mt-2 text-amber-800">
+            These are opening historical balances, not individually dated
+            payment receipts. Verify the original cash ledger or payment
+            evidence before committing. A "Valid" result means the data
+            reconciles mathematically, not that its figures have been
+            independently verified.
+          </p>
+          <p className="mt-2 font-semibold text-amber-900">
+            For a partially paid loan with an outstanding balance, column P is
+            only the first scheduled due date. Add <strong>column AE</strong>{" "}
+            (header: VERIFIED OLDEST UNPAID DUE DATE) and enter the date of the
+            earliest installment that is still unpaid, verified against the
+            repayment records. Without it the row is blocked rather than
+            reporting misleading days overdue. Do not change the original
+            contract or invent a date. For loans already imported, review and
+            correct their due dates through an authorized, audited
+            loan-adjustment workflow.
           </p>
         </div>
 

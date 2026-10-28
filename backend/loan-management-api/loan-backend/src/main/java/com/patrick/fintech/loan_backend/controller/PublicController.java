@@ -3040,6 +3040,7 @@ public class PublicController {
                 String physicalAddressDistrict = str(body.get("district"));
                 String physicalAddressSector = str(body.get("sector"));
                 String physicalAddressCell = str(body.get("cell"));
+                String physicalAddressVillage = str(body.get("village"));
                 String country = str(body.get("country"));
 
                 requirePublicCrbField(nationality, "Nationality");
@@ -3048,6 +3049,10 @@ public class PublicController {
                 requirePublicCrbField(physicalAddressDistrict, "Physical address district");
                 requirePublicCrbField(physicalAddressSector, "Physical address sector");
                 requirePublicCrbField(physicalAddressCell, "Physical address cell");
+                requirePublicCrbField(physicalAddressVillage, "Physical address village");
+                if (physicalAddressVillage.length() > 255) {
+                        throw new RuntimeException("Physical address village cannot exceed 255 characters");
+                }
 
                 if (country == null || country.isBlank()) {
                         country = org.getCountry();
@@ -3253,7 +3258,7 @@ public class PublicController {
                         borrower.setPhysicalAddressCell(
                                         physicalAddressCell);
                         borrower.setPhysicalAddressVillage(
-                                        str(body.get("village")));
+                                        physicalAddressVillage.trim());
 
                         borrower.setCountry(country);
 

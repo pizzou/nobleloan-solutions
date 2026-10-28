@@ -619,7 +619,16 @@ public class CreditBureauRegulatoryExportService {
 
                 values[16] = borrower.getPlaceOfBirth();
 
-                values[20] = cleanText(borrower.getAddressLine2());
+                // The CRB template has no dedicated Village column. Preserve its
+                // fixed column order and put village into the free-text address
+                // line 2, alongside any existing address details.
+                String addressLine2 = cleanText(borrower.getAddressLine2());
+                String village = cleanText(borrower.getPhysicalAddressVillage());
+                values[20] = village == null || village.isBlank()
+                                ? addressLine2
+                                : (addressLine2 == null || addressLine2.isBlank()
+                                                ? "Village: " + village
+                                                : addressLine2 + ", Village: " + village);
 
                 values[19] = firstNonBlank(
                                 cleanText(borrower.getAddressLine1()),

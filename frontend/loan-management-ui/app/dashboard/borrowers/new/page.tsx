@@ -215,6 +215,7 @@ export default function NewBorrowerPage() {
   const [district, setDistrict] = useState("");
   const [sector, setSector] = useState("");
   const [cell, setCell] = useState("");
+  const [village, setVillage] = useState("");
   const [country, setCountry] = useState("Rwanda");
   const [creditScore, setCreditScore] = useState("");
 
@@ -313,6 +314,12 @@ export default function NewBorrowerPage() {
     if (!cell.trim()) {
       nextErrors.cell = "Physical address cell is required.";
     }
+    if (!village.trim()) {
+      nextErrors.village =
+        "Physical address village is required for borrower reporting.";
+    } else if (village.trim().length > 255) {
+      nextErrors.village = "Village cannot exceed 255 characters.";
+    }
     if (!country.trim()) {
       nextErrors.country = "Country is required.";
     }
@@ -346,6 +353,7 @@ export default function NewBorrowerPage() {
     district,
     sector,
     cell,
+    village,
     country,
     creditScore,
   ]);
@@ -397,7 +405,7 @@ export default function NewBorrowerPage() {
         physicalAddressDistrict: district.trim(),
         physicalAddressSector: sector.trim(),
         physicalAddressCell: cell.trim(),
-        physicalAddressVillage: undefined,
+        physicalAddressVillage: village.trim(),
         country: country.trim(),
         creditScore: creditScore.trim() ? Number(creditScore) : undefined,
       });
@@ -1127,6 +1135,29 @@ export default function NewBorrowerPage() {
                     onChange={(event) => setCell(event.target.value)}
                     placeholder="e.g. Rukiri"
                     className={inputClass(errors.cell)}
+                  />
+                </Field>
+
+                <Field
+                  id="village"
+                  label="Physical Address Village"
+                  required
+                  error={errors.village}
+                >
+                  <input
+                    id="village"
+                    type="text"
+                    value={village}
+                    maxLength={255}
+                    disabled={loading}
+                    onChange={(event) => {
+                      setVillage(event.target.value);
+                      if (errors.village) {
+                        setErrors((current) => ({ ...current, village: "" }));
+                      }
+                    }}
+                    placeholder="Enter the borrower's village"
+                    className={inputClass(errors.village)}
                   />
                 </Field>
 

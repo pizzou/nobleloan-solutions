@@ -73,6 +73,7 @@ function ApplyPageContent() {
     district: "",
     sector: "",
     cell: "",
+    village: "",
     country: "Rwanda",
 
     // Employment
@@ -286,6 +287,7 @@ function ApplyPageContent() {
       ["District", form.district],
       ["Sector", form.sector],
       ["Cell", form.cell],
+      ["Village", form.village],
       ["Country", form.country],
     ];
 
@@ -1035,6 +1037,17 @@ function ApplyPageContent() {
                     value={form.cell}
                     onChange={set("cell")}
                     placeholder="e.g. Rukiri"
+                  />
+                </Field>
+
+                <Field label="Village" required>
+                  <input
+                    required
+                    maxLength={255}
+                    className={inp}
+                    value={form.village}
+                    onChange={set("village")}
+                    placeholder="Village name"
                   />
                 </Field>
 

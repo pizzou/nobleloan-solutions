@@ -100,6 +100,27 @@ class StreamingLedgerFileParserTest {
     }
 
     @Test
+    void partialHistoricalPaymentsRequireVerifiedOldestUnpaidDueDate() throws Exception {
+        try (XSSFWorkbook book = new XSSFWorkbook()) {
+            Sheet sheet = book.createSheet("PORTFOLIO 2025");
+            appendMonthly(sheet, 2, "1", "1198880004126183", "2025-10-30", 5000000);
+            sheet.getRow(2).getCell(25).setCellValue("250000"); // interest paid
+            List<Map<String, String>> result = parse(book);
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).get("total_paid")).isEqualTo("250000.00");
+            assertThat(result.get(0).get("__import_issue"))
+                    .contains("column AE", "oldest unpaid");
+            assertThat(result.get(0).get("next_due_date")).isBlank();
+
+            sheet.getRow(2).createCell(30).setCellValue("2026-02-28");
+            List<Map<String, String>> corrected = parse(book);
+            assertThat(corrected).hasSize(1);
+            assertThat(corrected.get(0)).doesNotContainKey("__import_issue");
+            assertThat(corrected.get(0).get("next_due_date")).isEqualTo("2026-02-28");
+        }
+    }
+
+    @Test
     void supportingOnlyLoanRequiresReviewWhenMasterExists() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             appendMonthly(book.createSheet("PORTFOLIO 2025"), 2, "1", "1198880004126183", "2025-10-30", 5000000);

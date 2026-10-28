@@ -2457,13 +2457,46 @@ public class LoanService {
                                         pageable);
                 }
 
-                return loanRepo.findVisibleByFilters(
-                                org,
-                                ls,
-                                lt,
-                                includeBusinessOwnerOnly,
-                                normalizedSearch,
-                                pageable);
+                // Use Criteria predicates for active filters rather than nullable JPQL
+                // parameters.
+                // The latter can generate invalid SQL/count queries under some PostgreSQL +
+                // Hibernate combinations, especially as the user types a borrower name.
+                final LoanStatus statusFilter = ls;
+                final LoanType typeFilter = lt;
+                final String searchFilter = normalizedSearch;
+                org.springframework.data.jpa.domain.Specification<Loan> filters = (root, query, cb) -> {
+                        java.util.List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+                        predicates.add(cb.equal(root.get("organization"), org));
+                        if (!includeBusinessOwnerOnly) {
+                                predicates.add(cb.isFalse(cb.coalesce(root.<Boolean>get("businessOwnerOnly"), false)));
+                        }
+                        if (statusFilter != null)
+                                predicates.add(cb.equal(root.get("status"), statusFilter));
+                        if (typeFilter != null)
+                                predicates.add(cb.equal(root.get("loanType"), typeFilter));
+                        if (searchFilter != null) {
+                                // Treat % and _ as literal text, not wildcard patterns.
+                                String pattern = "%" + searchFilter.toLowerCase(java.util.Locale.ROOT)
+                                                .replace("\\", "\\\\").replace("%", "\\%")
+                                                .replace("_", "\\_") + "%";
+                                jakarta.persistence.criteria.Join<Loan, com.patrick.fintech.loan_backend.model.Borrower> borrower = root
+                                                .join("borrower", jakarta.persistence.criteria.JoinType.INNER);
+                                jakarta.persistence.criteria.Expression<String> first = cb
+                                                .coalesce(borrower.get("firstName"), "");
+                                jakarta.persistence.criteria.Expression<String> last = cb
+                                                .coalesce(borrower.get("lastName"), "");
+                                predicates.add(cb.or(
+                                                cb.like(cb.lower(root.get("referenceNumber")), pattern, '\\'),
+                                                cb.like(cb.lower(first), pattern, '\\'),
+                                                cb.like(cb.lower(last), pattern, '\\'),
+                                                cb.like(cb.lower(cb.concat(cb.concat(first, " "), last)), pattern,
+                                                                '\\'),
+                                                cb.like(cb.lower(cb.concat(cb.concat(last, " "), first)), pattern,
+                                                                '\\')));
+                        }
+                        return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+                };
+                return loanRepo.findAll(filters, pageable);
         }
 
         public List<Loan> getLoansByBorrowerForOrg(

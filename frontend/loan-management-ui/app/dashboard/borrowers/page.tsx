@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { borrowerApi } from "@/services/api";
@@ -40,6 +40,13 @@ export default function BorrowersPage() {
 
   const [page, setPage] = useState(0);
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const latestBorrowerRequest = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQ(q.trim()), 350);
+    return () => window.clearTimeout(timer);
+  }, [q]);
 
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
@@ -74,11 +81,13 @@ export default function BorrowersPage() {
   const [form, setForm] = useState<Record<string, string>>(blank);
 
   const load = useCallback(async () => {
+    const requestId = ++latestBorrowerRequest.current;
     setLoading(true);
 
     try {
-      const response: any = await borrowerApi.list(page, 20, q);
+      const response: any = await borrowerApi.list(page, 20, debouncedQ);
 
+      if (requestId !== latestBorrowerRequest.current) return;
       const content = Array.isArray(response)
         ? response
         : (response?.content ?? []);
@@ -87,14 +96,15 @@ export default function BorrowersPage() {
 
       setTotal(response?.totalElements ?? response?.total ?? content.length);
     } catch (error) {
+      if (requestId !== latestBorrowerRequest.current) return;
       console.error("Failed to load borrowers:", error);
 
       setBorrowers([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (requestId === latestBorrowerRequest.current) setLoading(false);
     }
-  }, [page, q]);
+  }, [page, debouncedQ]);
 
   useEffect(() => {
     load();
@@ -270,7 +280,7 @@ export default function BorrowersPage() {
                 </div>
 
                 <Input
-                  placeholder="Search by name, email or national ID..."
+                  placeholder="Search by first name, full name or email..."
                   className="!h-11 !rounded-xl !border-slate-200 !bg-slate-50 pl-11 pr-10 text-sm focus:!border-emerald-400 focus:!ring-2 focus:!ring-emerald-100"
                   value={q}
                   onChange={(e) => {

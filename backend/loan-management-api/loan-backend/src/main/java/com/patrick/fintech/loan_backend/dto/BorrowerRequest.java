@@ -52,6 +52,8 @@ public class BorrowerRequest {
     private String physicalAddressSector;
     @jakarta.validation.constraints.NotBlank(message = "Physical address cell is required")
     private String physicalAddressCell;
+    @NotBlank(message = "Physical address village is required")
+    @Size(max = 255, message = "Physical address village cannot exceed 255 characters")
     private String physicalAddressVillage;
     @jakarta.validation.constraints.NotBlank(message = "Country is required")
     private String country;

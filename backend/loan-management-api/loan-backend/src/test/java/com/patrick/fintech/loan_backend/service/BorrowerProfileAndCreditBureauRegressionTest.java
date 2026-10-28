@@ -93,6 +93,33 @@ class BorrowerProfileAndCreditBureauRegressionTest {
         }
 
         @Test
+        void villageIsRequiredForNewBorrowerRequestsAndPreservedInReporting()
+                        throws Exception {
+
+                java.lang.reflect.Field village = com.patrick.fintech.loan_backend.dto.BorrowerRequest.class
+                                .getDeclaredField("physicalAddressVillage");
+                assertTrue(village.isAnnotationPresent(jakarta.validation.constraints.NotBlank.class),
+                                "New borrower requests must require a village.");
+                assertTrue(village.isAnnotationPresent(jakarta.validation.constraints.Size.class),
+                                "Village must be limited to the database column length.");
+
+                String borrowerController = normalizeWhitespace(readSource(
+                                source("controller/BorrowerController.java")));
+                assertTrue(borrowerController.contains(".physicalAddressVillage( req.getPhysicalAddressVillage())"),
+                                "Borrower creation must persist the submitted village.");
+
+                String bnr = normalizeWhitespace(readSource(
+                                source("service/BnrTemplateExportService.java")));
+                assertTrue(bnr.contains("borrower.getPhysicalAddressVillage()"),
+                                "BNR borrower records must retain village location information.");
+
+                String crb = normalizeWhitespace(readSource(
+                                source("service/CreditBureauRegulatoryExportService.java")));
+                assertTrue(crb.contains("borrower.getPhysicalAddressVillage()"),
+                                "The standard CRB address field should include village without shifting columns.");
+        }
+
+        @Test
         void borrowerCreationUsesOnePhoneAndKeepsLegacyAlternatePhoneSynchronized()
                         throws Exception {
 

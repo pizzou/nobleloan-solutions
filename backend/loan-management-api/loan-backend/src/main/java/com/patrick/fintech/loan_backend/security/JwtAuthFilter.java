@@ -32,10 +32,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private String sessionCookieName;
 
     public JwtAuthFilter(
-        JwtUtils jwtUtils,
-        CustomUserDetailsService userDetailsService,
-        UserRepository userRepository
-    ) {
+            JwtUtils jwtUtils,
+            CustomUserDetailsService userDetailsService,
+            UserRepository userRepository) {
         this.jwtUtils = jwtUtils;
         this.userDetailsService = userDetailsService;
         this.userRepository = userRepository;
@@ -61,10 +60,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(
-        HttpServletRequest request,
-        HttpServletResponse response,
-        FilterChain filterChain
-    ) throws ServletException, IOException {
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain) throws ServletException, IOException {
 
         /*
          * If another authentication mechanism has already authenticated
@@ -78,8 +76,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        String header =
-            request.getHeader("Authorization");
+        String header = request.getHeader("Authorization");
 
         String token = null;
         if (header != null && !header.isBlank() && header.startsWith("Bearer ")) {
@@ -93,8 +90,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
         }
 
-        /* No usable bearer token or session cookie. Spring Security will decide
-         * later whether the endpoint requires authentication. */
+        /*
+         * No usable bearer token or session cookie. Spring Security will decide
+         * later whether the endpoint requires authentication.
+         */
         if (token == null || token.isBlank()) {
             filterChain.doFilter(request, response);
             return;
@@ -112,11 +111,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             if (!jwtUtils.validateToken(token)) {
 
                 log.debug(
-                    "JWT validation failed for request {} {}",
-                    request.getMethod(),
-                    request.getRequestURI()
-                );
+                        "JWT validation failed for request {} {}",
+                        request.getMethod(),
+                        request.getRequestURI());
 
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // Login OTP challenges are NOT authenticated sessions. The
+            // challenge exists only to finish the login flow; accepting it
+            // as Bearer auth would bypass the second factor entirely.
+            if (jwtUtils.isLoginOtpChallengeToken(token)) {
+                SecurityContextHolder.clearContext();
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -126,31 +133,26 @@ public class JwtAuthFilter extends OncePerRequestFilter {
              * MFA SETUP TOKEN
              * ========================================================
              */
-            if (
-                jwtUtils.isSetupToken(token)
+            if (jwtUtils.isSetupToken(token)
                     && !request
-                        .getRequestURI()
-                        .startsWith("/api/mfa")
-            ) {
+                            .getRequestURI()
+                            .startsWith("/api/mfa")) {
 
                 response.setStatus(
-                    HttpServletResponse.SC_FORBIDDEN
-                );
+                        HttpServletResponse.SC_FORBIDDEN);
 
                 response.setContentType(
-                    "application/json"
-                );
+                        "application/json");
 
                 response.setCharacterEncoding("UTF-8");
 
                 response.getWriter().write(
-                    """
-                    {
-                      "success": false,
-                      "error": "Complete MFA setup before accessing this resource."
-                    }
-                    """
-                );
+                        """
+                                {
+                                  "success": false,
+                                  "error": "Complete MFA setup before accessing this resource."
+                                }
+                                """);
 
                 return;
             }
@@ -160,8 +162,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
              * LOAD USER
              * ========================================================
              */
-            String email =
-                jwtUtils.getEmailFromToken(token);
+            String email = jwtUtils.getEmailFromToken(token);
 
             if (email == null || email.isBlank()) {
 
@@ -169,10 +170,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 return;
             }
 
-            com.patrick.fintech.loan_backend.model.User currentUser =
-                userRepository.findByEmailIgnoreCase(email).orElse(null);
+            com.patrick.fintech.loan_backend.model.User currentUser = userRepository.findByEmailIgnoreCase(email)
+                    .orElse(null);
 
-            if (currentUser == null || currentUser.getStatus() != com.patrick.fintech.loan_backend.model.User.UserStatus.ACTIVE) {
+            if (currentUser == null
+                    || currentUser.getStatus() != com.patrick.fintech.loan_backend.model.User.UserStatus.ACTIVE) {
                 SecurityContextHolder.clearContext();
                 filterChain.doFilter(request, response);
                 return;
@@ -187,29 +189,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 return;
             }
 
-            UserDetails userDetails =
-                userDetailsService.loadUserByUsername(email);
+            UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
             /*
              * ========================================================
              * AUTHENTICATION
              * ========================================================
              */
-            UsernamePasswordAuthenticationToken authentication =
-                new UsernamePasswordAuthenticationToken(
+            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                     userDetails,
                     null,
-                    userDetails.getAuthorities()
-                );
+                    userDetails.getAuthorities());
 
             authentication.setDetails(
-                new WebAuthenticationDetailsSource()
-                    .buildDetails(request)
-            );
+                    new WebAuthenticationDetailsSource()
+                            .buildDetails(request));
 
             SecurityContextHolder
-                .getContext()
-                .setAuthentication(authentication);
+                    .getContext()
+                    .setAuthentication(authentication);
 
         } catch (Exception exception) {
 
@@ -220,14 +218,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
              * Spring Security will produce 401 for protected resources.
              */
             SecurityContextHolder
-                .clearContext();
+                    .clearContext();
 
             log.debug(
-                "JWT authentication failed for {} {}: {}",
-                request.getMethod(),
-                request.getRequestURI(),
-                exception.getMessage()
-            );
+                    "JWT authentication failed for {} {}: {}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    exception.getMessage());
         }
 
         filterChain.doFilter(request, response);

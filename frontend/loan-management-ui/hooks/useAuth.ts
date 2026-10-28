@@ -4,6 +4,7 @@ import { useState, useEffect, createContext, useContext } from "react";
 import { AuthResponse } from "@/types";
 import { authApi } from "@/services/api";
 import { clearSensitiveClientState } from "@/lib/securityCleanup";
+import { noteSessionActivity } from "@/lib/sessionActivity";
 
 interface AuthCtx {
   user: AuthResponse | null;
@@ -86,6 +87,7 @@ export function useAuthState() {
     // Cached user JSON is presentation-only; server permissions remain the
     // authority and the user object is not restored until /auth/me succeeds.
     localStorage.setItem("user", JSON.stringify(userData));
+    noteSessionActivity();
     setUser(userData);
   };
 

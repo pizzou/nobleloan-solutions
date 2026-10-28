@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -23,1367 +24,1367 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface LoanRepository extends JpaRepository<Loan, Long> {
-
-        // ============================================================
-        // GENERAL
-        // ============================================================
-
-        /**
-         * Find loan by ID and eagerly load commonly required
-         * relationships.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization"
-        })
-        @Override
-        Optional<Loan> findById(Long id);
-
-        /**
-         * Find a loan by ID using a pessimistic write lock.
-         *
-         * Important for payment concurrency so simultaneous payment
-         * transactions cannot modify the same loan balance at the
-         * same time.
-         */
-        @Lock(LockModeType.PESSIMISTIC_WRITE)
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "loanOfficer"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.id = :id
-                        """)
-        Optional<Loan> findByIdForUpdate(
-                        @Param("id") Long id);
-
-        /**
-         * Find a loan by public reference number.
-         */
-        Optional<Loan> findByReferenceNumber(
-                        String referenceNumber);
-
-        /**
-         * Find a loan using reference number and hashed borrower phone.
-         */
-        /**
-         * Public borrower dashboard/schedule lookup. The reference plus phone hash
-         * proves borrower possession, but does not override the Business Owner's
-         * explicit privacy choice. Keep the owner-only predicate at repository
-         * level so every caller is protected, including legacy service paths.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.referenceNumber = :referenceNumber
-                          AND l.borrower.phoneHash = :phoneHash
-                          AND COALESCE(l.businessOwnerOnly, false) = false
-                        """)
-        Optional<Loan> findByReferenceNumberAndBorrower_PhoneHash(
-                        @Param("referenceNumber") String referenceNumber,
-                        @Param("phoneHash") String phoneHash);
-
-        /**
-         * Public borrower dashboard lookup.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "loanOfficer"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.referenceNumber = :referenceNumber
-                          AND l.borrower.phoneHash = :phoneHash
-                          AND COALESCE(l.businessOwnerOnly, false) = false
-                        """)
-        Optional<Loan> findPublicDashboardLoan(
-                        @Param("referenceNumber") String referenceNumber,
-                        @Param("phoneHash") String phoneHash);
-
-        /**
-         * Find all loans belonging to an organization.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization"
-        })
-        List<Loan> findByOrganization_Id(
-                        Long organizationId);
-
-        /**
-         * Reporting/operational read boundary.
-         *
-         * Pending/under-review loans remain visible so an approval workflow can
-         * complete after the BUSINESS_OWNER_ONLY choice is made. Once a loan is
-         * finally approved, NORMAL_SCOPE excludes it.
-         */
-        @EntityGraph(attributePaths = { "borrower", "organization", "loanOfficer" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findVisibleByOrganizationId(
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /**
-         * Internal accounting reconciliation only: retrieve recycled loans that are
-         * excluded from normal Hibernate entity queries by Loan's @SQLRestriction.
-         * This query must never be used to populate ordinary loan lists or reports.
-         * The general ledger retains posted entries during the 30-day recycle
-         * period, so its internal reconciliation must also account for these
-         * outstanding balances rather than report a false GL/sub-ledger variance.
-         */
-        @Query(value = """
-                        SELECT l.*
-                        FROM public.loans l
-                        WHERE l.organization_id = :organizationId
-                          AND l.deleted_at IS NOT NULL
-                        ORDER BY l.id
-                        """, nativeQuery = true)
-        List<Loan> findRecycledForReconciliationByOrganizationId(
-                        @Param("organizationId") Long organizationId);
-
-        @EntityGraph(attributePaths = { "borrower", "organization", "loanOfficer" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND l.status <> 'CANCELLED'
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findReportingByOrganizationId(
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        @EntityGraph(attributePaths = { "borrower", "organization" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.id = :loanId
-                          AND l.organization.id = :organizationId
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        Optional<Loan> findVisibleById(
-                        @Param("loanId") Long loanId,
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        @Lock(LockModeType.PESSIMISTIC_WRITE)
-        @EntityGraph(attributePaths = { "borrower", "organization", "loanOfficer" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.id = :loanId
-                          AND l.organization.id = :organizationId
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        Optional<Loan> findVisibleByIdForUpdate(
-                        @Param("loanId") Long loanId,
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        @EntityGraph(attributePaths = { "borrower", "organization" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.borrower.id = :borrowerId
-                          AND l.organization.id = :organizationId
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findVisibleByBorrowerIdAndOrganizationId(
-                        @Param("borrowerId") Long borrowerId,
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /**
-         * Returns historical/imported loans for accounting reconciliation.
-         *
-         * The import flow writes both imported=true and importBatchId. The OR
-         * condition deliberately keeps reconciliation compatible with legacy rows
-         * created by an earlier importer that populated the batch id before the
-         * imported flag was introduced/fixed.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                          )
-                        ORDER BY l.id ASC
-                        """)
-        List<Loan> findHistoricalImportedLoans(
-                        @Param("organizationId") Long organizationId);
-
-        @EntityGraph(attributePaths = { "borrower", "organization" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                          )
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        ORDER BY l.id ASC
-                        """)
-        List<Loan> findVisibleHistoricalImportedLoans(
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        List<Loan> findByOrganization_IdAndImportedTrue(
-                        Long organizationId);
-
-        /**
-         * Returns loans actually persisted by one legacy import batch.
-         * This is the authoritative post-commit persistence count.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch"
-        })
-        List<Loan> findByOrganization_IdAndImportBatchId(
-                        Long organizationId,
-                        Long importBatchId);
-
-        /**
-         * Find all loans belonging to a borrower within an organization.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization"
-        })
-        List<Loan> findByBorrowerIdAndOrganizationId(
-                        Long borrowerId,
-                        Long organizationId);
-
-        /** Bulk borrower history for regulatory exports. */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch",
-                        "loanOfficer"
-        })
-        List<Loan> findByBorrowerIdInAndOrganizationId(
-                        List<Long> borrowerIds,
-                        Long organizationId);
-
-        @EntityGraph(attributePaths = { "borrower", "organization", "branch", "loanOfficer" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.borrower.id IN :borrowerIds
-                          AND l.organization.id = :organizationId
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        List<Loan> findVisibleByBorrowerIdInAndOrganizationId(
-                        @Param("borrowerIds") List<Long> borrowerIds,
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /**
-         * Only completed historical facilities are needed for BNR's
-         * previous-loans-paid-on-time indicator. Avoid loading active/pending
-         * borrower history into the export JVM.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch",
-                        "loanOfficer"
-        })
-        List<Loan> findByBorrowerIdInAndOrganizationIdAndStatusIn(
-                        List<Long> borrowerIds,
-                        Long organizationId,
-                        List<LoanStatus> statuses);
-
-        @EntityGraph(attributePaths = { "borrower", "organization", "branch", "loanOfficer" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.borrower.id IN :borrowerIds
-                          AND l.organization.id = :organizationId
-                          AND l.status IN :statuses
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        List<Loan> findVisibleByBorrowerIdInAndOrganizationIdAndStatusIn(
-                        @Param("borrowerIds") List<Long> borrowerIds,
-                        @Param("organizationId") Long organizationId,
-                        @Param("statuses") List<LoanStatus> statuses,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /** BNR portfolio query without fetching the payments collection. */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch",
-                        "loanOfficer"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND l.status <> 'CANCELLED'
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                              OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
-                          )
-                        ORDER BY l.disbursedAt ASC
-                        """)
-        List<Loan> findPortfolioAsOfForBnrExport(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("asOf") LocalDateTime asOf);
-
-        @EntityGraph(attributePaths = { "borrower", "organization", "branch", "loanOfficer" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND l.status <> 'CANCELLED'
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                              OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
-                          )
-                        ORDER BY l.disbursedAt ASC
-                        """)
-        List<Loan> findVisiblePortfolioAsOfForBnrExport(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("asOf") LocalDateTime asOf,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /**
-         * Find loans whose status is one of the supplied statuses.
-         */
-        List<Loan> findByStatusIn(
-                        List<LoanStatus> statuses);
-
-        /**
-         * Find all loans by borrower's hashed phone number.
-         *
-         * Kept for backward compatibility with internal/public borrower
-         * workflows. User-facing reporting must use the scope-aware methods.
-         */
-        List<Loan> findByBorrower_PhoneHash(
-                        String phoneHash);
-
-        /**
-         * Find all loans by borrower's hashed phone number.
-         */
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.borrower.phoneHash = :phoneHash
-                          AND COALESCE(l.businessOwnerOnly, false) = false
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findPublicBorrowerLoansByPhoneHash(
-                        @Param("phoneHash") String phoneHash);
-
-        // ============================================================
-        // COLLECTION / OVERDUE
-        // ============================================================
-
-        /**
-         * Find loans whose status is one of the supplied statuses OR
-         * whose number of overdue days is greater than or equal to
-         * the supplied value.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "loanOfficer"
-        })
-        List<Loan> findByStatusInOrDaysOverdueGreaterThanEqual(
-                        List<LoanStatus> statuses,
-                        int daysOverdue);
-
-        /**
-         * Find loans by organization and status.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "loanOfficer"
-        })
-        List<Loan> findByOrganization_IdAndStatus(
-                        Long organizationId,
-                        LoanStatus status);
-
-        /**
-         * Find loans by organization and any of the supplied statuses.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "loanOfficer"
-        })
-        List<Loan> findByOrganization_IdAndStatusIn(
-                        Long organizationId,
-                        List<LoanStatus> statuses);
-
-        /**
-         * Find organization loans whose status matches or whose overdue
-         * days reach the specified threshold.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "loanOfficer"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND (
-                              l.status IN :statuses
-                              OR l.daysOverdue >= :daysOverdue
-                          )
-                        """)
-        List<Loan> findByOrganizationIdAndStatusInOrDaysOverdueGreaterThanEqual(
-                        @Param("organizationId") Long organizationId,
-                        @Param("statuses") List<LoanStatus> statuses,
-                        @Param("daysOverdue") int daysOverdue);
-
-        // ============================================================
-        // COUNT
-        // ============================================================
-
-        /**
-         * Count all loans belonging to an organization.
-         */
-        long countByOrganization(
-                        Organization organization);
-
-        /**
-         * Count loans by organization ID.
-         */
-        long countByOrganization_Id(
-                        Long organizationId);
-
-        /**
-         * Count loans by organization and status.
-         */
-        long countByOrganizationAndStatus(
-                        Organization organization,
-                        LoanStatus status);
-
-        /**
-         * Count loans by organization ID and status.
-         */
-        long countByOrganization_IdAndStatus(
-                        Long organizationId,
-                        LoanStatus status);
-
-        /**
-         * Single aggregate query for dashboard loan KPIs.
-         *
-         * Result order:
-         *
-         * 0 total loan records
-         * 1 pending/review loans
-         * 2 active loans
-         * 3 completed/paid loans
-         * 4 defaulted loans
-         * 5 gross principal actually recorded as disbursed
-         * 6 current outstanding principal
-         * 7 outstanding principal at risk
-         * 8 overdue loans
-         *
-         * Imported historical loans are deliberately excluded from
-         * current-period gross disbursement totals.
-         */
-        @Query("""
-                        SELECT
-                            COUNT(l),
-
-                            SUM(
-                                CASE
-                                    WHEN l.status IN ('PENDING', 'UNDER_REVIEW')
-                                    THEN 1
-                                    ELSE 0
-                                END
-                            ),
-
-                            SUM(
-                                CASE
-                                    WHEN l.status IN (
-                                        'ACTIVE',
-                                        'DISBURSED',
-                                        'OVERDUE',
-                                        'RESTRUCTURED'
-                                    )
-                                    THEN 1
-                                    ELSE 0
-                                END
-                            ),
-
-                            SUM(
-                                CASE
-                                    WHEN l.status IN ('PAID', 'CLOSED')
-                                    THEN 1
-                                    ELSE 0
-                                END
-                            ),
-
-                            SUM(
-                                CASE
-                                    WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF')
-                                    THEN 1
-                                    ELSE 0
-                                END
-                            ),
-
-                            COALESCE(
-                                SUM(
-                                    CASE
-                                        WHEN (l.imported = false OR l.imported IS NULL)
-                                         AND l.disbursedAmount IS NOT NULL
-                                        THEN l.disbursedAmount
-                                        ELSE 0
-                                    END
-                                ),
-                                0
-                            ),
-
-                            COALESCE(
-                                SUM(
-                                    CASE
-                                        WHEN l.outstandingBalance > 0
-                                        THEN l.outstandingBalance
-                                        ELSE 0
-                                    END
-                                ),
-                                0
-                            ),
-
-                            COALESCE(
-                                SUM(
-                                    CASE
-                                        WHEN l.outstandingBalance > 0
-                                         AND l.daysOverdue > 0
-                                        THEN l.outstandingBalance
-                                        ELSE 0
-                                    END
-                                ),
-                                0
-                            ),
-
-                            COALESCE(
-                                SUM(
-                                    CASE
-                                        WHEN l.outstandingBalance > 0
-                                         AND l.daysOverdue > 0
-                                        THEN 1
-                                        ELSE 0
-                                    END
-                                ),
-                                0
-                            )
-
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                        """)
-        Object[] getDashboardLoanAggregate(
-                        @Param("organizationId") Long organizationId);
-
-        @Query("""
-                        SELECT
-                            COUNT(l),
-                            SUM(CASE WHEN l.status IN ('PENDING', 'UNDER_REVIEW') THEN 1 ELSE 0 END),
-                            SUM(CASE WHEN l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'RESTRUCTURED') THEN 1 ELSE 0 END),
-                            SUM(CASE WHEN l.status IN ('PAID', 'CLOSED') THEN 1 ELSE 0 END),
-                            SUM(CASE WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF') THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN (l.imported = false OR l.imported IS NULL) AND l.disbursedAmount IS NOT NULL
-                                               THEN l.disbursedAmount ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 THEN l.outstandingBalance ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0
-                                               THEN l.outstandingBalance ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0 THEN 1 ELSE 0 END), 0)
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        Object[] getVisibleDashboardLoanAggregate(
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        // ============================================================
-        // FILTERING
-        // ============================================================
-
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND (:status IS NULL OR l.status = :status)
-                          AND (:type IS NULL OR l.loanType = :type)
-                        ORDER BY l.createdAt DESC
-                        """)
-        Page<Loan> findByFilters(
-                        @Param("org") Organization org,
-                        @Param("status") LoanStatus status,
-                        @Param("type") Loan.LoanType type,
-                        Pageable pageable);
-
-        /**
-         * Fast/default portfolio page. Kept separate from the optional-filter query
-         * so an unfiltered portfolio request never depends on nullable enum/string
-         * parameters during Hibernate count-query generation.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch",
-                        "createdBy",
-                        "approvedBy",
-                        "loanOfficer"
-        })
-        @Query(value = """
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        ORDER BY l.createdAt DESC
-                        """, countQuery = """
-                        SELECT COUNT(l)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        Page<Loan> findVisiblePortfolio(
-                        @Param("org") Organization org,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
-                        Pageable pageable);
-
-        @EntityGraph(attributePaths = { "borrower", "organization" })
-        @Query(value = "SELECT l " +
-                        "FROM Loan l " +
-                        "WHERE l.organization = :org " +
-                        "AND (:status IS NULL OR l.status = :status) " +
-                        "AND (:type IS NULL OR l.loanType = :type) " +
-                        "AND (:search IS NULL " +
-                        "OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
-                        "OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
-                        "OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
-                        "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
-                        "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
-                        "AND (:includeBusinessOwnerOnly = true " +
-                        "OR COALESCE(l.businessOwnerOnly, false) = false) " +
-                        "ORDER BY l.createdAt DESC", countQuery = "SELECT COUNT(l) " +
-                                        "FROM Loan l " +
-                                        "WHERE l.organization = :org " +
-                                        "AND (:status IS NULL OR l.status = :status) " +
-                                        "AND (:type IS NULL OR l.loanType = :type) " +
-                                        "AND (:search IS NULL " +
-                                        "OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%')) "
-                                        +
-                                        "OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%')) "
-                                        +
-                                        "OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%')) "
-                                        +
-                                        "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
-                                        "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
-                                        "AND (:includeBusinessOwnerOnly = true " +
-                                        "OR COALESCE(l.businessOwnerOnly, false) = false)")
-        Page<Loan> findVisibleByFilters(
-                        @Param("org") Organization org,
-                        @Param("status") LoanStatus status,
-                        @Param("type") Loan.LoanType type,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
-                        @Param("search") String search,
-                        Pageable pageable);
-
-        // ============================================================
-        // DASHBOARD
-        // ============================================================
-
-        @Query("""
-                        SELECT COALESCE(SUM(l.amount), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND l.status IN (
-                              'ACTIVE',
-                              'DISBURSED',
-                              'OVERDUE'
-                          )
-                        """)
-        BigDecimal sumActivePrincipal(
-                        @Param("org") Organization org);
-
-        @Query("""
-                        SELECT COALESCE(SUM(l.totalPaid), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                        """)
-        BigDecimal sumTotalCollected(
-                        @Param("org") Organization org);
-
-        /** Cumulative paid-to-date amount stored on migrated historical loans. */
-        @Query("""
-                        SELECT COALESCE(SUM(l.totalPaid), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND l.imported = true
-                        """)
-        BigDecimal sumImportedHistoricalTotalPaid(
-                        @Param("org") Organization org);
-
-        /**
-         * Application fees collected at disbursement; not represented by Payment rows.
-         */
-        @Query("""
-                        SELECT COALESCE(SUM(l.applicationFeePaid), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND COALESCE(l.applicationFeePaid, 0) > 0
-                        """)
-        BigDecimal sumApplicationFeesCollected(
-                        @Param("org") Organization org);
-
-        @Query("""
-                        SELECT COALESCE(SUM(l.applicationFeePaid), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND l.imported = true
-                          AND COALESCE(l.applicationFeePaid, 0) > 0
-                        """)
-        BigDecimal sumImportedApplicationFeesCollected(
-                        @Param("org") Organization org);
-
-        /**
-         * Post-migration payment rows belonging to imported loans, used to avoid
-         * double-counting.
-         */
-        @Query("""
-                        SELECT COALESCE(SUM(p.amountPaid), 0)
-                        FROM Payment p
-                        JOIN p.loan l
-                        WHERE l.organization = :org
-                          AND l.imported = true
-                          AND p.paid = true
-                        """)
-        BigDecimal sumImportedPaymentRows(
-                        @Param("org") Organization org);
-
-        /**
-         * Authoritative current portfolio principal outstanding.
-         *
-         * This deliberately mirrors the population used by regulatory
-         * portfolio reporting:
-         *
-         * - current receivable statuses only;
-         * - imported/import-batch loans remain portfolio loans even when the
-         * historical source did not contain a disbursement timestamp;
-         * - system-originated loans require a real disbursement timestamp.
-         *
-         * Keeping this definition here makes /loans/dashboard agree with the
-         * dashboard service and BNR outstanding principal instead of silently
-         * dropping imported DEFAULTED/RESTRUCTURED or timestamp-less rows.
-         */
-        @Query("""
-                        SELECT COALESCE(SUM(l.outstandingBalance), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND COALESCE(l.outstandingBalance, 0) > 0
-                          AND l.status IN (
-                              'ACTIVE',
-                              'DISBURSED',
-                              'OVERDUE',
-                              'DEFAULTED',
-                              'RESTRUCTURED'
-                          )
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                              OR l.disbursedAt IS NOT NULL
-                          )
-                        """)
-        BigDecimal sumOutstandingBalance(
-                        @Param("org") Organization org);
-
-        /**
-         * Sum gross amount actually disbursed.
-         *
-         * Uses persisted disbursedAmount rather than requested amount.
-         */
-        @Query("""
-                        SELECT COALESCE(SUM(l.disbursedAmount), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND l.disbursedAmount IS NOT NULL
-                        """)
-        BigDecimal sumGrossDisbursedPrincipal(
-                        @Param("org") Organization org);
-
-        @Query("""
-                        SELECT COALESCE(SUM(l.outstandingBalance), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND COALESCE(l.outstandingBalance, 0) > 0
-                          AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        BigDecimal sumVisibleOutstandingBalance(
-                        @Param("org") Organization org,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        @Query("""
-                        SELECT COALESCE(SUM(l.disbursedAmount), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND l.disbursedAmount IS NOT NULL
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        BigDecimal sumVisibleGrossDisbursedPrincipal(
-                        @Param("org") Organization org,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        @Query("""
-                        SELECT l.loanType, COUNT(l), COALESCE(SUM(l.amount), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        GROUP BY l.loanType
-                        """)
-        List<Object[]> getVisibleLoanTypeBreakdown(
-                        @Param("org") Organization org,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        // ============================================================
-        // LOAN TYPE BREAKDOWN
-        // ============================================================
-
-        @Query("""
-                        SELECT l.loanType,
-                               COUNT(l),
-                               COALESCE(SUM(l.amount), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                        GROUP BY l.loanType
-                        """)
-        List<Object[]> getLoanTypeBreakdown(
-                        @Param("org") Organization org);
-
-        @Query("""
-                        SELECT l.loanType,
-                               COUNT(l),
-                               COALESCE(SUM(l.amount), 0)
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                        GROUP BY l.loanType
-                        ORDER BY COUNT(l) DESC
-                        """)
-        List<Object[]> getLoanTypeBreakdownByOrganizationId(
-                        @Param("organizationId") Long organizationId);
-
-        /** Lightweight report aggregates. Recycled loans are excluded explicitly. */
-        @Query("""
-                        SELECT l.creditQuality, COUNT(l), COALESCE(SUM(l.outstandingBalance), 0)
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND l.deletedAt IS NULL
-                          AND l.status IN ('ACTIVE','DISBURSED','OVERDUE','DEFAULTED','RESTRUCTURED')
-                        GROUP BY l.creditQuality
-                        ORDER BY COUNT(l) DESC
-                        """)
-        List<Object[]> getReportCreditQualityBreakdown(@Param("organizationId") Long organizationId);
-
-        @Query("""
-                        SELECT COALESCE(UPPER(TRIM(l.borrower.gender)), 'UNKNOWN'), COUNT(DISTINCT l.borrower.id)
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND l.deletedAt IS NULL
-                        GROUP BY COALESCE(UPPER(TRIM(l.borrower.gender)), 'UNKNOWN')
-                        ORDER BY COUNT(DISTINCT l.borrower.id) DESC
-                        """)
-        List<Object[]> getReportBorrowerGenderBreakdown(@Param("organizationId") Long organizationId);
-
-        @Query("""
-                        SELECT l.loanType, COUNT(l), COALESCE(SUM(l.amount), 0)
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND l.deletedAt IS NULL
-                        GROUP BY l.loanType
-                        ORDER BY COUNT(l) DESC
-                        """)
-        List<Object[]> getReportLoanProductBreakdown(@Param("organizationId") Long organizationId);
-
-        // ============================================================
-        // RECENT
-        // ============================================================
-
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "createdBy",
-                        "approvedBy",
-                        "loanOfficer"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization = :org
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findRecentByOrg(
-                        @Param("org") Organization org,
-                        Pageable pageable);
-
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findRecentByOrganizationId(
-                        @Param("organizationId") Long organizationId,
-                        Pageable pageable);
-
-        // ============================================================
-        // REGULATORY
-        // ============================================================
-
-        /**
-         * Find loans disbursed during a date/time period.
-         *
-         * The upper bound is exclusive.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch"
-        })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND l.disbursedAt IS NOT NULL
-                          AND l.disbursedAt >= :from
-                          AND l.disbursedAt < :to
-                        ORDER BY l.disbursedAt ASC
-                        """)
-        List<Loan> findLoansDisbursedDuringPeriod(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to);
-
-        @EntityGraph(attributePaths = { "borrower", "organization", "branch" })
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                          AND l.disbursedAt IS NOT NULL
-                          AND l.disbursedAt >= :from
-                          AND l.disbursedAt < :to
-                        ORDER BY l.disbursedAt ASC
-                        """)
-        List<Loan> findVisibleLoansDisbursedDuringPeriod(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /**
-         * Compatibility overload for regulatory reporting code.
-         *
-         * The LocalDateTime boundaries remain authoritative.
-         */
-        default List<Loan> findLoansDisbursedDuringPeriod(
-                        Long orgId,
-                        Long branchId,
-                        LocalDateTime from,
-                        LocalDateTime to,
-                        java.time.LocalDate fromDate,
-                        java.time.LocalDate toDate) {
-
-                return findLoansDisbursedDuringPeriod(
-                                orgId,
-                                branchId,
-                                from,
-                                to);
-        }
-
-        /**
-         * Find portfolio as of a particular date/time.
-         *
-         * Imported historical loans are included in the point-in-time
-         * regulatory portfolio even where their original disbursement
-         * timestamp is unavailable.
-         *
-         * Imported loans are NOT treated as current-period cash
-         * disbursements. Current-period disbursements remain controlled
-         * by findLoansDisbursedDuringPeriod().
-         *
-         * IMPORTANT:
-         *
-         * The query uses DISTINCT because payments is loaded through
-         * EntityGraph.
-         *
-         * Do not use a CASE expression in ORDER BY here.
-         *
-         * PostgreSQL rejects:
-         *
-         * SELECT DISTINCT ...
-         * ORDER BY CASE ...
-         *
-         * when the CASE expression is not in the select list.
-         *
-         * PostgreSQL's normal ASC ordering places NULL values after
-         * non-NULL values, which gives us the required ordering:
-         *
-         * 1. loans with a known disbursement date
-         * 2. oldest disbursement first
-         * 3. imported loans with NULL disbursement date last
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch",
-                        "payments"
-        })
-        @Query("""
-                        SELECT DISTINCT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND l.status <> 'CANCELLED'
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                              OR (
-                                  l.disbursedAt IS NOT NULL
-                                  AND l.disbursedAt < :asOf
-                              )
-                          )
-                        ORDER BY l.disbursedAt ASC
-                        """)
-        List<Loan> findPortfolioAsOf(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("asOf") LocalDateTime asOf);
-
-        @EntityGraph(attributePaths = { "borrower", "organization", "branch", "payments" })
-        @Query("""
-                        SELECT DISTINCT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND l.status <> 'CANCELLED'
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                              OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
-                          )
-                        ORDER BY l.disbursedAt ASC
-                        """)
-        List<Loan> findVisiblePortfolioAsOf(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("asOf") LocalDateTime asOf,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /**
-         * Compatibility overload for regulatory reporting callers.
-         */
-        default List<Loan> findPortfolioAsOf(
-                        Long orgId,
-                        Long branchId,
-                        LocalDateTime asOf,
-                        java.time.LocalDate asOfDate) {
-
-                return findPortfolioAsOf(
-                                orgId,
-                                branchId,
-                                asOf);
-        }
-
-        /**
-         * Find loans for regulatory reporting.
-         *
-         * createdAt is LocalDateTime, therefore from/to are also
-         * LocalDateTime.
-         */
-        @EntityGraph(attributePaths = {
-                        "borrower",
-                        "organization",
-                        "branch",
-                        "payments"
-        })
-        @Query("""
-                        SELECT DISTINCT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND (:from IS NULL OR l.createdAt >= :from)
-                          AND (:to IS NULL OR l.createdAt < :to)
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findForRegulatoryReport(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to);
-
-        @EntityGraph(attributePaths = { "borrower", "organization", "branch", "payments" })
-        @Query("""
-                        SELECT DISTINCT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND (:from IS NULL OR l.createdAt >= :from)
-                          AND (:to IS NULL OR l.createdAt < :to)
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        ORDER BY l.createdAt DESC
-                        """)
-        List<Loan> findVisibleForRegulatoryReport(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        /**
-         * Find loans created during a period.
-         */
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND l.createdAt >= :from
-                          AND l.createdAt < :to
-                        ORDER BY l.createdAt ASC
-                        """)
-        List<Loan> findLoansCreatedDuringPeriod(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to);
-
-        @Query("""
-                        SELECT l
-                        FROM Loan l
-                        WHERE l.organization.id = :orgId
-                          AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND l.createdAt >= :from
-                          AND l.createdAt < :to
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        ORDER BY l.createdAt ASC
-                        """)
-        List<Loan> findVisibleLoansCreatedDuringPeriod(
-                        @Param("orgId") Long orgId,
-                        @Param("branchId") Long branchId,
-                        @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        // ============================================================
-        // PORTFOLIO RISK / PAR ANALYTICS
-        // ============================================================
-
-        /**
-         * Single database aggregate for cumulative PAR analytics.
-         *
-         * Result order:
-         * 0 current portfolio loan count
-         * 1 current outstanding principal
-         * 2 PAR1 loan count
-         * 3 PAR1 amount
-         * 4 PAR7 loan count
-         * 5 PAR7 amount
-         * 6 PAR30 loan count
-         * 7 PAR30 amount
-         * 8 PAR60 loan count
-         * 9 PAR60 amount
-         * 10 PAR90 loan count
-         * 11 PAR90 amount
-         *
-         * PAR uses outstanding principal and persisted daysOverdue. The current
-         * receivable portfolio definition mirrors the dashboard/regulatory logic
-         * so imported historical loans are retained when they have an outstanding
-         * balance even if disbursedAt is unavailable.
-         */
-        @Query("""
-                        SELECT
-                            COUNT(l),
-                            COALESCE(SUM(l.outstandingBalance), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 1 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 1 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 7 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 7 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 30 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 30 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 60 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 60 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 90 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 90 THEN l.outstandingBalance ELSE 0 END), 0)
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND COALESCE(l.outstandingBalance, 0) > 0
-                          AND l.status IN (
-                              'ACTIVE',
-                              'DISBURSED',
-                              'OVERDUE',
-                              'DEFAULTED',
-                              'RESTRUCTURED'
-                          )
-                          AND (
-                              l.imported = true
-                              OR l.importBatchId IS NOT NULL
-                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                              OR l.disbursedAt IS NOT NULL
-                          )
-                        """)
-        Object[] calculatePortfolioRiskMetrics(
-                        @Param("organizationId") Long organizationId);
-
-        @Query("""
-                        SELECT
-                            COUNT(l),
-                            COALESCE(SUM(l.outstandingBalance), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 1 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 1 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 7 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 7 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 30 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 30 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 60 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 60 THEN l.outstandingBalance ELSE 0 END), 0),
-                            SUM(CASE WHEN l.daysOverdue >= 90 THEN 1 ELSE 0 END),
-                            COALESCE(SUM(CASE WHEN l.daysOverdue >= 90 THEN l.outstandingBalance ELSE 0 END), 0)
-                        FROM Loan l
-                        WHERE l.organization.id = :organizationId
-                          AND COALESCE(l.outstandingBalance, 0) > 0
-                          AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
-                          AND (
-                                :includeBusinessOwnerOnly = true
-                                OR COALESCE(l.businessOwnerOnly, false) = false
-                          )
-                        """)
-        Object[] calculateVisiblePortfolioRiskMetrics(
-                        @Param("organizationId") Long organizationId,
-                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-        // ============================================================
-        // EXISTS
-        // ============================================================
-
-        boolean existsByOrganization_IdAndReferenceNumber(
-                        Long organizationId,
-                        String referenceNumber);
+public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificationExecutor<Loan> {
+
+  // ============================================================
+  // GENERAL
+  // ============================================================
+
+  /**
+   * Find loan by ID and eagerly load commonly required
+   * relationships.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization"
+  })
+  @Override
+  Optional<Loan> findById(Long id);
+
+  /**
+   * Find a loan by ID using a pessimistic write lock.
+   *
+   * Important for payment concurrency so simultaneous payment
+   * transactions cannot modify the same loan balance at the
+   * same time.
+   */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "loanOfficer"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.id = :id
+      """)
+  Optional<Loan> findByIdForUpdate(
+      @Param("id") Long id);
+
+  /**
+   * Find a loan by public reference number.
+   */
+  Optional<Loan> findByReferenceNumber(
+      String referenceNumber);
+
+  /**
+   * Find a loan using reference number and hashed borrower phone.
+   */
+  /**
+   * Public borrower dashboard/schedule lookup. The reference plus phone hash
+   * proves borrower possession, but does not override the Business Owner's
+   * explicit privacy choice. Keep the owner-only predicate at repository
+   * level so every caller is protected, including legacy service paths.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.referenceNumber = :referenceNumber
+        AND l.borrower.phoneHash = :phoneHash
+        AND COALESCE(l.businessOwnerOnly, false) = false
+      """)
+  Optional<Loan> findByReferenceNumberAndBorrower_PhoneHash(
+      @Param("referenceNumber") String referenceNumber,
+      @Param("phoneHash") String phoneHash);
+
+  /**
+   * Public borrower dashboard lookup.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "loanOfficer"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.referenceNumber = :referenceNumber
+        AND l.borrower.phoneHash = :phoneHash
+        AND COALESCE(l.businessOwnerOnly, false) = false
+      """)
+  Optional<Loan> findPublicDashboardLoan(
+      @Param("referenceNumber") String referenceNumber,
+      @Param("phoneHash") String phoneHash);
+
+  /**
+   * Find all loans belonging to an organization.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization"
+  })
+  List<Loan> findByOrganization_Id(
+      Long organizationId);
+
+  /**
+   * Reporting/operational read boundary.
+   *
+   * Pending/under-review loans remain visible so an approval workflow can
+   * complete after the BUSINESS_OWNER_ONLY choice is made. Once a loan is
+   * finally approved, NORMAL_SCOPE excludes it.
+   */
+  @EntityGraph(attributePaths = { "borrower", "organization", "loanOfficer" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findVisibleByOrganizationId(
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /**
+   * Internal accounting reconciliation only: retrieve recycled loans that are
+   * excluded from normal Hibernate entity queries by Loan's @SQLRestriction.
+   * This query must never be used to populate ordinary loan lists or reports.
+   * The general ledger retains posted entries during the 30-day recycle
+   * period, so its internal reconciliation must also account for these
+   * outstanding balances rather than report a false GL/sub-ledger variance.
+   */
+  @Query(value = """
+      SELECT l.*
+      FROM public.loans l
+      WHERE l.organization_id = :organizationId
+        AND l.deleted_at IS NOT NULL
+      ORDER BY l.id
+      """, nativeQuery = true)
+  List<Loan> findRecycledForReconciliationByOrganizationId(
+      @Param("organizationId") Long organizationId);
+
+  @EntityGraph(attributePaths = { "borrower", "organization", "loanOfficer" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND l.status <> 'CANCELLED'
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findReportingByOrganizationId(
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  @EntityGraph(attributePaths = { "borrower", "organization" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.id = :loanId
+        AND l.organization.id = :organizationId
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  Optional<Loan> findVisibleById(
+      @Param("loanId") Long loanId,
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @EntityGraph(attributePaths = { "borrower", "organization", "loanOfficer" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.id = :loanId
+        AND l.organization.id = :organizationId
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  Optional<Loan> findVisibleByIdForUpdate(
+      @Param("loanId") Long loanId,
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  @EntityGraph(attributePaths = { "borrower", "organization" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.borrower.id = :borrowerId
+        AND l.organization.id = :organizationId
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findVisibleByBorrowerIdAndOrganizationId(
+      @Param("borrowerId") Long borrowerId,
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /**
+   * Returns historical/imported loans for accounting reconciliation.
+   *
+   * The import flow writes both imported=true and importBatchId. The OR
+   * condition deliberately keeps reconciliation compatible with legacy rows
+   * created by an earlier importer that populated the batch id before the
+   * imported flag was introduced/fixed.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+        )
+      ORDER BY l.id ASC
+      """)
+  List<Loan> findHistoricalImportedLoans(
+      @Param("organizationId") Long organizationId);
+
+  @EntityGraph(attributePaths = { "borrower", "organization" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+        )
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      ORDER BY l.id ASC
+      """)
+  List<Loan> findVisibleHistoricalImportedLoans(
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  List<Loan> findByOrganization_IdAndImportedTrue(
+      Long organizationId);
+
+  /**
+   * Returns loans actually persisted by one legacy import batch.
+   * This is the authoritative post-commit persistence count.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch"
+  })
+  List<Loan> findByOrganization_IdAndImportBatchId(
+      Long organizationId,
+      Long importBatchId);
+
+  /**
+   * Find all loans belonging to a borrower within an organization.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization"
+  })
+  List<Loan> findByBorrowerIdAndOrganizationId(
+      Long borrowerId,
+      Long organizationId);
+
+  /** Bulk borrower history for regulatory exports. */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch",
+      "loanOfficer"
+  })
+  List<Loan> findByBorrowerIdInAndOrganizationId(
+      List<Long> borrowerIds,
+      Long organizationId);
+
+  @EntityGraph(attributePaths = { "borrower", "organization", "branch", "loanOfficer" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.borrower.id IN :borrowerIds
+        AND l.organization.id = :organizationId
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  List<Loan> findVisibleByBorrowerIdInAndOrganizationId(
+      @Param("borrowerIds") List<Long> borrowerIds,
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /**
+   * Only completed historical facilities are needed for BNR's
+   * previous-loans-paid-on-time indicator. Avoid loading active/pending
+   * borrower history into the export JVM.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch",
+      "loanOfficer"
+  })
+  List<Loan> findByBorrowerIdInAndOrganizationIdAndStatusIn(
+      List<Long> borrowerIds,
+      Long organizationId,
+      List<LoanStatus> statuses);
+
+  @EntityGraph(attributePaths = { "borrower", "organization", "branch", "loanOfficer" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.borrower.id IN :borrowerIds
+        AND l.organization.id = :organizationId
+        AND l.status IN :statuses
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  List<Loan> findVisibleByBorrowerIdInAndOrganizationIdAndStatusIn(
+      @Param("borrowerIds") List<Long> borrowerIds,
+      @Param("organizationId") Long organizationId,
+      @Param("statuses") List<LoanStatus> statuses,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /** BNR portfolio query without fetching the payments collection. */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch",
+      "loanOfficer"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND l.status <> 'CANCELLED'
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+            OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
+        )
+      ORDER BY l.disbursedAt ASC
+      """)
+  List<Loan> findPortfolioAsOfForBnrExport(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("asOf") LocalDateTime asOf);
+
+  @EntityGraph(attributePaths = { "borrower", "organization", "branch", "loanOfficer" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND l.status <> 'CANCELLED'
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+            OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
+        )
+      ORDER BY l.disbursedAt ASC
+      """)
+  List<Loan> findVisiblePortfolioAsOfForBnrExport(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("asOf") LocalDateTime asOf,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /**
+   * Find loans whose status is one of the supplied statuses.
+   */
+  List<Loan> findByStatusIn(
+      List<LoanStatus> statuses);
+
+  /**
+   * Find all loans by borrower's hashed phone number.
+   *
+   * Kept for backward compatibility with internal/public borrower
+   * workflows. User-facing reporting must use the scope-aware methods.
+   */
+  List<Loan> findByBorrower_PhoneHash(
+      String phoneHash);
+
+  /**
+   * Find all loans by borrower's hashed phone number.
+   */
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.borrower.phoneHash = :phoneHash
+        AND COALESCE(l.businessOwnerOnly, false) = false
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findPublicBorrowerLoansByPhoneHash(
+      @Param("phoneHash") String phoneHash);
+
+  // ============================================================
+  // COLLECTION / OVERDUE
+  // ============================================================
+
+  /**
+   * Find loans whose status is one of the supplied statuses OR
+   * whose number of overdue days is greater than or equal to
+   * the supplied value.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "loanOfficer"
+  })
+  List<Loan> findByStatusInOrDaysOverdueGreaterThanEqual(
+      List<LoanStatus> statuses,
+      int daysOverdue);
+
+  /**
+   * Find loans by organization and status.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "loanOfficer"
+  })
+  List<Loan> findByOrganization_IdAndStatus(
+      Long organizationId,
+      LoanStatus status);
+
+  /**
+   * Find loans by organization and any of the supplied statuses.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "loanOfficer"
+  })
+  List<Loan> findByOrganization_IdAndStatusIn(
+      Long organizationId,
+      List<LoanStatus> statuses);
+
+  /**
+   * Find organization loans whose status matches or whose overdue
+   * days reach the specified threshold.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "loanOfficer"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND (
+            l.status IN :statuses
+            OR l.daysOverdue >= :daysOverdue
+        )
+      """)
+  List<Loan> findByOrganizationIdAndStatusInOrDaysOverdueGreaterThanEqual(
+      @Param("organizationId") Long organizationId,
+      @Param("statuses") List<LoanStatus> statuses,
+      @Param("daysOverdue") int daysOverdue);
+
+  // ============================================================
+  // COUNT
+  // ============================================================
+
+  /**
+   * Count all loans belonging to an organization.
+   */
+  long countByOrganization(
+      Organization organization);
+
+  /**
+   * Count loans by organization ID.
+   */
+  long countByOrganization_Id(
+      Long organizationId);
+
+  /**
+   * Count loans by organization and status.
+   */
+  long countByOrganizationAndStatus(
+      Organization organization,
+      LoanStatus status);
+
+  /**
+   * Count loans by organization ID and status.
+   */
+  long countByOrganization_IdAndStatus(
+      Long organizationId,
+      LoanStatus status);
+
+  /**
+   * Single aggregate query for dashboard loan KPIs.
+   *
+   * Result order:
+   *
+   * 0 total loan records
+   * 1 pending/review loans
+   * 2 active loans
+   * 3 completed/paid loans
+   * 4 defaulted loans
+   * 5 gross principal actually recorded as disbursed
+   * 6 current outstanding principal
+   * 7 outstanding principal at risk
+   * 8 overdue loans
+   *
+   * Imported historical loans are deliberately excluded from
+   * current-period gross disbursement totals.
+   */
+  @Query("""
+      SELECT
+          COUNT(l),
+
+          SUM(
+              CASE
+                  WHEN l.status IN ('PENDING', 'UNDER_REVIEW')
+                  THEN 1
+                  ELSE 0
+              END
+          ),
+
+          SUM(
+              CASE
+                  WHEN l.status IN (
+                      'ACTIVE',
+                      'DISBURSED',
+                      'OVERDUE',
+                      'RESTRUCTURED'
+                  )
+                  THEN 1
+                  ELSE 0
+              END
+          ),
+
+          SUM(
+              CASE
+                  WHEN l.status IN ('PAID', 'CLOSED')
+                  THEN 1
+                  ELSE 0
+              END
+          ),
+
+          SUM(
+              CASE
+                  WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF')
+                  THEN 1
+                  ELSE 0
+              END
+          ),
+
+          COALESCE(
+              SUM(
+                  CASE
+                      WHEN (l.imported = false OR l.imported IS NULL)
+                       AND l.disbursedAmount IS NOT NULL
+                      THEN l.disbursedAmount
+                      ELSE 0
+                  END
+              ),
+              0
+          ),
+
+          COALESCE(
+              SUM(
+                  CASE
+                      WHEN l.outstandingBalance > 0
+                      THEN l.outstandingBalance
+                      ELSE 0
+                  END
+              ),
+              0
+          ),
+
+          COALESCE(
+              SUM(
+                  CASE
+                      WHEN l.outstandingBalance > 0
+                       AND l.daysOverdue > 0
+                      THEN l.outstandingBalance
+                      ELSE 0
+                  END
+              ),
+              0
+          ),
+
+          COALESCE(
+              SUM(
+                  CASE
+                      WHEN l.outstandingBalance > 0
+                       AND l.daysOverdue > 0
+                      THEN 1
+                      ELSE 0
+                  END
+              ),
+              0
+          )
+
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+      """)
+  Object[] getDashboardLoanAggregate(
+      @Param("organizationId") Long organizationId);
+
+  @Query("""
+      SELECT
+          COUNT(l),
+          SUM(CASE WHEN l.status IN ('PENDING', 'UNDER_REVIEW') THEN 1 ELSE 0 END),
+          SUM(CASE WHEN l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'RESTRUCTURED') THEN 1 ELSE 0 END),
+          SUM(CASE WHEN l.status IN ('PAID', 'CLOSED') THEN 1 ELSE 0 END),
+          SUM(CASE WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF') THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN (l.imported = false OR l.imported IS NULL) AND l.disbursedAmount IS NOT NULL
+                             THEN l.disbursedAmount ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 THEN l.outstandingBalance ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0
+                             THEN l.outstandingBalance ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0 THEN 1 ELSE 0 END), 0)
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  Object[] getVisibleDashboardLoanAggregate(
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  // ============================================================
+  // FILTERING
+  // ============================================================
+
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization = :org
+        AND (:status IS NULL OR l.status = :status)
+        AND (:type IS NULL OR l.loanType = :type)
+      ORDER BY l.createdAt DESC
+      """)
+  Page<Loan> findByFilters(
+      @Param("org") Organization org,
+      @Param("status") LoanStatus status,
+      @Param("type") Loan.LoanType type,
+      Pageable pageable);
+
+  /**
+   * Fast/default portfolio page. Kept separate from the optional-filter query
+   * so an unfiltered portfolio request never depends on nullable enum/string
+   * parameters during Hibernate count-query generation.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch",
+      "createdBy",
+      "approvedBy",
+      "loanOfficer"
+  })
+  @Query(value = """
+      SELECT l
+      FROM Loan l
+      WHERE l.organization = :org
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      ORDER BY l.createdAt DESC
+      """, countQuery = """
+      SELECT COUNT(l)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  Page<Loan> findVisiblePortfolio(
+      @Param("org") Organization org,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
+      Pageable pageable);
+
+  @EntityGraph(attributePaths = { "borrower", "organization" })
+  @Query(value = "SELECT l " +
+      "FROM Loan l " +
+      "WHERE l.organization = :org " +
+      "AND (:status IS NULL OR l.status = :status) " +
+      "AND (:type IS NULL OR l.loanType = :type) " +
+      "AND (:search IS NULL " +
+      "OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+      "OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+      "OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+      "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
+      "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+      "AND (:includeBusinessOwnerOnly = true " +
+      "OR COALESCE(l.businessOwnerOnly, false) = false) " +
+      "ORDER BY l.createdAt DESC", countQuery = "SELECT COUNT(l) " +
+          "FROM Loan l " +
+          "WHERE l.organization = :org " +
+          "AND (:status IS NULL OR l.status = :status) " +
+          "AND (:type IS NULL OR l.loanType = :type) " +
+          "AND (:search IS NULL " +
+          "OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%')) "
+          +
+          "OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%')) "
+          +
+          "OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%')) "
+          +
+          "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
+          "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+          "AND (:includeBusinessOwnerOnly = true " +
+          "OR COALESCE(l.businessOwnerOnly, false) = false)")
+  Page<Loan> findVisibleByFilters(
+      @Param("org") Organization org,
+      @Param("status") LoanStatus status,
+      @Param("type") Loan.LoanType type,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
+      @Param("search") String search,
+      Pageable pageable);
+
+  // ============================================================
+  // DASHBOARD
+  // ============================================================
+
+  @Query("""
+      SELECT COALESCE(SUM(l.amount), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND l.status IN (
+            'ACTIVE',
+            'DISBURSED',
+            'OVERDUE'
+        )
+      """)
+  BigDecimal sumActivePrincipal(
+      @Param("org") Organization org);
+
+  @Query("""
+      SELECT COALESCE(SUM(l.totalPaid), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+      """)
+  BigDecimal sumTotalCollected(
+      @Param("org") Organization org);
+
+  /** Cumulative paid-to-date amount stored on migrated historical loans. */
+  @Query("""
+      SELECT COALESCE(SUM(l.totalPaid), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND l.imported = true
+      """)
+  BigDecimal sumImportedHistoricalTotalPaid(
+      @Param("org") Organization org);
+
+  /**
+   * Application fees collected at disbursement; not represented by Payment rows.
+   */
+  @Query("""
+      SELECT COALESCE(SUM(l.applicationFeePaid), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND COALESCE(l.applicationFeePaid, 0) > 0
+      """)
+  BigDecimal sumApplicationFeesCollected(
+      @Param("org") Organization org);
+
+  @Query("""
+      SELECT COALESCE(SUM(l.applicationFeePaid), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND l.imported = true
+        AND COALESCE(l.applicationFeePaid, 0) > 0
+      """)
+  BigDecimal sumImportedApplicationFeesCollected(
+      @Param("org") Organization org);
+
+  /**
+   * Post-migration payment rows belonging to imported loans, used to avoid
+   * double-counting.
+   */
+  @Query("""
+      SELECT COALESCE(SUM(p.amountPaid), 0)
+      FROM Payment p
+      JOIN p.loan l
+      WHERE l.organization = :org
+        AND l.imported = true
+        AND p.paid = true
+      """)
+  BigDecimal sumImportedPaymentRows(
+      @Param("org") Organization org);
+
+  /**
+   * Authoritative current portfolio principal outstanding.
+   *
+   * This deliberately mirrors the population used by regulatory
+   * portfolio reporting:
+   *
+   * - current receivable statuses only;
+   * - imported/import-batch loans remain portfolio loans even when the
+   * historical source did not contain a disbursement timestamp;
+   * - system-originated loans require a real disbursement timestamp.
+   *
+   * Keeping this definition here makes /loans/dashboard agree with the
+   * dashboard service and BNR outstanding principal instead of silently
+   * dropping imported DEFAULTED/RESTRUCTURED or timestamp-less rows.
+   */
+  @Query("""
+      SELECT COALESCE(SUM(l.outstandingBalance), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND COALESCE(l.outstandingBalance, 0) > 0
+        AND l.status IN (
+            'ACTIVE',
+            'DISBURSED',
+            'OVERDUE',
+            'DEFAULTED',
+            'RESTRUCTURED'
+        )
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+            OR l.disbursedAt IS NOT NULL
+        )
+      """)
+  BigDecimal sumOutstandingBalance(
+      @Param("org") Organization org);
+
+  /**
+   * Sum gross amount actually disbursed.
+   *
+   * Uses persisted disbursedAmount rather than requested amount.
+   */
+  @Query("""
+      SELECT COALESCE(SUM(l.disbursedAmount), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND l.disbursedAmount IS NOT NULL
+      """)
+  BigDecimal sumGrossDisbursedPrincipal(
+      @Param("org") Organization org);
+
+  @Query("""
+      SELECT COALESCE(SUM(l.outstandingBalance), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND COALESCE(l.outstandingBalance, 0) > 0
+        AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  BigDecimal sumVisibleOutstandingBalance(
+      @Param("org") Organization org,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  @Query("""
+      SELECT COALESCE(SUM(l.disbursedAmount), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND l.disbursedAmount IS NOT NULL
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  BigDecimal sumVisibleGrossDisbursedPrincipal(
+      @Param("org") Organization org,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  @Query("""
+      SELECT l.loanType, COUNT(l), COALESCE(SUM(l.amount), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      GROUP BY l.loanType
+      """)
+  List<Object[]> getVisibleLoanTypeBreakdown(
+      @Param("org") Organization org,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  // ============================================================
+  // LOAN TYPE BREAKDOWN
+  // ============================================================
+
+  @Query("""
+      SELECT l.loanType,
+             COUNT(l),
+             COALESCE(SUM(l.amount), 0)
+      FROM Loan l
+      WHERE l.organization = :org
+      GROUP BY l.loanType
+      """)
+  List<Object[]> getLoanTypeBreakdown(
+      @Param("org") Organization org);
+
+  @Query("""
+      SELECT l.loanType,
+             COUNT(l),
+             COALESCE(SUM(l.amount), 0)
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+      GROUP BY l.loanType
+      ORDER BY COUNT(l) DESC
+      """)
+  List<Object[]> getLoanTypeBreakdownByOrganizationId(
+      @Param("organizationId") Long organizationId);
+
+  /** Lightweight report aggregates. Recycled loans are excluded explicitly. */
+  @Query("""
+      SELECT l.creditQuality, COUNT(l), COALESCE(SUM(l.outstandingBalance), 0)
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND l.deletedAt IS NULL
+        AND l.status IN ('ACTIVE','DISBURSED','OVERDUE','DEFAULTED','RESTRUCTURED')
+      GROUP BY l.creditQuality
+      ORDER BY COUNT(l) DESC
+      """)
+  List<Object[]> getReportCreditQualityBreakdown(@Param("organizationId") Long organizationId);
+
+  @Query("""
+      SELECT COALESCE(UPPER(TRIM(l.borrower.gender)), 'UNKNOWN'), COUNT(DISTINCT l.borrower.id)
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND l.deletedAt IS NULL
+      GROUP BY COALESCE(UPPER(TRIM(l.borrower.gender)), 'UNKNOWN')
+      ORDER BY COUNT(DISTINCT l.borrower.id) DESC
+      """)
+  List<Object[]> getReportBorrowerGenderBreakdown(@Param("organizationId") Long organizationId);
+
+  @Query("""
+      SELECT l.loanType, COUNT(l), COALESCE(SUM(l.amount), 0)
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND l.deletedAt IS NULL
+      GROUP BY l.loanType
+      ORDER BY COUNT(l) DESC
+      """)
+  List<Object[]> getReportLoanProductBreakdown(@Param("organizationId") Long organizationId);
+
+  // ============================================================
+  // RECENT
+  // ============================================================
+
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "createdBy",
+      "approvedBy",
+      "loanOfficer"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization = :org
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findRecentByOrg(
+      @Param("org") Organization org,
+      Pageable pageable);
+
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findRecentByOrganizationId(
+      @Param("organizationId") Long organizationId,
+      Pageable pageable);
+
+  // ============================================================
+  // REGULATORY
+  // ============================================================
+
+  /**
+   * Find loans disbursed during a date/time period.
+   *
+   * The upper bound is exclusive.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch"
+  })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND l.disbursedAt IS NOT NULL
+        AND l.disbursedAt >= :from
+        AND l.disbursedAt < :to
+      ORDER BY l.disbursedAt ASC
+      """)
+  List<Loan> findLoansDisbursedDuringPeriod(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("from") LocalDateTime from,
+      @Param("to") LocalDateTime to);
+
+  @EntityGraph(attributePaths = { "borrower", "organization", "branch" })
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+        AND l.disbursedAt IS NOT NULL
+        AND l.disbursedAt >= :from
+        AND l.disbursedAt < :to
+      ORDER BY l.disbursedAt ASC
+      """)
+  List<Loan> findVisibleLoansDisbursedDuringPeriod(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("from") LocalDateTime from,
+      @Param("to") LocalDateTime to,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /**
+   * Compatibility overload for regulatory reporting code.
+   *
+   * The LocalDateTime boundaries remain authoritative.
+   */
+  default List<Loan> findLoansDisbursedDuringPeriod(
+      Long orgId,
+      Long branchId,
+      LocalDateTime from,
+      LocalDateTime to,
+      java.time.LocalDate fromDate,
+      java.time.LocalDate toDate) {
+
+    return findLoansDisbursedDuringPeriod(
+        orgId,
+        branchId,
+        from,
+        to);
+  }
+
+  /**
+   * Find portfolio as of a particular date/time.
+   *
+   * Imported historical loans are included in the point-in-time
+   * regulatory portfolio even where their original disbursement
+   * timestamp is unavailable.
+   *
+   * Imported loans are NOT treated as current-period cash
+   * disbursements. Current-period disbursements remain controlled
+   * by findLoansDisbursedDuringPeriod().
+   *
+   * IMPORTANT:
+   *
+   * The query uses DISTINCT because payments is loaded through
+   * EntityGraph.
+   *
+   * Do not use a CASE expression in ORDER BY here.
+   *
+   * PostgreSQL rejects:
+   *
+   * SELECT DISTINCT ...
+   * ORDER BY CASE ...
+   *
+   * when the CASE expression is not in the select list.
+   *
+   * PostgreSQL's normal ASC ordering places NULL values after
+   * non-NULL values, which gives us the required ordering:
+   *
+   * 1. loans with a known disbursement date
+   * 2. oldest disbursement first
+   * 3. imported loans with NULL disbursement date last
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch",
+      "payments"
+  })
+  @Query("""
+      SELECT DISTINCT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND l.status <> 'CANCELLED'
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+            OR (
+                l.disbursedAt IS NOT NULL
+                AND l.disbursedAt < :asOf
+            )
+        )
+      ORDER BY l.disbursedAt ASC
+      """)
+  List<Loan> findPortfolioAsOf(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("asOf") LocalDateTime asOf);
+
+  @EntityGraph(attributePaths = { "borrower", "organization", "branch", "payments" })
+  @Query("""
+      SELECT DISTINCT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND l.status <> 'CANCELLED'
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+            OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
+        )
+      ORDER BY l.disbursedAt ASC
+      """)
+  List<Loan> findVisiblePortfolioAsOf(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("asOf") LocalDateTime asOf,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /**
+   * Compatibility overload for regulatory reporting callers.
+   */
+  default List<Loan> findPortfolioAsOf(
+      Long orgId,
+      Long branchId,
+      LocalDateTime asOf,
+      java.time.LocalDate asOfDate) {
+
+    return findPortfolioAsOf(
+        orgId,
+        branchId,
+        asOf);
+  }
+
+  /**
+   * Find loans for regulatory reporting.
+   *
+   * createdAt is LocalDateTime, therefore from/to are also
+   * LocalDateTime.
+   */
+  @EntityGraph(attributePaths = {
+      "borrower",
+      "organization",
+      "branch",
+      "payments"
+  })
+  @Query("""
+      SELECT DISTINCT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND (:from IS NULL OR l.createdAt >= :from)
+        AND (:to IS NULL OR l.createdAt < :to)
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findForRegulatoryReport(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("from") LocalDateTime from,
+      @Param("to") LocalDateTime to);
+
+  @EntityGraph(attributePaths = { "borrower", "organization", "branch", "payments" })
+  @Query("""
+      SELECT DISTINCT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND (:from IS NULL OR l.createdAt >= :from)
+        AND (:to IS NULL OR l.createdAt < :to)
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      ORDER BY l.createdAt DESC
+      """)
+  List<Loan> findVisibleForRegulatoryReport(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("from") LocalDateTime from,
+      @Param("to") LocalDateTime to,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  /**
+   * Find loans created during a period.
+   */
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND l.createdAt >= :from
+        AND l.createdAt < :to
+      ORDER BY l.createdAt ASC
+      """)
+  List<Loan> findLoansCreatedDuringPeriod(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("from") LocalDateTime from,
+      @Param("to") LocalDateTime to);
+
+  @Query("""
+      SELECT l
+      FROM Loan l
+      WHERE l.organization.id = :orgId
+        AND (:branchId IS NULL OR l.branch.id = :branchId)
+        AND l.createdAt >= :from
+        AND l.createdAt < :to
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      ORDER BY l.createdAt ASC
+      """)
+  List<Loan> findVisibleLoansCreatedDuringPeriod(
+      @Param("orgId") Long orgId,
+      @Param("branchId") Long branchId,
+      @Param("from") LocalDateTime from,
+      @Param("to") LocalDateTime to,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  // ============================================================
+  // PORTFOLIO RISK / PAR ANALYTICS
+  // ============================================================
+
+  /**
+   * Single database aggregate for cumulative PAR analytics.
+   *
+   * Result order:
+   * 0 current portfolio loan count
+   * 1 current outstanding principal
+   * 2 PAR1 loan count
+   * 3 PAR1 amount
+   * 4 PAR7 loan count
+   * 5 PAR7 amount
+   * 6 PAR30 loan count
+   * 7 PAR30 amount
+   * 8 PAR60 loan count
+   * 9 PAR60 amount
+   * 10 PAR90 loan count
+   * 11 PAR90 amount
+   *
+   * PAR uses outstanding principal and persisted daysOverdue. The current
+   * receivable portfolio definition mirrors the dashboard/regulatory logic
+   * so imported historical loans are retained when they have an outstanding
+   * balance even if disbursedAt is unavailable.
+   */
+  @Query("""
+      SELECT
+          COUNT(l),
+          COALESCE(SUM(l.outstandingBalance), 0),
+          SUM(CASE WHEN l.daysOverdue >= 1 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 1 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 7 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 7 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 30 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 30 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 60 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 60 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 90 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 90 THEN l.outstandingBalance ELSE 0 END), 0)
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND COALESCE(l.outstandingBalance, 0) > 0
+        AND l.status IN (
+            'ACTIVE',
+            'DISBURSED',
+            'OVERDUE',
+            'DEFAULTED',
+            'RESTRUCTURED'
+        )
+        AND (
+            l.imported = true
+            OR l.importBatchId IS NOT NULL
+            OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+            OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+            OR l.disbursedAt IS NOT NULL
+        )
+      """)
+  Object[] calculatePortfolioRiskMetrics(
+      @Param("organizationId") Long organizationId);
+
+  @Query("""
+      SELECT
+          COUNT(l),
+          COALESCE(SUM(l.outstandingBalance), 0),
+          SUM(CASE WHEN l.daysOverdue >= 1 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 1 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 7 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 7 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 30 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 30 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 60 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 60 THEN l.outstandingBalance ELSE 0 END), 0),
+          SUM(CASE WHEN l.daysOverdue >= 90 THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN l.daysOverdue >= 90 THEN l.outstandingBalance ELSE 0 END), 0)
+      FROM Loan l
+      WHERE l.organization.id = :organizationId
+        AND COALESCE(l.outstandingBalance, 0) > 0
+        AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
+        AND (
+              :includeBusinessOwnerOnly = true
+              OR COALESCE(l.businessOwnerOnly, false) = false
+        )
+      """)
+  Object[] calculateVisiblePortfolioRiskMetrics(
+      @Param("organizationId") Long organizationId,
+      @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+  // ============================================================
+  // EXISTS
+  // ============================================================
+
+  boolean existsByOrganization_IdAndReferenceNumber(
+      Long organizationId,
+      String referenceNumber);
 }

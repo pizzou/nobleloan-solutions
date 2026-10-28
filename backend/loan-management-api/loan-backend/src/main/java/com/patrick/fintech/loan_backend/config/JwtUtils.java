@@ -21,6 +21,15 @@ public class JwtUtils {
     @Value("${app.jwt.expiration-ms:86400000}")
     private long expirationMs;
 
+    // JWTs expire after the inactivity window even if an older environment
+    // retains a longer JWT_EXPIRATION_MS. Active users renew via /auth/renew.
+    @Value("${app.auth.idle-timeout-ms:300000}")
+    private long idleTimeoutMs;
+
+    public long sessionLifetimeMs() {
+        return Math.min(Math.max(1000L, expirationMs), Math.max(1000L, idleTimeoutMs));
+    }
+
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
@@ -41,7 +50,7 @@ public class JwtUtils {
                 .subject(email)
                 .claim("tokenVersion", tokenVersion)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expirationMs))
+                .expiration(new Date(System.currentTimeMillis() + sessionLifetimeMs()))
                 .signWith(getSigningKey())
                 .compact();
     }
@@ -61,7 +70,6 @@ public class JwtUtils {
                 .signWith(getSigningKey())
                 .compact();
     }
-
 
     /**
      * Creates a short-lived, purpose-restricted challenge issued only after
@@ -96,7 +104,7 @@ public class JwtUtils {
     public boolean isSetupToken(String token) {
         try {
             Object purpose = Jwts.parser().verifyWith(getSigningKey()).build()
-                .parseSignedClaims(token).getPayload().get("purpose");
+                    .parseSignedClaims(token).getPayload().get("purpose");
             return "mfa-setup".equals(purpose);
         } catch (JwtException | IllegalArgumentException e) {
             return false;
@@ -115,8 +123,10 @@ public class JwtUtils {
     public long getTokenVersion(String token) {
         Object value = Jwts.parser().verifyWith(getSigningKey()).build()
                 .parseSignedClaims(token).getPayload().get("tokenVersion");
-        if (value instanceof Number number) return number.longValue();
-        if (value instanceof String text) return Long.parseLong(text);
+        if (value instanceof Number number)
+            return number.longValue();
+        if (value instanceof String text)
+            return Long.parseLong(text);
         return 0L;
     }
 

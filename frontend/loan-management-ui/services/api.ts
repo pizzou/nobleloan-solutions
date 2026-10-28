@@ -28,6 +28,7 @@ const API: AxiosInstance = axios.create({
   },
 });
 
+let sessionVerificationPromise: Promise<void> | null = null;
 let csrfToken: string | null = null;
 let csrfRefreshPromise: Promise<string | null> | null = null;
 
@@ -151,21 +152,45 @@ API.interceptors.response.use(
     const isAuthMeRequest = requestUrl.includes("/auth/me");
     const isPublicRequest = requestUrl.includes("/public/");
 
-    // /auth/me is the session-bootstrap request. Let useAuthState decide
-    // whether a 401 is a real logout condition; redirecting here races the
-    // refresh/bootstrap flow and can turn a temporary refresh failure into
-    // an unconditional navigation to /login.
+    // A 401 on one resource is not proof that the entire login expired:
+    // an upstream API can return 401 for its own authorization requirements.
+    // Verify the signed session with /auth/me before clearing user data.
+    // Use raw axios to avoid recursively intercepting the confirmation call.
     if (
       status === 401 &&
       !isAuthMeRequest &&
       !isPublicRequest &&
+      !requestUrl.includes("/auth/login") &&
+      !requestUrl.includes("/auth/send-login-otp") &&
       typeof window !== "undefined" &&
       window.location.pathname !== "/login"
     ) {
-      void clearSensitiveClientState().finally(() => {
-        if (window.location.pathname !== "/login")
-          window.location.replace("/login");
-      });
+      if (!sessionVerificationPromise) {
+        sessionVerificationPromise = axios
+          .get(`${API_BASE_URL}/auth/me`, {
+            withCredentials: true,
+            timeout: 8000,
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-store",
+            },
+          })
+          .catch(async (checkError: unknown) => {
+            // Only a confirmed /auth/me 401 can invalidate the browser session.
+            if (
+              axios.isAxiosError(checkError) &&
+              checkError.response?.status === 401
+            ) {
+              await clearSensitiveClientState();
+              if (window.location.pathname !== "/login")
+                window.location.replace("/login");
+            }
+          })
+          .then(() => undefined)
+          .finally(() => {
+            sessionVerificationPromise = null;
+          });
+      }
     }
 
     const requestId = String(
@@ -393,6 +418,9 @@ export const authApi = {
     post("/auth/reset-password", { token, newPassword }),
 
   me: () => get("/auth/me"),
+
+  /** Only call after a real keyboard, pointer, touch or scroll interaction. */
+  renew: () => post("/auth/renew", {}),
 
   logout: () => post("/auth/logout"),
 };

@@ -349,6 +349,18 @@ public class LegacyLoanImportRowService {
                                                                 + " legacy loan. Enter the contractual next due date so arrears can be classified safely.");
                         }
 
+                        // A due date at or before disbursement is commonly an Excel
+                        // column-mapping mistake (start date copied as next due date).
+                        // Do not invent a date or calculate arrears from disbursement.
+                        // The actual oldest unpaid contractual due date is required.
+                        if (nextDueDate != null && !nextDueDate.isAfter(startDate)
+                                        && status != LoanStatus.PAID && status != LoanStatus.CLOSED) {
+                                return fail(rowNumber,
+                                                "next_due_date must be later than the original start_date. "
+                                                                + "Enter the verified oldest unpaid installment due date; "
+                                                                + "days overdue must not start at disbursement.");
+                        }
+
                         // ========================================================
                         // HISTORICAL RATE TYPE
                         // ========================================================
