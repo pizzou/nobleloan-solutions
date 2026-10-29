@@ -451,6 +451,28 @@ export const loanApi = {
 
   get: (id: number) => get(`/loans/${id}`),
 
+  correctionHistory: (loanId: number) =>
+    get(`/loans/${loanId}/legacy-corrections`),
+
+  previewLegacyCorrection: (loanId: number, data: unknown) =>
+    post(`/loans/${loanId}/legacy-corrections/preview`, data),
+
+  submitLegacyCorrection: (loanId: number, data: unknown) =>
+    post(`/loans/${loanId}/legacy-corrections`, data),
+
+  decideLegacyCorrection: (
+    loanId: number,
+    correctionId: number,
+    approve: boolean,
+    decision: { confirmReference: string; reason: string },
+  ) =>
+    post(
+      `/loans/${loanId}/legacy-corrections/${correctionId}/${approve ? "approve" : "reject"}`,
+      decision,
+    ),
+
+  pendingLegacyCorrections: () => get("/legacy-corrections/pending"),
+
   changeReportingVisibility: (id: number, businessOwnerOnly: boolean) =>
     patch(`/loans/${id}/visibility`, { businessOwnerOnly }),
 

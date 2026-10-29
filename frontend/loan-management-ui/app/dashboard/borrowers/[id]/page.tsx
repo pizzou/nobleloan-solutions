@@ -618,9 +618,15 @@ export default function BorrowerDetailsPage() {
 
                     <TableHeader>Amount</TableHeader>
 
-                    <TableHeader>Outstanding</TableHeader>
+                    <TableHeader>Paid (total)</TableHeader>
 
-                    <TableHeader>Rate</TableHeader>
+                    <TableHeader>Principal remaining</TableHeader>
+
+                    <TableHeader>Total due</TableHeader>
+
+                    <TableHeader>Oldest unpaid due</TableHeader>
+
+                    <TableHeader>Overdue days</TableHeader>
 
                     <TableHeader>Maturity</TableHeader>
                   </tr>
@@ -633,7 +639,14 @@ export default function BorrowerDetailsPage() {
                       className="border-b border-slate-50 hover:bg-slate-50/70 transition-colors"
                     >
                       <TableCell strong>
-                        {loan.referenceNumber ?? `#${loan.loanId}`}
+                        <a
+                          className="font-semibold text-blue-700 hover:underline"
+                          href={`/dashboard/loans/${loan.loanId}`}
+                        >
+                          {loan.referenceNumber ??
+                            loan.loanNumber ??
+                            `#${loan.loanId}`}
+                        </a>
                       </TableCell>
 
                       <TableCell>{loan.loanType ?? "—"}</TableCell>
@@ -650,7 +663,15 @@ export default function BorrowerDetailsPage() {
                         )}
                       </TableCell>
 
-                      <TableCell strong>
+                      <TableCell>
+                        {formatCurrency(
+                          loan.totalPaid,
+                          loan.currency ?? currency,
+                          locale,
+                        )}
+                      </TableCell>
+
+                      <TableCell>
                         {formatCurrency(
                           loan.outstandingBalance,
                           loan.currency ?? currency,
@@ -658,10 +679,30 @@ export default function BorrowerDetailsPage() {
                         )}
                       </TableCell>
 
+                      <TableCell strong>
+                        {formatCurrency(
+                          loan.totalOutstanding ?? loan.outstandingBalance,
+                          loan.currency ?? currency,
+                          locale,
+                        )}
+                      </TableCell>
+
                       <TableCell>
-                        {loan.interestRate != null
-                          ? `${loan.interestRate}%`
+                        {loan.nextDueDate
+                          ? formatDate(loan.nextDueDate, locale)
                           : "—"}
+                      </TableCell>
+
+                      <TableCell>
+                        <span
+                          className={
+                            (loan.daysPastDue ?? 0) > 0
+                              ? "font-semibold text-rose-700"
+                              : "text-slate-500"
+                          }
+                        >
+                          {loan.daysPastDue ?? 0}
+                        </span>
                       </TableCell>
 
                       <TableCell>

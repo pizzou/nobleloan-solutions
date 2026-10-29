@@ -84,20 +84,14 @@ public class BorrowerDetailsResponse {
 
     private String jobTitle;
 
-    
-
     @JsonProperty("monthlyIncome")
-private BigDecimal monthlyIncome;
-
-    
+    private BigDecimal monthlyIncome;
 
     @JsonProperty("monthlyExpenses")
-private BigDecimal monthlyExpenses;
-
-    
+    private BigDecimal monthlyExpenses;
 
     @JsonProperty("netWorth")
-private BigDecimal netWorth;
+    private BigDecimal netWorth;
 
     private Integer creditScore;
 
@@ -129,40 +123,26 @@ private BigDecimal netWorth;
 
     private int writtenOffLoans;
 
-    
-
     @JsonProperty("totalBorrowed")
-private BigDecimal totalBorrowed;
-
-    
+    private BigDecimal totalBorrowed;
 
     @JsonProperty("totalDisbursed")
-private BigDecimal totalDisbursed;
-
-    
+    private BigDecimal totalDisbursed;
 
     @JsonProperty("totalOutstanding")
-private BigDecimal totalOutstanding;
-
-    
+    private BigDecimal totalOutstanding;
 
     @JsonProperty("totalPrincipalPaid")
-private BigDecimal totalPrincipalPaid;
-
-    
+    private BigDecimal totalPrincipalPaid;
 
     @JsonProperty("totalInterestPaid")
-private BigDecimal totalInterestPaid;
-
-    
+    private BigDecimal totalInterestPaid;
 
     @JsonProperty("totalFeesPaid")
-private BigDecimal totalFeesPaid;
-
-    
+    private BigDecimal totalFeesPaid;
 
     @JsonProperty("totalPaid")
-private BigDecimal totalPaid;
+    private BigDecimal totalPaid;
 
     // ============================================================
     // REPAYMENT PERFORMANCE
@@ -176,15 +156,11 @@ private BigDecimal totalPaid;
 
     private int overduePayments;
 
-    
-
     @JsonProperty("repaymentRate")
-private BigDecimal repaymentRate;
-
-    
+    private BigDecimal repaymentRate;
 
     @JsonProperty("onTimePaymentRate")
-private BigDecimal onTimePaymentRate;
+    private BigDecimal onTimePaymentRate;
 
     private int currentDaysPastDue;
 
@@ -218,7 +194,6 @@ private BigDecimal onTimePaymentRate;
 
     private List<PaymentSummary> payments;
 
-
     // ============================================================
     // LOAN SUMMARY
     // ============================================================
@@ -233,44 +208,44 @@ private BigDecimal onTimePaymentRate;
 
         private String loanNumber;
 
+        /** Frontend-facing alias, without removing the existing loanNumber field. */
+        @JsonProperty("referenceNumber")
+        public String getReferenceNumber() {
+            return loanNumber;
+        }
+
+        /**
+         * Total remaining receivables; outstandingBalance remains principal-only for
+         * compatibility.
+         */
+        private BigDecimal totalOutstanding;
+        private BigDecimal managementFeePaid;
+        private LocalDate nextDueDate;
+
         private String loanType;
 
         private String status;
 
-        
-
         @JsonProperty("loanAmount")
-private BigDecimal loanAmount;
-
-        
+        private BigDecimal loanAmount;
 
         @JsonProperty("disbursedAmount")
-private BigDecimal disbursedAmount;
-
-        
+        private BigDecimal disbursedAmount;
 
         @JsonProperty("outstandingBalance")
-private BigDecimal outstandingBalance;
-
-        
+        private BigDecimal outstandingBalance;
 
         @JsonProperty("principalPaid")
-private BigDecimal principalPaid;
-
-        
+        private BigDecimal principalPaid;
 
         @JsonProperty("interestPaid")
-private BigDecimal interestPaid;
-
-        
+        private BigDecimal interestPaid;
 
         @JsonProperty("totalPaid")
-private BigDecimal totalPaid;
-
-        
+        private BigDecimal totalPaid;
 
         @JsonProperty("interestRate")
-private BigDecimal interestRate;
+        private BigDecimal interestRate;
 
         private int durationMonths;
 
@@ -287,216 +262,228 @@ private BigDecimal interestRate;
         private String branchName;
 
         private String currency;
-    
-    @Deprecated
-    @JsonIgnore
-    public Double getLoanAmount() {
-        return loanAmount == null ? null : loanAmount.doubleValue();
-    }
 
-    @JsonIgnore
-    public BigDecimal getLoanAmountDecimal() {
-        return loanAmount;
-    }
+        @Deprecated
+        @JsonIgnore
+        public Double getLoanAmount() {
+            return loanAmount == null ? null : loanAmount.doubleValue();
+        }
 
-    @Deprecated
-    public void setLoanAmount(Double value) {
-        this.loanAmount = value == null ? null : BigDecimal.valueOf(value);
-    }
+        @JsonIgnore
+        public BigDecimal getLoanAmountDecimal() {
+            return loanAmount;
+        }
 
-    public void setLoanAmount(BigDecimal value) {
-        this.loanAmount = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getDisbursedAmount() {
-        return disbursedAmount == null ? null : disbursedAmount.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getDisbursedAmountDecimal() {
-        return disbursedAmount;
-    }
-
-    @Deprecated
-    public void setDisbursedAmount(Double value) {
-        this.disbursedAmount = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setDisbursedAmount(BigDecimal value) {
-        this.disbursedAmount = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getOutstandingBalance() {
-        return outstandingBalance == null ? null : outstandingBalance.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getOutstandingBalanceDecimal() {
-        return outstandingBalance;
-    }
-
-    @Deprecated
-    public void setOutstandingBalance(Double value) {
-        this.outstandingBalance = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setOutstandingBalance(BigDecimal value) {
-        this.outstandingBalance = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getPrincipalPaid() {
-        return principalPaid == null ? null : principalPaid.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getPrincipalPaidDecimal() {
-        return principalPaid;
-    }
-
-    @Deprecated
-    public void setPrincipalPaid(Double value) {
-        this.principalPaid = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setPrincipalPaid(BigDecimal value) {
-        this.principalPaid = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getInterestPaid() {
-        return interestPaid == null ? null : interestPaid.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getInterestPaidDecimal() {
-        return interestPaid;
-    }
-
-    @Deprecated
-    public void setInterestPaid(Double value) {
-        this.interestPaid = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setInterestPaid(BigDecimal value) {
-        this.interestPaid = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getTotalPaid() {
-        return totalPaid == null ? null : totalPaid.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getTotalPaidDecimal() {
-        return totalPaid;
-    }
-
-    @Deprecated
-    public void setTotalPaid(Double value) {
-        this.totalPaid = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setTotalPaid(BigDecimal value) {
-        this.totalPaid = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getInterestRate() {
-        return interestRate == null ? null : interestRate.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getInterestRateDecimal() {
-        return interestRate;
-    }
-
-    @Deprecated
-    public void setInterestRate(Double value) {
-        this.interestRate = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setInterestRate(BigDecimal value) {
-        this.interestRate = value;
-    }
-
-    /** Backward-compatible Double builder overloads; state remains BigDecimal. */
-    public static class LoanSummaryBuilder {
-        private BigDecimal disbursedAmount;
-        private BigDecimal interestPaid;
-        private BigDecimal interestRate;
-        private BigDecimal loanAmount;
-        private BigDecimal outstandingBalance;
-        private BigDecimal principalPaid;
-        private BigDecimal totalPaid;
-
-        public LoanSummaryBuilder loanAmount(Double value) {
+        @Deprecated
+        public void setLoanAmount(Double value) {
             this.loanAmount = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public LoanSummaryBuilder loanAmount(BigDecimal value) {
+
+        public void setLoanAmount(BigDecimal value) {
             this.loanAmount = value;
-            return this;
         }
-        public LoanSummaryBuilder disbursedAmount(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getDisbursedAmount() {
+            return disbursedAmount == null ? null : disbursedAmount.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getDisbursedAmountDecimal() {
+            return disbursedAmount;
+        }
+
+        @Deprecated
+        public void setDisbursedAmount(Double value) {
             this.disbursedAmount = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public LoanSummaryBuilder disbursedAmount(BigDecimal value) {
+
+        public void setDisbursedAmount(BigDecimal value) {
             this.disbursedAmount = value;
-            return this;
         }
-        public LoanSummaryBuilder outstandingBalance(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getOutstandingBalance() {
+            return outstandingBalance == null ? null : outstandingBalance.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getOutstandingBalanceDecimal() {
+            return outstandingBalance;
+        }
+
+        @Deprecated
+        public void setOutstandingBalance(Double value) {
             this.outstandingBalance = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public LoanSummaryBuilder outstandingBalance(BigDecimal value) {
+
+        public void setOutstandingBalance(BigDecimal value) {
             this.outstandingBalance = value;
-            return this;
         }
-        public LoanSummaryBuilder principalPaid(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getPrincipalPaid() {
+            return principalPaid == null ? null : principalPaid.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getPrincipalPaidDecimal() {
+            return principalPaid;
+        }
+
+        @Deprecated
+        public void setPrincipalPaid(Double value) {
             this.principalPaid = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public LoanSummaryBuilder principalPaid(BigDecimal value) {
+
+        public void setPrincipalPaid(BigDecimal value) {
             this.principalPaid = value;
-            return this;
         }
-        public LoanSummaryBuilder interestPaid(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getInterestPaid() {
+            return interestPaid == null ? null : interestPaid.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getInterestPaidDecimal() {
+            return interestPaid;
+        }
+
+        @Deprecated
+        public void setInterestPaid(Double value) {
             this.interestPaid = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public LoanSummaryBuilder interestPaid(BigDecimal value) {
+
+        public void setInterestPaid(BigDecimal value) {
             this.interestPaid = value;
-            return this;
         }
-        public LoanSummaryBuilder totalPaid(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getTotalPaid() {
+            return totalPaid == null ? null : totalPaid.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getTotalPaidDecimal() {
+            return totalPaid;
+        }
+
+        @Deprecated
+        public void setTotalPaid(Double value) {
             this.totalPaid = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public LoanSummaryBuilder totalPaid(BigDecimal value) {
+
+        public void setTotalPaid(BigDecimal value) {
             this.totalPaid = value;
-            return this;
         }
-        public LoanSummaryBuilder interestRate(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getInterestRate() {
+            return interestRate == null ? null : interestRate.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getInterestRateDecimal() {
+            return interestRate;
+        }
+
+        @Deprecated
+        public void setInterestRate(Double value) {
             this.interestRate = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public LoanSummaryBuilder interestRate(BigDecimal value) {
+
+        public void setInterestRate(BigDecimal value) {
             this.interestRate = value;
-            return this;
+        }
+
+        /** Backward-compatible Double builder overloads; state remains BigDecimal. */
+        public static class LoanSummaryBuilder {
+            private BigDecimal disbursedAmount;
+            private BigDecimal interestPaid;
+            private BigDecimal interestRate;
+            private BigDecimal loanAmount;
+            private BigDecimal outstandingBalance;
+            private BigDecimal principalPaid;
+            private BigDecimal totalPaid;
+
+            public LoanSummaryBuilder loanAmount(Double value) {
+                this.loanAmount = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public LoanSummaryBuilder loanAmount(BigDecimal value) {
+                this.loanAmount = value;
+                return this;
+            }
+
+            public LoanSummaryBuilder disbursedAmount(Double value) {
+                this.disbursedAmount = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public LoanSummaryBuilder disbursedAmount(BigDecimal value) {
+                this.disbursedAmount = value;
+                return this;
+            }
+
+            public LoanSummaryBuilder outstandingBalance(Double value) {
+                this.outstandingBalance = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public LoanSummaryBuilder outstandingBalance(BigDecimal value) {
+                this.outstandingBalance = value;
+                return this;
+            }
+
+            public LoanSummaryBuilder principalPaid(Double value) {
+                this.principalPaid = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public LoanSummaryBuilder principalPaid(BigDecimal value) {
+                this.principalPaid = value;
+                return this;
+            }
+
+            public LoanSummaryBuilder interestPaid(Double value) {
+                this.interestPaid = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public LoanSummaryBuilder interestPaid(BigDecimal value) {
+                this.interestPaid = value;
+                return this;
+            }
+
+            public LoanSummaryBuilder totalPaid(Double value) {
+                this.totalPaid = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public LoanSummaryBuilder totalPaid(BigDecimal value) {
+                this.totalPaid = value;
+                return this;
+            }
+
+            public LoanSummaryBuilder interestRate(Double value) {
+                this.interestRate = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public LoanSummaryBuilder interestRate(BigDecimal value) {
+                this.interestRate = value;
+                return this;
+            }
         }
     }
-}
-
 
     // ============================================================
     // PAYMENT SUMMARY
@@ -516,35 +503,23 @@ private BigDecimal interestRate;
 
         private String borrowerName;
 
-        
-
         @JsonProperty("amount")
-private BigDecimal amount;
-
-        
+        private BigDecimal amount;
 
         @JsonProperty("principal")
-private BigDecimal principal;
-
-        
+        private BigDecimal principal;
 
         @JsonProperty("interest")
-private BigDecimal interest;
-
-        
+        private BigDecimal interest;
 
         @JsonProperty("fees")
-private BigDecimal fees;
-
-        
+        private BigDecimal fees;
 
         @JsonProperty("penalty")
-private BigDecimal penalty;
-
-        
+        private BigDecimal penalty;
 
         @JsonProperty("totalPaid")
-private BigDecimal totalPaid;
+        private BigDecimal totalPaid;
 
         private LocalDate dueDate;
 
@@ -557,179 +532,190 @@ private BigDecimal totalPaid;
         private boolean onTime;
 
         private int daysLate;
-    
-    @Deprecated
-    @JsonIgnore
-    public Double getAmount() {
-        return amount == null ? null : amount.doubleValue();
-    }
 
-    @JsonIgnore
-    public BigDecimal getAmountDecimal() {
-        return amount;
-    }
+        @Deprecated
+        @JsonIgnore
+        public Double getAmount() {
+            return amount == null ? null : amount.doubleValue();
+        }
 
-    @Deprecated
-    public void setAmount(Double value) {
-        this.amount = value == null ? null : BigDecimal.valueOf(value);
-    }
+        @JsonIgnore
+        public BigDecimal getAmountDecimal() {
+            return amount;
+        }
 
-    public void setAmount(BigDecimal value) {
-        this.amount = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getPrincipal() {
-        return principal == null ? null : principal.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getPrincipalDecimal() {
-        return principal;
-    }
-
-    @Deprecated
-    public void setPrincipal(Double value) {
-        this.principal = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setPrincipal(BigDecimal value) {
-        this.principal = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getInterest() {
-        return interest == null ? null : interest.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getInterestDecimal() {
-        return interest;
-    }
-
-    @Deprecated
-    public void setInterest(Double value) {
-        this.interest = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setInterest(BigDecimal value) {
-        this.interest = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getFees() {
-        return fees == null ? null : fees.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getFeesDecimal() {
-        return fees;
-    }
-
-    @Deprecated
-    public void setFees(Double value) {
-        this.fees = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setFees(BigDecimal value) {
-        this.fees = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getPenalty() {
-        return penalty == null ? null : penalty.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getPenaltyDecimal() {
-        return penalty;
-    }
-
-    @Deprecated
-    public void setPenalty(Double value) {
-        this.penalty = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setPenalty(BigDecimal value) {
-        this.penalty = value;
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public Double getTotalPaid() {
-        return totalPaid == null ? null : totalPaid.doubleValue();
-    }
-
-    @JsonIgnore
-    public BigDecimal getTotalPaidDecimal() {
-        return totalPaid;
-    }
-
-    @Deprecated
-    public void setTotalPaid(Double value) {
-        this.totalPaid = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setTotalPaid(BigDecimal value) {
-        this.totalPaid = value;
-    }
-
-    /** Backward-compatible Double builder overloads; state remains BigDecimal. */
-    public static class PaymentSummaryBuilder {
-        public PaymentSummaryBuilder amount(Double value) {
+        @Deprecated
+        public void setAmount(Double value) {
             this.amount = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public PaymentSummaryBuilder amount(BigDecimal value) {
+
+        public void setAmount(BigDecimal value) {
             this.amount = value;
-            return this;
         }
-        public PaymentSummaryBuilder principal(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getPrincipal() {
+            return principal == null ? null : principal.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getPrincipalDecimal() {
+            return principal;
+        }
+
+        @Deprecated
+        public void setPrincipal(Double value) {
             this.principal = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public PaymentSummaryBuilder principal(BigDecimal value) {
+
+        public void setPrincipal(BigDecimal value) {
             this.principal = value;
-            return this;
         }
-        public PaymentSummaryBuilder interest(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getInterest() {
+            return interest == null ? null : interest.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getInterestDecimal() {
+            return interest;
+        }
+
+        @Deprecated
+        public void setInterest(Double value) {
             this.interest = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public PaymentSummaryBuilder interest(BigDecimal value) {
+
+        public void setInterest(BigDecimal value) {
             this.interest = value;
-            return this;
         }
-        public PaymentSummaryBuilder fees(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getFees() {
+            return fees == null ? null : fees.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getFeesDecimal() {
+            return fees;
+        }
+
+        @Deprecated
+        public void setFees(Double value) {
             this.fees = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public PaymentSummaryBuilder fees(BigDecimal value) {
+
+        public void setFees(BigDecimal value) {
             this.fees = value;
-            return this;
         }
-        public PaymentSummaryBuilder penalty(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getPenalty() {
+            return penalty == null ? null : penalty.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getPenaltyDecimal() {
+            return penalty;
+        }
+
+        @Deprecated
+        public void setPenalty(Double value) {
             this.penalty = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public PaymentSummaryBuilder penalty(BigDecimal value) {
+
+        public void setPenalty(BigDecimal value) {
             this.penalty = value;
-            return this;
         }
-        public PaymentSummaryBuilder totalPaid(Double value) {
+
+        @Deprecated
+        @JsonIgnore
+        public Double getTotalPaid() {
+            return totalPaid == null ? null : totalPaid.doubleValue();
+        }
+
+        @JsonIgnore
+        public BigDecimal getTotalPaidDecimal() {
+            return totalPaid;
+        }
+
+        @Deprecated
+        public void setTotalPaid(Double value) {
             this.totalPaid = value == null ? null : BigDecimal.valueOf(value);
-            return this;
         }
-        public PaymentSummaryBuilder totalPaid(BigDecimal value) {
+
+        public void setTotalPaid(BigDecimal value) {
             this.totalPaid = value;
-            return this;
+        }
+
+        /** Backward-compatible Double builder overloads; state remains BigDecimal. */
+        public static class PaymentSummaryBuilder {
+            public PaymentSummaryBuilder amount(Double value) {
+                this.amount = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public PaymentSummaryBuilder amount(BigDecimal value) {
+                this.amount = value;
+                return this;
+            }
+
+            public PaymentSummaryBuilder principal(Double value) {
+                this.principal = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public PaymentSummaryBuilder principal(BigDecimal value) {
+                this.principal = value;
+                return this;
+            }
+
+            public PaymentSummaryBuilder interest(Double value) {
+                this.interest = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public PaymentSummaryBuilder interest(BigDecimal value) {
+                this.interest = value;
+                return this;
+            }
+
+            public PaymentSummaryBuilder fees(Double value) {
+                this.fees = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public PaymentSummaryBuilder fees(BigDecimal value) {
+                this.fees = value;
+                return this;
+            }
+
+            public PaymentSummaryBuilder penalty(Double value) {
+                this.penalty = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public PaymentSummaryBuilder penalty(BigDecimal value) {
+                this.penalty = value;
+                return this;
+            }
+
+            public PaymentSummaryBuilder totalPaid(Double value) {
+                this.totalPaid = value == null ? null : BigDecimal.valueOf(value);
+                return this;
+            }
+
+            public PaymentSummaryBuilder totalPaid(BigDecimal value) {
+                this.totalPaid = value;
+                return this;
+            }
         }
     }
-}
 
     @Deprecated
     @JsonIgnore
@@ -977,94 +963,117 @@ private BigDecimal totalPaid;
             this.monthlyIncome = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder monthlyIncome(BigDecimal value) {
             this.monthlyIncome = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder monthlyExpenses(Double value) {
             this.monthlyExpenses = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder monthlyExpenses(BigDecimal value) {
             this.monthlyExpenses = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder netWorth(Double value) {
             this.netWorth = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder netWorth(BigDecimal value) {
             this.netWorth = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalBorrowed(Double value) {
             this.totalBorrowed = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalBorrowed(BigDecimal value) {
             this.totalBorrowed = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalDisbursed(Double value) {
             this.totalDisbursed = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalDisbursed(BigDecimal value) {
             this.totalDisbursed = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalOutstanding(Double value) {
             this.totalOutstanding = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalOutstanding(BigDecimal value) {
             this.totalOutstanding = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalPrincipalPaid(Double value) {
             this.totalPrincipalPaid = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalPrincipalPaid(BigDecimal value) {
             this.totalPrincipalPaid = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalInterestPaid(Double value) {
             this.totalInterestPaid = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalInterestPaid(BigDecimal value) {
             this.totalInterestPaid = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalFeesPaid(Double value) {
             this.totalFeesPaid = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalFeesPaid(BigDecimal value) {
             this.totalFeesPaid = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalPaid(Double value) {
             this.totalPaid = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder totalPaid(BigDecimal value) {
             this.totalPaid = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder repaymentRate(Double value) {
             this.repaymentRate = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder repaymentRate(BigDecimal value) {
             this.repaymentRate = value;
             return this;
         }
+
         public BorrowerDetailsResponseBuilder onTimePaymentRate(Double value) {
             this.onTimePaymentRate = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerDetailsResponseBuilder onTimePaymentRate(BigDecimal value) {
             this.onTimePaymentRate = value;
             return this;

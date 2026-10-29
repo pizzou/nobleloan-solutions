@@ -827,6 +827,68 @@ public class AccountingService {
         }
 
         /**
+         * Apply a verified IMPORT-TRANSCRIPTION adjustment to historical opening
+         * receivables. This is NOT a cash receipt, loan reversal, or a restatement
+         * of an old journal. Each receivable change is offset to historical
+         * migration equity (3010), and the entry is posted in the current open
+         * accounting period. postAtDate validates account ownership, balance,
+         * posting-period status, idempotency and reporting visibility.
+         */
+        @Transactional
+        public JournalEntry postApprovedLegacyCorrection(
+                        Loan loan, Long correctionId, Map<String, BigDecimal> receivableDeltas) {
+                if (loan == null || loan.getId() == null || loan.getOrganization() == null
+                                || correctionId == null || correctionId <= 0) {
+                        throw new IllegalArgumentException("Imported loan and correction ID are required");
+                }
+                if (!Boolean.TRUE.equals(loan.getImported())) {
+                        throw new IllegalStateException("Only historical imports support this adjustment");
+                }
+                if (receivableDeltas == null || receivableDeltas.isEmpty()) {
+                        throw new IllegalArgumentException("No receivable change to post");
+                }
+                java.util.Set<String> allowed = Set.of("1100", "1150", "1160", "1175");
+                Organization org = loan.getOrganization();
+                List<JournalLine> lines = new ArrayList<>();
+                BigDecimal totalChange = ZERO;
+                for (Map.Entry<String, BigDecimal> change : receivableDeltas.entrySet()) {
+                        String code = change.getKey();
+                        if (!allowed.contains(code) || change.getValue() == null) {
+                                throw new IllegalArgumentException(
+                                                "Unsupported receivable adjustment account: " + code);
+                        }
+                        BigDecimal delta = change.getValue().setScale(MONEY_SCALE, RoundingMode.UNNECESSARY);
+                        if (delta.signum() == 0)
+                                continue;
+                        lines.add(JournalLine.builder()
+                                        .account(account(org, code))
+                                        .debit(delta.signum() > 0 ? delta : ZERO)
+                                        .credit(delta.signum() < 0 ? delta.negate() : ZERO)
+                                        .description("Verified post-import correction #" + correctionId
+                                                        + " for " + loan.getReferenceNumber())
+                                        .build());
+                        totalChange = totalChange.add(delta);
+                }
+                if (lines.isEmpty())
+                        throw new IllegalArgumentException("All receivable changes are zero");
+                if (totalChange.signum() != 0) {
+                        lines.add(JournalLine.builder()
+                                        .account(account(org, "3010"))
+                                        .debit(totalChange.signum() < 0 ? totalChange.negate() : ZERO)
+                                        .credit(totalChange.signum() > 0 ? totalChange : ZERO)
+                                        .description("Offset to historical portfolio migration equity for correction #"
+                                                        + correctionId)
+                                        .build());
+                }
+                return postAtDate(org, loan.getBranch(), "LEGACY_IMPORT_DATA_CORRECTION",
+                                "LOAN:" + loan.getId() + ":CORRECTION:" + correctionId,
+                                loan.getReferenceNumber(),
+                                "Approved post-import data correction #" + correctionId
+                                                + " — not a cash transaction",
+                                LocalDate.now(), lines);
+        }
+
+        /**
          * Resolves the visibility classification of an accounting event from
          * its originating loan. All loan-generated journal entries therefore
          * carry the same reporting boundary without requiring every posting
@@ -853,6 +915,7 @@ public class AccountingService {
                                 "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL",
                                 "LEGACY_LOAN_OPENING",
                                 "LEGACY_LOAN_RECONCILIATION",
+                                "LEGACY_IMPORT_DATA_CORRECTION",
                                 "WRITE_OFF");
 
                 java.util.Set<String> paymentTypes = java.util.Set.of(

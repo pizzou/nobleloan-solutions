@@ -1015,9 +1015,7 @@ export default function LoanDetailPage() {
 
   const fc = (n?: number) => formatCurrency(n, currency, locale);
 
-  const roleName = String(
-    (user as { role?: { name?: string } } | null)?.role?.name ?? "",
-  ).toUpperCase();
+  const roleName = String(user?.role ?? "").toUpperCase();
 
   const isBusinessOwner = roleName === "BUSINESS_OWNER";
   const canManageContract =
@@ -2250,6 +2248,30 @@ export default function LoanDetailPage() {
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950">
                 {loan.referenceNumber}
               </h1>
+              {Boolean(loan.imported) &&
+                [
+                  "BUSINESS_OWNER",
+                  "ACCOUNTANT",
+                  "ADMIN",
+                  "MANAGER",
+                  "LOAN_OFFICER",
+                  "CREDIT_ANALYST",
+                  "AUDITOR",
+                ].includes(roleName) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(`/dashboard/loans/${loan.id}/corrections`)
+                    }
+                    className="mt-3 inline-flex rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900 hover:bg-amber-100"
+                  >
+                    {isBusinessOwner
+                      ? "Review imported loan corrections"
+                      : ["AUDITOR"].includes(roleName)
+                        ? "View correction history"
+                        : "Request imported loan correction"}
+                  </button>
+                )}
               {isBusinessOwner && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span
