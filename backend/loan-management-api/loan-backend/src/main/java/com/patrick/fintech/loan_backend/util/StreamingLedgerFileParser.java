@@ -773,6 +773,13 @@ public final class StreamingLedgerFileParser {
     }
 
     private static String canonicalHeader(String header) {
+        // Parser metadata is control information, not a workbook header. Keep its
+        // reserved "__" prefix intact so downstream import guards (for example,
+        // __import_issue for partially paid historical loans) cannot be bypassed
+        // by header normalization stripping leading underscores.
+        if (header != null && header.startsWith("__")) {
+            return header;
+        }
         String normalized = LedgerFileParser.normalizeHeader(header);
         return switch (normalized) {
             case "id_number", "national_identity", "nationalid" -> "national_id";

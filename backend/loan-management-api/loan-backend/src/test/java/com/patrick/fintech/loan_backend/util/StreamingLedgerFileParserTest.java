@@ -110,6 +110,9 @@ class StreamingLedgerFileParserTest {
             assertThat(result.get(0).get("total_paid")).isEqualTo("250000.00");
             assertThat(result.get(0).get("__import_issue"))
                     .contains("column AE", "oldest unpaid");
+            // Reserved parser control metadata must not be normalized into a
+            // different key, or the import service's blocking guard can miss it.
+            assertThat(result.get(0)).doesNotContainKey("import_issue");
             assertThat(result.get(0).get("next_due_date")).isBlank();
 
             sheet.getRow(2).createCell(30).setCellValue("2026-02-28");

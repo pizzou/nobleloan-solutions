@@ -75,6 +75,23 @@ class LegacyLoanCorrectionServiceTest {
                                 null);
         }
 
+        /**
+         * The production guard queries four ledgers before an opening-position
+         * repair. Unit tests must model an existing, queryable database result;
+         * an unstubbed EntityManager mock returns null and does not represent a
+         * real query execution.
+         */
+        private void stubFinancialActivityCount(long count) {
+                jakarta.persistence.Query query = mock(jakarta.persistence.Query.class);
+                when(em.createNativeQuery(anyString())).thenReturn(query);
+                when(query.setParameter(anyString(), any())).thenReturn(query);
+                when(query.getSingleResult()).thenReturn(count);
+        }
+
+        private void stubNoSubsequentFinancialActivity() {
+                stubFinancialActivityCount(0L);
+        }
+
         @Test
         void rejectsPrincipalPaymentsLargerThanOriginalPrincipal() {
                 assertThrows(IllegalArgumentException.class, () -> service.preview(77L,
@@ -95,6 +112,17 @@ class LegacyLoanCorrectionServiceTest {
                 var p = service.preview(77L, request(LocalDate.of(2026, 8, 31), new BigDecimal("7000000.00")), manager);
                 assertEquals(new BigDecimal("1000000.00"), p.proposed().get("principalOutstanding"));
                 assertEquals(new BigDecimal("-1000000.00"), p.receivableDeltas().get("1100"));
+        }
+
+        @Test
+        void correctionIsBlockedWhenSubsequentFinancialActivityExists() {
+                var req = new LegacyLoanCorrectionRequest("NLS-000077",
+                                "Signed agreement verifies a transcription mistake in the term.",
+                                "Signed-Agreement-2026-03-26", null, null, null, null, null, null, null, null, 5);
+                stubFinancialActivityCount(1L);
+                assertThrows(IllegalStateException.class, () -> service.submit(77L, req, admin));
+                verify(corrections, never()).saveAndFlush(any());
+                assertEquals(6, loan.getDurationMonths());
         }
 
         @Test
@@ -132,14 +160,11 @@ class LegacyLoanCorrectionServiceTest {
                 var req = new LegacyLoanCorrectionRequest("NLS-000077",
                                 "Signed agreement shows the import was mistakenly recorded as six months.",
                                 "Signed-Agreement-2026-03-26", null, null, null, null, null, null, null, null, 5);
+                stubNoSubsequentFinancialActivity();
                 var item = service.submit(77L, req, admin);
                 assertEquals(6, loan.getDurationMonths()); // Submitting never changes the loan
                 item.setId(123L);
                 when(corrections.lock(1L, 77L, 123L)).thenReturn(Optional.of(item));
-                jakarta.persistence.Query query = mock(jakarta.persistence.Query.class);
-                when(em.createNativeQuery(anyString())).thenReturn(query);
-                when(query.setParameter(anyString(), any())).thenReturn(query);
-                when(query.getSingleResult()).thenReturn(0L);
                 var outcome = service.decide(77L, 123L, true,
                                 new LegacyLoanCorrectionDecision("NLS-000077",
                                                 "Compared against signed original agreement"),
@@ -284,10 +309,7 @@ class LegacyLoanCorrectionServiceTest {
                 var pending = service.submit(77L, request(actualDue, null), admin);
                 pending.setId(334L);
                 when(corrections.lock(1L, 77L, 334L)).thenReturn(Optional.of(pending));
-                jakarta.persistence.Query query = mock(jakarta.persistence.Query.class);
-                when(em.createNativeQuery(anyString())).thenReturn(query);
-                when(query.setParameter(anyString(), any())).thenReturn(query);
-                when(query.getSingleResult()).thenReturn(0L);
+                stubNoSubsequentFinancialActivity();
                 var result = service.decide(77L, 334L, true,
                                 new LegacyLoanCorrectionDecision("NLS-000077",
                                                 "Bank statement and amortization dates independently verified"),
