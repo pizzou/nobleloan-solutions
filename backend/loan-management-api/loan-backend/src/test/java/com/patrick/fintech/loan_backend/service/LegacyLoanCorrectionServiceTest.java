@@ -215,12 +215,20 @@ class LegacyLoanCorrectionServiceTest {
                 }
         }
 
+        /**
+         * A Business Owner must be able to preview a normal imported loan to use
+         * the separate audited owner-apply operation, but must not submit the
+         * ordinary maker/checker request reserved for staff on normal loans.
+         */
         @Test
-        void ownerCannotSubmitNormalScopeCorrection() {
+        void ownerMayPreviewButCannotSubmitNormalScopeCorrection() {
+                var request = request(LocalDate.of(2026, 8, 31), null);
+                var preview = assertDoesNotThrow(() -> service.preview(77L, request, owner));
+                assertEquals("2026-08-31", preview.proposed().get("oldestUnpaidDueDate"));
+
                 assertThrows(org.springframework.security.access.AccessDeniedException.class,
-                                () -> service.preview(77L, request(LocalDate.of(2026, 8, 31), null), owner));
-                assertThrows(org.springframework.security.access.AccessDeniedException.class,
-                                () -> service.submit(77L, request(LocalDate.of(2026, 8, 31), null), owner));
+                                () -> service.submit(77L, request, owner));
+                verify(corrections, never()).saveAndFlush(any());
         }
 
         @Test

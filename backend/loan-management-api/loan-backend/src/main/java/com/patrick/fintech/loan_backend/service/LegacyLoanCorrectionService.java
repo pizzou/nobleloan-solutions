@@ -20,16 +20,6 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
-/**
- * Controlled post-import repair of incorrectly transcribed legacy records.
- * No cash receipt, payment or loan reversal is synthesized. Existing GL history
- * is immutable.
- * Normal loans: Admin/Manager/Accountant requests; only Business Owner approves
- * and posts.
- * Owner-only loans: two different Business Owners can follow maker/checker;
- * alternatively, a Business Owner may directly correct eligible, untouched
- * imported opening records with an explicitly audited owner exception.
- */
 @Service
 @RequiredArgsConstructor
 public class LegacyLoanCorrectionService {
@@ -122,7 +112,8 @@ public class LegacyLoanCorrectionService {
         String reason = explanation(request.reason(), 30, 2000, "Owner correction justification");
         String evidence = explanation(request.evidenceReference(), 8, 250, "Supporting evidence reference");
         if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING"))
-            throw new IllegalStateException("Resolve the pending independent correction request before applying another correction");
+            throw new IllegalStateException(
+                    "Resolve the pending independent correction request before applying another correction");
         Map<String, Object> before = snapshot(loan);
         Map<String, Object> after = requested(before, request, loan);
         if (before.equals(after))
