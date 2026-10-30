@@ -23,6 +23,8 @@ public class LegacyLoanCorrection {
     @Column(name="snapshot_hash", nullable=false, length=64) private String snapshotHash;
     @Column(name="review_reason", length=2000) private String reviewReason;
     @Column(name="journal_entry_id") private Long journalEntryId;
+    /** Reviewed and applied directly by a Business Owner, with an explicit audit reason. */
+    @Column(name="owner_direct", nullable=false) private Boolean ownerDirect = false;
     @Column(name="created_at", nullable=false) private LocalDateTime createdAt = LocalDateTime.now();
     @Column(name="reviewed_at") private LocalDateTime reviewedAt;
     @Version private Long version;

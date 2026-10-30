@@ -63,12 +63,15 @@ public class BorrowerRequest {
     private String jobTitle;
 
     @JsonProperty("monthlyIncome")
+    @DecimalMin(value = "0.0", message = "monthlyIncome must not be negative")
     private BigDecimal monthlyIncome;
 
     @JsonProperty("monthlyExpenses")
+    @DecimalMin(value = "0.0", message = "monthlyExpenses must not be negative")
     private BigDecimal monthlyExpenses;
 
     @JsonProperty("netWorth")
+    @DecimalMin(value = "0.0", message = "netWorth must not be negative")
     private BigDecimal netWorth;
     private Integer creditScore;
     private String creditBureau;

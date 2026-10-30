@@ -460,6 +460,9 @@ export const loanApi = {
   submitLegacyCorrection: (loanId: number, data: unknown) =>
     post(`/loans/${loanId}/legacy-corrections`, data),
 
+  applyOwnerLegacyCorrection: (loanId: number, data: unknown) =>
+    post(`/loans/${loanId}/legacy-corrections/owner-apply`, data),
+
   decideLegacyCorrection: (
     loanId: number,
     correctionId: number,

@@ -26,8 +26,9 @@ import java.util.*;
  * is immutable.
  * Normal loans: Admin/Manager/Accountant requests; only Business Owner approves
  * and posts.
- * Owner-only loans: a Business Owner can request; a DIFFERENT Business Owner
- * approves.
+ * Owner-only loans: two different Business Owners can follow maker/checker;
+ * alternatively, a Business Owner may directly correct eligible, untouched
+ * imported opening records with an explicitly audited owner exception.
  */
 @Service
 @RequiredArgsConstructor
@@ -55,7 +56,9 @@ public class LegacyLoanCorrectionService {
     @Transactional(readOnly = true)
     public Preview preview(Long loanId, LegacyLoanCorrectionRequest request, User actor) {
         Loan loan = ownedLoan(loanId, actor);
-        requireProposer(loan, actor);
+        // Preview is shared by staff requesters and Business Owners who use
+        // the direct owner correction route. Submission privileges remain separate.
+        requireRole(actor, "BUSINESS_OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "LOAN_OFFICER", "CREDIT_ANALYST");
         requireEligible(loan);
         requireConfirmed(loan, request.confirmReference());
         Map<String, Object> before = snapshot(loan);
@@ -97,6 +100,63 @@ public class LegacyLoanCorrectionService {
         corrections.saveAndFlush(item);
         audit.log(loan.getOrganization(), actor, "LEGACY_CORRECTION_REQUESTED", "Loan",
                 String.valueOf(loanId), reason + "; evidence=" + evidence,
+                item.getBeforeSnapshot(), item.getAfterSnapshot(), "Loans");
+        return item;
+    }
+
+    /**
+     * Owner-initiated, immediate correction of an imported opening record.
+     * Safe for transcription mistakes discovered BEFORE subsequent activity.
+     * This is an explicit exception to two-person approval, never a way to
+     * alter real payments, backdate cash or erase accounting entries.
+     * All steps (audit row, balanced GL adjustment, loan update) share one TX.
+     */
+    @Transactional
+    public LegacyLoanCorrection applyOwnerCorrection(Long loanId, LegacyLoanCorrectionRequest request, User actor) {
+        requireRole(actor, "BUSINESS_OWNER");
+        Loan loan = lockedLoan(loanId, actor);
+        requireEligible(loan);
+        if (request == null)
+            throw new IllegalArgumentException("Correction payload is required");
+        requireConfirmed(loan, request.confirmReference());
+        String reason = explanation(request.reason(), 30, 2000, "Owner correction justification");
+        String evidence = explanation(request.evidenceReference(), 8, 250, "Supporting evidence reference");
+        if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING"))
+            throw new IllegalStateException("Resolve the pending independent correction request before applying another correction");
+        Map<String, Object> before = snapshot(loan);
+        Map<String, Object> after = requested(before, request, loan);
+        if (before.equals(after))
+            throw new IllegalArgumentException("No actual change was proposed");
+        // The existing payment/schedule/journal guard is non-negotiable for
+        // direct repair. A loan with later activity needs a reconciled case.
+        assertNoSubsequentFinancialActivity(loan);
+        LegacyLoanCorrection item = new LegacyLoanCorrection();
+        item.setOrganizationId(org(actor));
+        item.setLoanId(loanId);
+        item.setMakerId(actor.getId());
+        item.setOwnerDirect(true);
+        item.setReason(reason);
+        item.setEvidenceReference(evidence);
+        item.setBeforeSnapshot(json(before));
+        item.setAfterSnapshot(json(after));
+        item.setSnapshotHash(hash(json(before)));
+        corrections.saveAndFlush(item);
+        Map<String, BigDecimal> changes = deltas(before, after);
+        if (!changes.isEmpty()) {
+            JournalEntry entry = accounting.postApprovedLegacyCorrection(loan, item.getId(), changes);
+            if (entry != null)
+                item.setJournalEntryId(entry.getId());
+        }
+        apply(loan, after);
+        loans.saveAndFlush(loan);
+        item.setStatus("APPROVED");
+        item.setCheckerId(actor.getId());
+        item.setReviewedAt(LocalDateTime.now());
+        item.setReviewReason("Direct correction authorized by the Business Owner with evidence: " + evidence);
+        corrections.saveAndFlush(item);
+        audit.log(loan.getOrganization(), actor, "BUSINESS_OWNER_DIRECT_LEGACY_CORRECTION", "Loan",
+                String.valueOf(loanId), "Single-owner correction override: " + reason
+                        + "; evidence=" + evidence + "; correctionId=" + item.getId(),
                 item.getBeforeSnapshot(), item.getAfterSnapshot(), "Loans");
         return item;
     }

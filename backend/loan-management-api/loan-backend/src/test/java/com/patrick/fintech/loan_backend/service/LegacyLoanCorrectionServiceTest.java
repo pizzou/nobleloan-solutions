@@ -320,4 +320,42 @@ class LegacyLoanCorrectionServiceTest {
                 assertEquals(new BigDecimal("8000000.00"), loan.getTotalRepayable());
                 verify(accounting, never()).postApprovedLegacyCorrection(any(), any(), any());
         }
+
+        @Test
+        void ownerCanDirectlyCorrectVerifiedUntouchedImportedLoan() {
+                stubNoSubsequentFinancialActivity();
+                when(corrections.saveAndFlush(any(LegacyLoanCorrection.class))).thenAnswer(inv -> {
+                        LegacyLoanCorrection correction = inv.getArgument(0);
+                        if (correction.getId() == null)
+                                correction.setId(901L);
+                        return correction;
+                });
+                var result = service.applyOwnerCorrection(77L,
+                                request(LocalDate.of(2026, 8, 31), new BigDecimal("7000000.00")), owner);
+                assertEquals("APPROVED", result.getStatus());
+                assertEquals(owner.getId(), result.getMakerId());
+                assertEquals(owner.getId(), result.getCheckerId());
+                assertTrue(result.getOwnerDirect());
+                assertEquals(new BigDecimal("1000000.00"), loan.getOutstandingBalanceDecimal());
+                verify(accounting).postApprovedLegacyCorrection(eq(loan), eq(901L), anyMap());
+                verify(loans).saveAndFlush(loan);
+        }
+
+        @Test
+        void ownerDirectCorrectionRefusesToRewriteRealTransactions() {
+                stubFinancialActivityCount(1L);
+                assertThrows(IllegalStateException.class, () -> service.applyOwnerCorrection(77L,
+                                request(LocalDate.of(2026, 8, 31), new BigDecimal("7000000.00")), owner));
+                verify(corrections, never()).saveAndFlush(any());
+                verify(accounting, never()).postApprovedLegacyCorrection(any(), any(), any());
+        }
+
+        @Test
+        void staffCannotUseBusinessOwnerDirectCorrection() {
+                assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                                () -> service.applyOwnerCorrection(77L,
+                                                request(LocalDate.of(2026, 8, 31), null), admin));
+                verify(corrections, never()).saveAndFlush(any());
+        }
+
 }

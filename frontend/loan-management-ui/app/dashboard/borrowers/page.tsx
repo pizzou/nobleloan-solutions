@@ -19,16 +19,9 @@ import {
   EmptyRow,
 } from "@/components/ui/Table";
 
-import { Modal } from "@/components/ui/Modal";
+import { Input } from "@/components/ui/Form";
 
-import { FormGroup, Input, Select, FormRow, Alert } from "@/components/ui/Form";
-
-import {
-  formatCurrency,
-  formatDate,
-  formatNumber,
-  COUNTRIES,
-} from "@/lib/utils";
+import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
 import { useAuth } from "@/hooks/useAuth";
 
@@ -49,36 +42,7 @@ export default function BorrowersPage() {
   }, [q]);
 
   const [loading, setLoading] = useState(true);
-  const [addOpen, setAddOpen] = useState(false);
-
-  const [msg, setMsg] = useState("");
-  const [saving, setSaving] = useState(false);
-
   const { currency, locale } = useAuth();
-
-  const blank = {
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    nationalId: "",
-    dateOfBirth: "",
-    gender: "",
-    nationality: "Rwandan",
-    employerName: "",
-    employmentType: "PERMANENT",
-    jobTitle: "",
-    monthlyIncome: "",
-    monthlyExpenses: "",
-    creditScore: "",
-    addressLine1: "",
-    city: "",
-    country: "RW",
-    bankName: "",
-    bankAccountNumber: "",
-  };
-
-  const [form, setForm] = useState<Record<string, string>>(blank);
 
   const load = useCallback(async () => {
     const requestId = ++latestBorrowerRequest.current;
@@ -110,49 +74,6 @@ export default function BorrowersPage() {
     load();
   }, [load]);
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    setSaving(true);
-    setMsg("");
-
-    try {
-      await borrowerApi.create({
-        ...form,
-
-        monthlyIncome: form.monthlyIncome
-          ? Number(form.monthlyIncome)
-          : undefined,
-
-        monthlyExpenses: form.monthlyExpenses
-          ? Number(form.monthlyExpenses)
-          : undefined,
-
-        creditScore: form.creditScore ? Number(form.creditScore) : undefined,
-      });
-
-      setAddOpen(false);
-      setForm({ ...blank });
-
-      await load();
-    } catch (error: any) {
-      console.error("Failed to create borrower:", error);
-
-      setMsg(error?.message || "Failed to create borrower");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const set =
-    (key: string) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      setForm((current) => ({
-        ...current,
-        [key]: e.target.value,
-      }));
-    };
-
   const openBorrower = (borrowerId: number | string) => {
     const id = Number(borrowerId);
 
@@ -168,7 +89,15 @@ export default function BorrowersPage() {
   };
 
   const getCreditStyle = (score?: number | null) => {
-    const value = score ?? 0;
+    if (score == null) {
+      return {
+        text: "text-slate-600",
+        bg: "bg-slate-50",
+        border: "border-slate-200",
+        label: "Not assessed",
+      };
+    }
+    const value = score;
 
     if (value >= 700) {
       return {
@@ -432,7 +361,8 @@ export default function BorrowersPage() {
                             <Td>
                               {borrower.nationalId ? (
                                 <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-[11px] font-medium text-slate-600">
-                                  {borrower.nationalId}
+                                  {"•••• •••• •••• " +
+                                    String(borrower.nationalId).slice(-4)}
                                 </span>
                               ) : (
                                 <span className="text-sm text-slate-300">
@@ -549,206 +479,6 @@ export default function BorrowersPage() {
           </div>
         )}
       </div>
-
-      {/* =====================================================
-          ADD BORROWER MODAL
-      ===================================================== */}
-
-      <Modal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Add New Borrower"
-        size="lg"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setAddOpen(false)}>
-              Cancel
-            </Button>
-
-            <Button loading={saving} onClick={handleAdd as any}>
-              Save Borrower
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={handleAdd}>
-          {msg && <Alert type="error">{msg}</Alert>}
-
-          <div className="mb-5">
-            <div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
-              Personal Information
-            </div>
-
-            <div className="text-xs text-slate-400">
-              Basic identity and contact information.
-            </div>
-          </div>
-
-          <FormRow>
-            <FormGroup label="First Name" required>
-              <Input
-                required
-                value={form.firstName}
-                onChange={set("firstName")}
-              />
-            </FormGroup>
-
-            <FormGroup label="Last Name" required>
-              <Input
-                required
-                value={form.lastName}
-                onChange={set("lastName")}
-              />
-            </FormGroup>
-          </FormRow>
-
-          <FormRow>
-            <FormGroup label="Email">
-              <Input type="email" value={form.email} onChange={set("email")} />
-            </FormGroup>
-
-            <FormGroup label="Phone">
-              <Input value={form.phone} onChange={set("phone")} />
-            </FormGroup>
-          </FormRow>
-
-          <FormRow>
-            <FormGroup label="National ID">
-              <Input value={form.nationalId} onChange={set("nationalId")} />
-            </FormGroup>
-
-            <FormGroup label="Date of Birth">
-              <Input
-                type="date"
-                value={form.dateOfBirth}
-                onChange={set("dateOfBirth")}
-              />
-            </FormGroup>
-          </FormRow>
-
-          <FormRow>
-            <FormGroup label="Gender">
-              <Select value={form.gender} onChange={set("gender")}>
-                <option value="">Select…</option>
-
-                {["Male", "Female", "Other", "Prefer not to say"].map(
-                  (gender) => (
-                    <option key={gender} value={gender}>
-                      {gender}
-                    </option>
-                  ),
-                )}
-              </Select>
-            </FormGroup>
-
-            <FormGroup label="Nationality">
-              <Select value={form.nationality} onChange={set("nationality")}>
-                {COUNTRIES.map((country) => (
-                  <option key={country.code} value={country.code}>
-                    {country.name}
-                  </option>
-                ))}
-              </Select>
-            </FormGroup>
-          </FormRow>
-
-          <div className="mb-5 mt-7">
-            <div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
-              Employment & Finance
-            </div>
-
-            <div className="text-xs text-slate-400">
-              Income, employment and credit information.
-            </div>
-          </div>
-
-          <FormRow>
-            <FormGroup label="Employer Name">
-              <Input value={form.employerName} onChange={set("employerName")} />
-            </FormGroup>
-
-            <FormGroup label="Employment Type">
-              <Select
-                value={form.employmentType}
-                onChange={set("employmentType")}
-              >
-                {["PERMANENT", "CONTRACT", "SELF_EMPLOYED", "UNEMPLOYED"].map(
-                  (type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ),
-                )}
-              </Select>
-            </FormGroup>
-          </FormRow>
-
-          <FormRow>
-            <FormGroup label="Monthly Income">
-              <Input
-                type="number"
-                min="0"
-                value={form.monthlyIncome}
-                onChange={set("monthlyIncome")}
-              />
-            </FormGroup>
-
-            <FormGroup label="Monthly Expenses">
-              <Input
-                type="number"
-                min="0"
-                value={form.monthlyExpenses}
-                onChange={set("monthlyExpenses")}
-              />
-            </FormGroup>
-          </FormRow>
-
-          <FormRow>
-            <FormGroup label="Credit Score">
-              <Input
-                type="number"
-                min="300"
-                max="850"
-                value={form.creditScore}
-                onChange={set("creditScore")}
-              />
-            </FormGroup>
-
-            <FormGroup label="Country">
-              <Select value={form.country} onChange={set("country")}>
-                {COUNTRIES.map((country) => (
-                  <option key={country.code} value={country.code}>
-                    {country.name}
-                  </option>
-                ))}
-              </Select>
-            </FormGroup>
-          </FormRow>
-
-          <div className="mb-5 mt-7">
-            <div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
-              Banking Information
-            </div>
-
-            <div className="text-xs text-slate-400">
-              Optional banking details for the borrower.
-            </div>
-          </div>
-
-          <FormRow>
-            <FormGroup label="Bank Name">
-              <Input value={form.bankName} onChange={set("bankName")} />
-            </FormGroup>
-
-            <FormGroup label="Account Number">
-              <Input
-                value={form.bankAccountNumber}
-                onChange={set("bankAccountNumber")}
-              />
-            </FormGroup>
-          </FormRow>
-        </form>
-      </Modal>
     </div>
   );
 }

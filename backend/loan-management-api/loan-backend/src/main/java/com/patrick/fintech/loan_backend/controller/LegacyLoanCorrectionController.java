@@ -36,6 +36,16 @@ public class LegacyLoanCorrectionController {
         return ResponseEntity.ok(ApiResponse.ok("Correction submitted for independent review",
             service.submit(loanId,request,currentUser.getCurrentUser())));
     }
+    /** Explicit Business Owner override for verified untouched legacy imports. */
+    @PostMapping("/owner-apply")
+    @PreAuthorize("hasRole('BUSINESS_OWNER')")
+    public ResponseEntity<ApiResponse<LegacyLoanCorrection>> ownerApply(
+            @PathVariable Long loanId, @RequestBody LegacyLoanCorrectionRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+            "Owner-authorized historical correction applied and audited",
+            service.applyOwnerCorrection(loanId, request, currentUser.getCurrentUser())));
+    }
+
     @PostMapping("/{correctionId}/approve")
     @PreAuthorize("hasRole('BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<LegacyLoanCorrection>> approve(

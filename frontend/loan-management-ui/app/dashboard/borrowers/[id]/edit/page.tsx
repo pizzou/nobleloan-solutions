@@ -281,6 +281,18 @@ export default function EditBorrowerPage() {
       e.physicalAddressVillage = "Village cannot exceed 255 characters.";
     if (!form.country.trim()) e.country = "Country is required.";
 
+    for (const field of [
+      "monthlyIncome",
+      "monthlyExpenses",
+      "netWorth",
+    ] as const) {
+      const raw = form[field].trim();
+      if (raw && !/^\d{1,13}(?:\.\d{1,6})?$/.test(raw)) {
+        e[field] =
+          "Enter a non-negative amount with no more than six decimal places.";
+      }
+    }
+
     if (form.creditScore.trim()) {
       const score = Number(form.creditScore);
       if (!Number.isInteger(score) || score < 0 || score > 1000)
@@ -686,33 +698,71 @@ export default function EditBorrowerPage() {
                 Employment, Credit & Banking
               </h2>
               <p className="mt-1 text-xs text-slate-500">
-                Optional servicing data used for affordability, credit and
-                customer-360 workflows.
+                Update employment and declared financial information for
+                affordability review. Verify supporting evidence before
+                approval.
               </p>
             </div>
             <div className="grid gap-5 p-6 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="Employer">
+              <Field
+                label={
+                  ["SELF_EMPLOYED", "BUSINESS_OWNER", "FARMER"].includes(
+                    form.employmentType,
+                  )
+                    ? "Business / Farm Name"
+                    : "Employer / Organization"
+                }
+              >
                 <input
                   value={form.employerName}
                   onChange={(e) => set("employerName", e.target.value)}
                   className={inputClass()}
                 />
               </Field>
-              <Field label="Employment Type">
-                <input
+              <Field label="Employment / Income Source">
+                <select
                   value={form.employmentType}
                   onChange={(e) => set("employmentType", e.target.value)}
                   className={inputClass()}
-                />
+                >
+                  <option value="">Select employment status</option>
+                  {form.employmentType &&
+                    ![
+                      "EMPLOYED",
+                      "SELF_EMPLOYED",
+                      "BUSINESS_OWNER",
+                      "FARMER",
+                      "RETIRED",
+                      "OTHER",
+                    ].includes(form.employmentType) && (
+                      <option value={form.employmentType}>
+                        {form.employmentType} (existing value)
+                      </option>
+                    )}
+                  <option value="EMPLOYED">Employed / Salaried</option>
+                  <option value="SELF_EMPLOYED">Self-employed</option>
+                  <option value="BUSINESS_OWNER">Business Owner</option>
+                  <option value="FARMER">Farmer</option>
+                  <option value="RETIRED">Retired / Pensioner</option>
+                  <option value="OTHER">Other income source</option>
+                </select>
               </Field>
-              <Field label="Job Title">
+              <Field
+                label={
+                  ["SELF_EMPLOYED", "BUSINESS_OWNER", "FARMER"].includes(
+                    form.employmentType,
+                  )
+                    ? "Business Activity / Occupation"
+                    : "Job Title / Occupation"
+                }
+              >
                 <input
                   value={form.jobTitle}
                   onChange={(e) => set("jobTitle", e.target.value)}
                   className={inputClass()}
                 />
               </Field>
-              <Field label="Monthly Income">
+              <Field label="Monthly Income" error={errors.monthlyIncome}>
                 <input
                   type="number"
                   min="0"
@@ -722,7 +772,7 @@ export default function EditBorrowerPage() {
                   className={inputClass()}
                 />
               </Field>
-              <Field label="Monthly Expenses">
+              <Field label="Monthly Expenses" error={errors.monthlyExpenses}>
                 <input
                   type="number"
                   min="0"
@@ -732,7 +782,7 @@ export default function EditBorrowerPage() {
                   className={inputClass()}
                 />
               </Field>
-              <Field label="Net Worth">
+              <Field label="Net Worth" error={errors.netWorth}>
                 <input
                   type="number"
                   min="0"

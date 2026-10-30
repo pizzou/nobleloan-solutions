@@ -7,6 +7,7 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.LoanApprovalRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +25,21 @@ public class LoanApprovalService {
         private final LoanService loanService;
         private final AuditService auditService;
 
+        /** Temporary one-person operating model; disable to reinstate maker/checker. */
+        @Value("${app.loan.admin-self-approval-enabled:true}")
+        private boolean adminSelfApprovalEnabled;
+
+        private boolean singleAdminLoan(Loan loan, User decider) {
+                return adminSelfApprovalEnabled
+                                && loan != null && loan.getCreatedBy() != null
+                                && loan.getCreatedBy().getId() != null
+                                && decider != null && decider.getId() != null
+                                && loan.getCreatedBy().getId().equals(decider.getId())
+                                && "ADMIN".equals(normalizeRole(decider))
+                                && "ADMIN".equals(normalizeRole(loan.getCreatedBy()))
+                                && !Boolean.TRUE.equals(loan.getBusinessOwnerOnly());
+        }
+
         private List<String> requiredRolesFor(Loan loan) {
 
                 if (loan == null) {
@@ -32,6 +48,14 @@ public class LoanApprovalService {
 
                 if (loan.getCreatedBy() == null) {
                         return List.of("MANAGER_OR_ADMIN");
+                }
+
+                // One ADMIN can create and later explicitly approve a normal loan
+                // while the organization operates with a single employee.
+                // This does not auto-approve the loan and does not affect other roles.
+                if (adminSelfApprovalEnabled && "ADMIN".equals(normalizeRole(loan.getCreatedBy()))
+                                && !Boolean.TRUE.equals(loan.getBusinessOwnerOnly())) {
+                        return List.of("ADMIN");
                 }
 
                 BigDecimal amount = loan.getAmountDecimal() != null
@@ -371,6 +395,17 @@ public class LoanApprovalService {
                                                         + currentStatus);
                 }
 
+                // While the one-person policy is enabled, normal loans created
+                // by an ADMIN may be approved ONLY by an ADMIN. Other roles may
+                // still approve loans that they are normally authorized to review.
+                if (adminSelfApprovalEnabled && loan.getCreatedBy() != null
+                                && "ADMIN".equals(normalizeRole(loan.getCreatedBy()))
+                                && !Boolean.TRUE.equals(loan.getBusinessOwnerOnly())
+                                && !"ADMIN".equals(normalizeRole(decider))) {
+                        throw new IllegalStateException(
+                                        "Only an Admin may approve a normal loan created by an Admin under the single-operator policy.");
+                }
+
                 List<LoanApproval> chain = approvalRepo
                                 .findByLoan_IdOrderByStepOrderAsc(loanId);
 
@@ -397,6 +432,48 @@ public class LoanApprovalService {
                         throw new IllegalStateException(
                                         "This loan has no configured approval step. "
                                                         + "Configure an approval authority before approving the loan.");
+                }
+
+                // Explicit, auditable exception for an ADMIN who personally created
+                // this NORMAL loan. Existing multi-step pending chains are closed
+                // rather than inventing approvals by users who do not exist.
+                if (approved && singleAdminLoan(loan, decider)) {
+                        if (Boolean.TRUE.equals(businessOwnerOnly)) {
+                                throw new IllegalStateException(
+                                                "An Admin cannot use single-user approval to classify a loan as Business Owner-only.");
+                        }
+                        if (chain.stream().anyMatch(a -> "REJECTED".equalsIgnoreCase(a.getStatus()))) {
+                                throw new IllegalStateException("A previously rejected loan cannot be self-approved.");
+                        }
+                        LoanApproval selfStep = chain.stream()
+                                        .filter(a -> "PENDING".equalsIgnoreCase(a.getStatus()))
+                                        .findFirst()
+                                        .orElseThrow(() -> new IllegalStateException(
+                                                        "No pending approval step exists for this loan."));
+                        selfStep.setStatus("APPROVED");
+                        selfStep.setApprover(decider);
+                        selfStep.setComments("Single-Admin exception (creator also approves). "
+                                        + (comments == null ? "" : comments));
+                        selfStep.setDecidedAt(LocalDateTime.now());
+                        approvalRepo.save(selfStep);
+                        for (LoanApproval pending : chain) {
+                                if (pending != selfStep && "PENDING".equalsIgnoreCase(pending.getStatus())) {
+                                        pending.setStatus("CANCELLED");
+                                        pending.setComments(
+                                                        "Superseded by explicitly authorized single-Admin approval");
+                                        approvalRepo.save(pending);
+                                }
+                        }
+                        auditService.log(loan.getOrganization(), decider,
+                                        "LOAN_SINGLE_ADMIN_SELF_APPROVAL_EXCEPTION", "LOAN", loanId.toString(),
+                                        "ADMIN " + decider.getId()
+                                                        + " created and explicitly approved this loan under the temporary single-operator policy");
+                        loanService.approveLoan(loanId, decider,
+                                        comments != null && !comments.isBlank()
+                                                        ? comments
+                                                        : "Approved by same Admin under single-operator policy",
+                                        newInterestRate, newApplicationFeeRate, newApprovedAmount);
+                        return selfStep;
                 }
 
                 /*

@@ -87,6 +87,9 @@ public class LoanService {
         @Value("${app.environment:development}")
         private String applicationEnvironment;
 
+        @Value("${app.loan.admin-self-approval-enabled:true}")
+        private boolean adminSelfApprovalEnabled;
+
         private static final int MAX_LOAN_DURATION_MONTHS = 6;
 
         private static final int DEFAULT_LOAN_DURATION_MONTHS = 1;
@@ -1460,6 +1463,20 @@ public class LoanService {
                                 || !loan.getOrganization().getId().equals(
                                                 officer.getOrganization().getId())) {
                         throw new RuntimeException("Access denied.");
+                }
+
+                // Explicit temporary single-operator restriction: when a
+                // normal loan was created by an ADMIN, only ADMIN may carry out
+                // the disbursement, including after self-approval. Business
+                // Owners remain excluded from disbursement.
+                if (adminSelfApprovalEnabled && loan.getCreatedBy() != null
+                                && loan.getCreatedBy().getRole() != null
+                                && "ADMIN".equalsIgnoreCase(loan.getCreatedBy().getRole().getName())
+                                && !Boolean.TRUE.equals(loan.getBusinessOwnerOnly())
+                                && (officer.getRole() == null
+                                                || !"ADMIN".equalsIgnoreCase(officer.getRole().getName()))) {
+                        throw new org.springframework.security.access.AccessDeniedException(
+                                        "Only an Admin may disburse a normal loan originally created by an Admin.");
                 }
 
                 if (Boolean.TRUE.equals(loan.getBusinessOwnerOnly())

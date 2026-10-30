@@ -203,7 +203,6 @@ export default function NewBorrowerPage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [alternatePhone, setAlternatePhone] = useState("");
   const [nationalId, setNationalId] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [gender, setGender] = useState("");
@@ -218,6 +217,25 @@ export default function NewBorrowerPage() {
   const [village, setVillage] = useState("");
   const [country, setCountry] = useState("Rwanda");
   const [creditScore, setCreditScore] = useState("");
+  // Reuse the same borrower fields and employment categories as the public loan application.
+  const [employmentType, setEmploymentType] = useState("");
+  const [employerName, setEmployerName] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [monthlyIncome, setMonthlyIncome] = useState("");
+  const [monthlyExpenses, setMonthlyExpenses] = useState("");
+
+  const workingForEmployer = employmentType === "EMPLOYED";
+  const operatingBusiness = [
+    "SELF_EMPLOYED",
+    "BUSINESS_OWNER",
+    "FARMER",
+  ].includes(employmentType);
+  const employmentNameLabel = operatingBusiness
+    ? "Business / Farm Name"
+    : "Employer / Organization";
+  const occupationLabel = operatingBusiness
+    ? "Business Activity / Occupation"
+    : "Job Title / Occupation";
 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -279,12 +297,6 @@ export default function NewBorrowerPage() {
       nextErrors.email = "Email address cannot exceed 150 characters.";
     }
 
-    if (!alternatePhone.trim()) {
-      nextErrors.alternatePhone = "Alternate phone is required.";
-    } else if (!RWANDA_PHONE_PATTERN.test(alternatePhone.trim())) {
-      nextErrors.alternatePhone =
-        "Enter exactly 10 digits starting with 0, for example 0788 123 456.";
-    }
     if (!dateOfBirth) {
       nextErrors.dateOfBirth = "Date of birth is required.";
     }
@@ -324,6 +336,49 @@ export default function NewBorrowerPage() {
       nextErrors.country = "Country is required.";
     }
 
+    if (!employmentType.trim()) {
+      nextErrors.employmentType =
+        "Select the borrower's employment or income source.";
+    }
+
+    // Income is declared during onboarding, and is not treated as verified until
+    // the responsible credit officer has checked supporting evidence.
+    const requiresOccupation = workingForEmployer || operatingBusiness;
+    if (requiresOccupation && !employerName.trim()) {
+      nextErrors.employerName = operatingBusiness
+        ? "Enter the business, farm or trading name."
+        : "Enter the employer's name.";
+    }
+    if (employerName.trim().length > 180) {
+      nextErrors.employerName =
+        "Employer or business name cannot exceed 180 characters.";
+    }
+    if (requiresOccupation && !jobTitle.trim()) {
+      nextErrors.jobTitle = operatingBusiness
+        ? "Enter the type of business or occupation."
+        : "Enter the borrower's job title.";
+    }
+    if (jobTitle.trim().length > 180) {
+      nextErrors.jobTitle =
+        "Job title or business activity cannot exceed 180 characters.";
+    }
+    const validMoney = (value: string) =>
+      /^\d{1,13}(?:\.\d{1,2})?$/.test(value.trim());
+    if (!monthlyIncome.trim()) {
+      nextErrors.monthlyIncome =
+        "Enter declared net monthly income (0 if none).";
+    } else if (!validMoney(monthlyIncome)) {
+      nextErrors.monthlyIncome =
+        "Enter a non-negative income in RWF (up to 2 decimal places).";
+    }
+    if (!monthlyExpenses.trim()) {
+      nextErrors.monthlyExpenses =
+        "Enter estimated regular monthly expenses (0 if none).";
+    } else if (!validMoney(monthlyExpenses)) {
+      nextErrors.monthlyExpenses =
+        "Enter non-negative monthly expenses in RWF (up to 2 decimal places).";
+    }
+
     if (cleanCreditScore) {
       const score = Number(cleanCreditScore);
 
@@ -342,7 +397,6 @@ export default function NewBorrowerPage() {
     lastName,
     email,
     phone,
-    alternatePhone,
     nationalId,
     dateOfBirth,
     gender,
@@ -356,6 +410,13 @@ export default function NewBorrowerPage() {
     village,
     country,
     creditScore,
+    employmentType,
+    employerName,
+    jobTitle,
+    monthlyIncome,
+    monthlyExpenses,
+    workingForEmployer,
+    operatingBusiness,
   ]);
 
   /* ------------------------------------------------------------------------ */
@@ -393,7 +454,6 @@ export default function NewBorrowerPage() {
         lastName: normalizeName(lastName),
         email: email.trim() || undefined,
         phone: normalizePhone(phone),
-        alternatePhone: normalizePhone(alternatePhone),
         nationalId: normalizeNationalId(nationalId),
         dateOfBirth,
         gender: gender.trim(),
@@ -408,6 +468,11 @@ export default function NewBorrowerPage() {
         physicalAddressVillage: village.trim(),
         country: country.trim(),
         creditScore: creditScore.trim() ? Number(creditScore) : undefined,
+        employmentType: employmentType.trim(),
+        employerName: employerName.trim() || undefined,
+        jobTitle: jobTitle.trim() || undefined,
+        monthlyIncome: Number(monthlyIncome),
+        monthlyExpenses: Number(monthlyExpenses),
       });
 
       toast("success", "Borrower created successfully.");
@@ -981,27 +1046,6 @@ export default function NewBorrowerPage() {
                 </Field>
 
                 <Field
-                  id="alternatePhone"
-                  label="Alternate Phone"
-                  required
-                  error={errors.alternatePhone}
-                >
-                  <input
-                    id="alternatePhone"
-                    type="tel"
-                    value={alternatePhone}
-                    disabled={loading}
-                    onChange={(event) =>
-                      setAlternatePhone(
-                        event.target.value.replace(/\D/g, "").slice(0, 10),
-                      )
-                    }
-                    placeholder="0788 123 456"
-                    className={inputClass(errors.alternatePhone)}
-                  />
-                </Field>
-
-                <Field
                   id="email"
                   label="Email Address"
                   hint="Optional"
@@ -1179,6 +1223,165 @@ export default function NewBorrowerPage() {
                 </Field>
               </div>
             </section>{" "}
+            <FormDivider />
+            {/* Employment and financial profile — same persistence fields as the public application. */}
+            <section>
+              <SectionHeader
+                number="04"
+                title="Employment, Business & Financial Information"
+                description="Record the borrower's employment, occupation and declared monthly income to support responsible lending decisions."
+              />
+
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <Field
+                  id="employmentType"
+                  label="Employment / Income Source"
+                  required
+                  error={errors.employmentType}
+                >
+                  <select
+                    id="employmentType"
+                    name="employmentType"
+                    value={employmentType}
+                    disabled={loading}
+                    aria-invalid={Boolean(errors.employmentType)}
+                    onChange={(event) => {
+                      setEmploymentType(event.target.value);
+                      setErrors((current) => ({
+                        ...current,
+                        employmentType: "",
+                      }));
+                    }}
+                    className={inputClass(errors.employmentType)}
+                  >
+                    <option value="">Select employment status</option>
+                    <option value="EMPLOYED">Employed / Salaried</option>
+                    <option value="SELF_EMPLOYED">Self-employed</option>
+                    <option value="BUSINESS_OWNER">Business Owner</option>
+                    <option value="FARMER">Farmer</option>
+                    <option value="RETIRED">Retired / Pensioner</option>
+                    <option value="OTHER">
+                      Other income source / Unemployed
+                    </option>
+                  </select>
+                </Field>
+
+                <Field
+                  id="employerName"
+                  label={employmentNameLabel}
+                  required={workingForEmployer || operatingBusiness}
+                  error={errors.employerName}
+                >
+                  <input
+                    id="employerName"
+                    name="employerName"
+                    type="text"
+                    maxLength={180}
+                    value={employerName}
+                    disabled={loading}
+                    aria-invalid={Boolean(errors.employerName)}
+                    onChange={(event) => {
+                      setEmployerName(event.target.value);
+                      setErrors((current) => ({
+                        ...current,
+                        employerName: "",
+                      }));
+                    }}
+                    placeholder={
+                      operatingBusiness
+                        ? "Trading name or farm name"
+                        : "Employer name, if applicable"
+                    }
+                    className={inputClass(errors.employerName)}
+                  />
+                </Field>
+
+                <Field
+                  id="jobTitle"
+                  label={occupationLabel}
+                  required={workingForEmployer || operatingBusiness}
+                  error={errors.jobTitle}
+                >
+                  <input
+                    id="jobTitle"
+                    name="jobTitle"
+                    type="text"
+                    maxLength={180}
+                    value={jobTitle}
+                    disabled={loading}
+                    aria-invalid={Boolean(errors.jobTitle)}
+                    onChange={(event) => {
+                      setJobTitle(event.target.value);
+                      setErrors((current) => ({ ...current, jobTitle: "" }));
+                    }}
+                    placeholder={
+                      operatingBusiness
+                        ? "e.g. Retail / Farming"
+                        : "e.g. Accountant / Teacher"
+                    }
+                    className={inputClass(errors.jobTitle)}
+                  />
+                </Field>
+
+                <Field
+                  id="monthlyIncome"
+                  label="Net Monthly Income (RWF)"
+                  required
+                  error={errors.monthlyIncome}
+                >
+                  <input
+                    id="monthlyIncome"
+                    name="monthlyIncome"
+                    type="text"
+                    inputMode="decimal"
+                    value={monthlyIncome}
+                    disabled={loading}
+                    aria-invalid={Boolean(errors.monthlyIncome)}
+                    onChange={(event) => {
+                      setMonthlyIncome(event.target.value);
+                      setErrors((current) => ({
+                        ...current,
+                        monthlyIncome: "",
+                      }));
+                    }}
+                    placeholder="e.g. 450000"
+                    className={inputClass(errors.monthlyIncome)}
+                  />
+                </Field>
+
+                <Field
+                  id="monthlyExpenses"
+                  label="Monthly Expenses (RWF)"
+                  required
+                  error={errors.monthlyExpenses}
+                >
+                  <input
+                    id="monthlyExpenses"
+                    name="monthlyExpenses"
+                    type="text"
+                    inputMode="decimal"
+                    value={monthlyExpenses}
+                    disabled={loading}
+                    aria-invalid={Boolean(errors.monthlyExpenses)}
+                    onChange={(event) => {
+                      setMonthlyExpenses(event.target.value);
+                      setErrors((current) => ({
+                        ...current,
+                        monthlyExpenses: "",
+                      }));
+                    }}
+                    placeholder="e.g. 180000"
+                    className={inputClass(errors.monthlyExpenses)}
+                  />
+                </Field>
+              </div>
+              <p className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
+                Record salary after deductions or average net monthly business
+                income after operating costs, not gross sales. These are
+                declared figures pending supporting-document verification; they
+                must not be treated as verified for loan approval.
+              </p>
+            </section>
             <FormDivider />
             {/* Compliance note */}
             <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
