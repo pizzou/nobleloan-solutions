@@ -748,22 +748,40 @@ public class LegacyLoanImportRowService {
                         // ========================================================
 
                         /*
-                         * Historical application fees must come from the source records.
-                         * Never apply today's 2% default to an old loan or silently assume
-                         * that an assessed fee was paid. Use explicit zero values when the
-                         * client confirms a fee was not charged / remains unpaid by zero.
+                         * A historical fee is an EXACT amount supplied by Excel.
+                         * Never recompute the historical fee as 2% of principal.
+                         * The legacy workbook commonly holds the amount deducted
+                         * immediately at disbursement but not separate paid and
+                         * unpaid columns. For that historical convention, a
+                         * fee with no breakdown is treated as fully collected.
+                         * If either paid or outstanding is provided, derive only
+                         * the missing counterpart. Both supplied amounts must
+                         * still reconcile to the original assessed fee.
                          */
-                        if (applicationFeeGiven == null
-                                        || applicationFeePaidGiven == null
-                                        || applicationFeeOutstandingGiven == null) {
-                                return fail(
-                                                rowNumber,
-                                                "Provide application_fee, application_fee_paid, and application_fee_outstanding for every legacy loan (enter 0 where appropriate). The importer will not invent a historical fee or assume it was paid.");
+                        if (applicationFeeGiven == null) {
+                                return fail(rowNumber,
+                                                "application_fee must be supplied from the original Excel ledger (use 0 if none was charged).");
                         }
 
                         BigDecimal applicationFee = money(applicationFeeGiven);
-                        BigDecimal applicationFeePaidAmount = money(applicationFeePaidGiven);
-                        BigDecimal applicationFeeOutstandingAmount = money(applicationFeeOutstandingGiven);
+                        BigDecimal applicationFeePaidAmount;
+                        BigDecimal applicationFeeOutstandingAmount;
+                        if (applicationFeePaidGiven == null && applicationFeeOutstandingGiven == null) {
+                                // Historical one-time application fee deducted at disbursement.
+                                applicationFeePaidAmount = applicationFee;
+                                applicationFeeOutstandingAmount = ZERO;
+                        } else if (applicationFeePaidGiven == null) {
+                                applicationFeeOutstandingAmount = money(applicationFeeOutstandingGiven);
+                                applicationFeePaidAmount = money(
+                                                applicationFee.subtract(applicationFeeOutstandingAmount));
+                        } else if (applicationFeeOutstandingGiven == null) {
+                                applicationFeePaidAmount = money(applicationFeePaidGiven);
+                                applicationFeeOutstandingAmount = money(
+                                                applicationFee.subtract(applicationFeePaidAmount));
+                        } else {
+                                applicationFeePaidAmount = money(applicationFeePaidGiven);
+                                applicationFeeOutstandingAmount = money(applicationFeeOutstandingGiven);
+                        }
 
                         if (applicationFee.compareTo(ZERO) < 0) {
                                 return fail(rowNumber, "application_fee cannot be negative.");

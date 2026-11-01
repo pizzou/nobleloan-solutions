@@ -654,6 +654,10 @@ public final class StreamingLedgerFileParser {
 
         private Map<String, String> mapCredit(Map<Integer, String> row) {
             String[] names = splitName(row.get(1));
+            BigDecimal applicationFee = decimal(row.get(5));
+            // Column F in the CREDIT PORTFOLIO sheet is the recorded fixed
+            // application fee. Preserve it exactly; do not derive it from a rate.
+            BigDecimal applicationFeePaid = money(applicationFee);
             Map<String, String> out = new LinkedHashMap<>();
             out.put("national_id", clean(row.get(2)).replaceAll("\\s+", ""));
             out.put("business_owner_only", "false");
@@ -664,6 +668,9 @@ public final class StreamingLedgerFileParser {
             out.put("marital_status", clean(row.get(7)));
             out.put("loan_type", normalizeLoanType(row.get(9)));
             out.put("amount", clean(row.get(20)));
+            out.put("application_fee", money(applicationFee).toPlainString());
+            out.put("application_fee_paid", applicationFeePaid.toPlainString());
+            out.put("application_fee_outstanding", "0.00");
             out.put("interest_rate", "5.00");
             out.put("interest_rate_type", "MONTHLY");
             out.put("duration_months", clean(row.get(29)));

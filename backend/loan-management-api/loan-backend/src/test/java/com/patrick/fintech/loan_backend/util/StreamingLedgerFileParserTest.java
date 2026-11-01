@@ -52,6 +52,36 @@ class StreamingLedgerFileParserTest {
     }
 
     @Test
+    void creditPortfolioImportPreservesTheApplicationFeeAmountFromExcel() throws Exception {
+        try (XSSFWorkbook book = new XSSFWorkbook()) {
+            Sheet sheet = book.createSheet("CREDIT PORTFOLIO");
+            Row row = sheet.createRow(0);
+            String[] columns = new String[35];
+            java.util.Arrays.fill(columns, "0");
+            columns[0] = "12";
+            columns[1] = "Mari Clare Kanyanya";
+            columns[2] = "1198880004126183";
+            columns[3] = "250788123456";
+            columns[4] = "FEMALE";
+            columns[5] = "37500";
+            columns[7] = "MARRIED";
+            columns[9] = "PERSONAL";
+            columns[20] = "1000000";
+            columns[21] = "2026-10-20";
+            columns[29] = "3";
+            for (int col = 0; col < columns.length; col++) {
+                row.createCell(col).setCellValue(columns[col]);
+            }
+
+            List<Map<String, String>> result = parse(book);
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).get("application_fee")).isEqualTo("37500.00");
+            assertThat(result.get(0).get("application_fee_paid")).isEqualTo("37500.00");
+            assertThat(result.get(0).get("application_fee_outstanding")).isEqualTo("0.00");
+        }
+    }
+
+    @Test
     void identicalSupportingSheetsProduceOnlyOneLoanCandidate() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             appendMonthly(book.createSheet("PORTFOLIO 2025"), 2, "1", "1198880004126183", "2025-10-30", 5000000);

@@ -53,6 +53,11 @@ interface ProfitAndLossReport {
   expense?: AccountingAccountRow[];
   totalIncome?: Numeric;
   applicationFeeIncome?: Numeric;
+  importedLoanCount?: Numeric;
+  historicalApplicationFees?: Numeric;
+  historicalApplicationFeesPaid?: Numeric;
+  historicalRepayments?: Numeric;
+  historicalBalancesPeriodAttributionAvailable?: boolean;
   totalExpense?: Numeric;
   totalExpenses?: Numeric;
   netIncome?: Numeric;
@@ -1654,6 +1659,52 @@ export default function ReportsPage() {
             description="Financial performance derived from the accounting records."
           />
 
+          {Number(profitAndLoss?.importedLoanCount ?? 0) > 0 && (
+            <section
+              className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-5"
+              aria-label="Historical import collections"
+            >
+              <h3 className="text-sm font-bold text-slate-900">
+                Historical legacy-import totals (lifetime)
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-700">
+                These amounts came from imported loan records, not dated
+                accounting transactions. They must not be treated as income or
+                cash collected during the selected month.
+              </p>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <span className="block text-xs text-slate-600">
+                    Application fees from Excel
+                  </span>
+                  <strong>
+                    {fmt(profitAndLoss?.historicalApplicationFees)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="block text-xs text-slate-600">
+                    Application fees marked paid in Excel
+                  </span>
+                  <strong>
+                    {fmt(profitAndLoss?.historicalApplicationFeesPaid)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="block text-xs text-slate-600">
+                    Historical loan repayments from Excel
+                  </span>
+                  <strong>{fmt(profitAndLoss?.historicalRepayments)}</strong>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-amber-900">
+                To report a specific month's historical collections or recognize
+                historical income, dated transaction-level records are required.
+                Importing aggregate lifetime totals cannot determine the
+                collection month.
+              </p>
+            </section>
+          )}
+
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="grid divide-y divide-slate-200 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
               <div className="p-6">
@@ -1680,7 +1731,8 @@ export default function ReportsPage() {
                 </p>
 
                 <p className="mt-2 text-xs text-slate-500">
-                  One-time fees recognized as income through GL 4100.
+                  Application fee income from dated disbursement journals;
+                  historical import totals are displayed separately.
                 </p>
               </div>
 

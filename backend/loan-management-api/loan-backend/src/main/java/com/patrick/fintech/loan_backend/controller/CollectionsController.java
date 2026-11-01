@@ -20,80 +20,93 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/collections")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','COLLECTIONS_OFFICER')")
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','COLLECTIONS_OFFICER','BUSINESS_OWNER')")
 public class CollectionsController {
 
-    private final CollectionsService collectionsService;
-    private final CurrentUserUtil currentUserUtil;
+        private final CollectionsService collectionsService;
+        private final CurrentUserUtil currentUserUtil;
 
-    @GetMapping("/queue")
-    public ResponseEntity<ApiResponse<Object>> queue(
-            @RequestParam(required = false) CollectionCase.CollectionBucket bucket,
-            @RequestParam(required = false) CollectionCase.CollectionStatus status,
-            @RequestParam(required = false) Long agentId) {
-        return ResponseEntity.ok(ApiResponse.safe(
-                collectionsService.getQueueResponses(currentUserUtil.getCurrentOrganizationId(), bucket, status,
-                        agentId)));
-    }
-
-    @GetMapping("/stats")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> stats() {
-        return ResponseEntity
-                .ok(ApiResponse.safe(collectionsService.getStats(currentUserUtil.getCurrentOrganizationId())));
-    }
-
-    @GetMapping("/cases/{id}")
-    public ResponseEntity<ApiResponse<Object>> getCase(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.safe(
-                collectionsService.getCaseResponse(id, currentUserUtil.getCurrentOrganizationId())));
-    }
-
-    @GetMapping("/cases/{id}/actions")
-    public ResponseEntity<ApiResponse<Object>> actions(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.safe(collectionsService.getActions(id)));
-    }
-
-    @PostMapping("/cases/{id}/assign")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-    public ResponseEntity<ApiResponse<Object>> assign(@PathVariable Long id, @RequestBody Map<String, Object> body) {
-        Long agentId = Long.valueOf(body.get("agentId").toString());
-        return ResponseEntity.ok(ApiResponse.safe(
-                collectionsService.assignAgent(id, agentId, currentUserUtil.getCurrentUser().getName())));
-    }
-
-    @PostMapping("/cases/{id}/actions")
-    public ResponseEntity<ApiResponse<Object>> logAction(@PathVariable Long id, @RequestBody Map<String, Object> body) {
-        CollectionAction.ActionType type = CollectionAction.ActionType.valueOf(body.get("actionType").toString());
-
-        // Write-off is a high-risk accounting event. It may only be initiated
-        // by ADMIN/MANAGER; ordinary collection officers must use the normal
-        // escalation path and cannot directly remove a receivable from the book.
-        if (type == CollectionAction.ActionType.WRITE_OFF) {
-            boolean authorized = SecurityContextHolder.getContext().getAuthentication()
-                    .getAuthorities().stream()
-                    .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority())
-                            || "ROLE_BUSINESS_OWNER".equals(a.getAuthority()));
-            if (!authorized)
-                throw new AccessDeniedException(
-                        "Only ADMIN, MANAGER or BUSINESS_OWNER may initiate a controlled write-off");
+        @GetMapping("/queue")
+        public ResponseEntity<ApiResponse<Object>> queue(
+                        @RequestParam(required = false) CollectionCase.CollectionBucket bucket,
+                        @RequestParam(required = false) CollectionCase.CollectionStatus status,
+                        @RequestParam(required = false) Long agentId) {
+                return ResponseEntity.ok(ApiResponse.safe(
+                                collectionsService.getQueueResponses(currentUserUtil.getCurrentOrganizationId(), bucket,
+                                                status,
+                                                agentId)));
         }
 
-        String notes = (String) body.get("notes");
-        String outcome = (String) body.get("outcome");
-        LocalDate promiseDate = body.get("promiseDate") != null ? LocalDate.parse(body.get("promiseDate").toString())
-                : null;
-        Double promiseAmount = body.get("promiseAmount") != null ? Double.valueOf(body.get("promiseAmount").toString())
-                : null;
+        @GetMapping("/stats")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> stats() {
+                return ResponseEntity
+                                .ok(ApiResponse.safe(collectionsService
+                                                .getStats(currentUserUtil.getCurrentOrganizationId())));
+        }
 
-        CollectionAction action = collectionsService.logAction(
-                id, type, notes, currentUserUtil.getCurrentUser().getName(), outcome, promiseDate, promiseAmount);
-        return ResponseEntity.ok(ApiResponse.safe("Action logged", action));
-    }
+        @GetMapping("/cases/{id}")
+        public ResponseEntity<ApiResponse<Object>> getCase(@PathVariable Long id) {
+                return ResponseEntity.ok(ApiResponse.safe(
+                                collectionsService.getCaseResponse(id, currentUserUtil.getCurrentOrganizationId())));
+        }
 
-    @PostMapping("/sync")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-    public ResponseEntity<ApiResponse<String>> manualSync() {
-        int touched = collectionsService.syncCasesFromOverdueLoans();
-        return ResponseEntity.ok(ApiResponse.safe("Collections queue synced: " + touched + " case(s) touched"));
-    }
+        @GetMapping("/cases/{id}/actions")
+        public ResponseEntity<ApiResponse<Object>> actions(@PathVariable Long id) {
+                return ResponseEntity.ok(ApiResponse.safe(
+                                collectionsService.getActionsForOrg(id, currentUserUtil.getCurrentOrganizationId())));
+        }
+
+        @PostMapping("/cases/{id}/assign")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<Object>> assign(@PathVariable Long id,
+                        @RequestBody Map<String, Object> body) {
+                Long agentId = Long.valueOf(body.get("agentId").toString());
+                return ResponseEntity.ok(ApiResponse.safe(
+                                collectionsService.assignAgentForOrg(id, agentId,
+                                                currentUserUtil.getCurrentUser().getName(),
+                                                currentUserUtil.getCurrentOrganizationId())));
+        }
+
+        @PostMapping("/cases/{id}/actions")
+        public ResponseEntity<ApiResponse<Object>> logAction(@PathVariable Long id,
+                        @RequestBody Map<String, Object> body) {
+                CollectionAction.ActionType type = CollectionAction.ActionType
+                                .valueOf(body.get("actionType").toString());
+
+                // Write-off is a high-risk accounting event. It may only be initiated
+                // by ADMIN/MANAGER; ordinary collection officers must use the normal
+                // escalation path and cannot directly remove a receivable from the book.
+                if (type == CollectionAction.ActionType.WRITE_OFF) {
+                        boolean authorized = SecurityContextHolder.getContext().getAuthentication()
+                                        .getAuthorities().stream()
+                                        .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority())
+                                                        || "ROLE_MANAGER".equals(a.getAuthority())
+                                                        || "ROLE_BUSINESS_OWNER".equals(a.getAuthority()));
+                        if (!authorized)
+                                throw new AccessDeniedException(
+                                                "Only ADMIN, MANAGER or BUSINESS_OWNER may initiate a controlled write-off");
+                }
+
+                String notes = (String) body.get("notes");
+                String outcome = (String) body.get("outcome");
+                LocalDate promiseDate = body.get("promiseDate") != null
+                                ? LocalDate.parse(body.get("promiseDate").toString())
+                                : null;
+                Double promiseAmount = body.get("promiseAmount") != null
+                                ? Double.valueOf(body.get("promiseAmount").toString())
+                                : null;
+
+                CollectionAction action = collectionsService.logActionForOrg(
+                                id, type, notes, currentUserUtil.getCurrentUser().getName(), outcome, promiseDate,
+                                promiseAmount,
+                                currentUserUtil.getCurrentOrganizationId());
+                return ResponseEntity.ok(ApiResponse.safe("Action logged", action));
+        }
+
+        @PostMapping("/sync")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<String>> manualSync() {
+                int touched = collectionsService.syncCasesFromOverdueLoans();
+                return ResponseEntity.ok(ApiResponse.safe("Collections queue synced: " + touched + " case(s) touched"));
+        }
 }

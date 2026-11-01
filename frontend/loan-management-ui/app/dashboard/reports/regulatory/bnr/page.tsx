@@ -1198,7 +1198,7 @@ export default function BnrReportPage() {
                 />
 
                 <Kpi
-                  title="Legacy Collections"
+                  title="Legacy Collected (Undated)"
                   value={formatMoney(
                     summary.historicalAmountCollected,
                     currency,
@@ -1355,7 +1355,7 @@ export default function BnrReportPage() {
                 />
 
                 <Metric
-                  label="Legacy Collections Brought Forward"
+                  label="Legacy Collected (Undated History)"
                   value={formatMoney(
                     summary.historicalAmountCollected,
                     currency,

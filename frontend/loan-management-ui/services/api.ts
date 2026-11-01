@@ -441,9 +441,16 @@ export const taskApi = {
  */
 
 export const loanApi = {
-  list: (page = 0, size = 20, status = "", type = "", search = "") =>
+  list: (
+    page = 0,
+    size = 20,
+    status = "",
+    type = "",
+    search = "",
+    visibility: "NORMAL" | "BUSINESS_OWNER_ONLY" | "ALL" = "NORMAL",
+  ) =>
     get(
-      `/loans?page=${page}&size=${size}` +
+      `/loans?page=${page}&size=${size}&visibility=${visibility}` +
         `${status ? `&status=${encodeURIComponent(status)}` : ""}` +
         `${type ? `&type=${encodeURIComponent(type)}` : ""}` +
         `${search.trim() ? `&search=${encodeURIComponent(search.trim())}` : ""}`,
@@ -530,10 +537,15 @@ export const loanApi = {
         : undefined,
     ),
 
-  disburse: (id: number, method: string, idempotencyKey?: string) =>
+  disburse: (
+    id: number,
+    method: string,
+    idempotencyKey?: string,
+    disbursementDate?: string,
+  ) =>
     post(
       `/loans/${id}/disburse`,
-      { disbursementMethod: method },
+      { disbursementMethod: method, disbursementDate },
       idempotencyKey
         ? { headers: { "Idempotency-Key": idempotencyKey } }
         : undefined,

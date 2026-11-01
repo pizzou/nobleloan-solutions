@@ -46,7 +46,7 @@ public final class FinancialPolicy {
         /**
          * Extension fee charged once per extension request.
          */
-        public static final BigDecimal EXTENSION_FEE_RATE = new BigDecimal("10.00");
+        public static final BigDecimal EXTENSION_FEE_RATE = new BigDecimal("5.00");
 
         private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 

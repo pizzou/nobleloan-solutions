@@ -41,7 +41,7 @@ class FinancialPolicyTest {
                                 FinancialPolicy.PENALTY_GRACE_DAYS);
 
                 assertEquals(
-                                new BigDecimal("10.00"),
+                                new BigDecimal("5.00"),
                                 FinancialPolicy.EXTENSION_FEE_RATE);
         }
 
@@ -219,7 +219,7 @@ class FinancialPolicyTest {
                                                 new BigDecimal("1000000.00")));
 
                 assertEquals(
-                                new BigDecimal("100000.00"),
+                                new BigDecimal("50000.00"),
                                 FinancialPolicy.extensionFee(
                                                 new BigDecimal("1000000.00")));
         }

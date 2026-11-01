@@ -262,6 +262,7 @@ public class DashboardService {
                 BigDecimal legacyHistoricalCollected = ZERO;
                 BigDecimal currentApplicationFeesCollected = ZERO;
                 BigDecimal legacyApplicationFeesCollected = ZERO;
+                BigDecimal applicationFeesCollectedThisMonth = ZERO;
 
                 for (Payment payment : organizationPayments) {
 
@@ -309,9 +310,18 @@ public class DashboardService {
                         if (money(loan.getDisbursedAmountDecimal()).compareTo(ZERO) <= 0) {
                                 continue;
                         }
+                        BigDecimal feePaid = money(loan.getApplicationFeePaidDecimal());
                         currentApplicationFeesCollected = money(
-                                        currentApplicationFeesCollected.add(
-                                                        money(loan.getApplicationFeePaidDecimal())));
+                                        currentApplicationFeesCollected.add(feePaid));
+                        LocalDate feeCollectionDate = loan.getDisbursedAt() != null
+                                        ? loan.getDisbursedAt().toLocalDate()
+                                        : null;
+                        if (feePaid.compareTo(ZERO) > 0 && feeCollectionDate != null
+                                        && !feeCollectionDate.isBefore(firstOfMonth)
+                                        && !feeCollectionDate.isAfter(today)) {
+                                applicationFeesCollectedThisMonth = money(
+                                                applicationFeesCollectedThisMonth.add(feePaid));
+                        }
                 }
 
                 /*
@@ -344,15 +354,29 @@ public class DashboardService {
                         legacyHistoricalCollected = money(legacyHistoricalCollected.add(historical));
                         legacyApplicationFeesCollected = money(
                                         legacyApplicationFeesCollected.add(applicationFeePaid));
+                        LocalDate feeCollectionDate = loan.getDisbursedAt() != null
+                                        ? loan.getDisbursedAt().toLocalDate()
+                                        : (loan.getStartDate() != null ? loan.getStartDate() : null);
+                        if (applicationFeePaid.compareTo(ZERO) > 0 && feeCollectionDate != null
+                                        && !feeCollectionDate.isBefore(firstOfMonth)
+                                        && !feeCollectionDate.isAfter(today)) {
+                                applicationFeesCollectedThisMonth = money(
+                                                applicationFeesCollectedThisMonth.add(applicationFeePaid));
+                        }
                 }
+
+                collectedThisMonth = money(collectedThisMonth.add(applicationFeesCollectedThisMonth));
 
                 totalCollected = money(
                                 totalCollected
                                                 .add(currentApplicationFeesCollected)
                                                 .add(legacyHistoricalCollected));
 
-                // Historical legacy collections have no reliable current-period
-                // payment date. They must NEVER be added to collectedThisMonth.
+                // Legacy principal/interest/management/extension/penalty totals are
+                // cumulative and have no reliable payment date, so they are not
+                // assigned to this month. Application-fee cash is different: its
+                // collection date is the recorded disbursement date and is added
+                // above only when that date falls inside the current month.
 
                 // ============================================================
                 // PORTFOLIO AT RISK %

@@ -1439,6 +1439,15 @@ public class LoanService {
                         Long loanId,
                         User officer,
                         String disbursementMethod) {
+                return disburseLoan(loanId, officer, disbursementMethod, LocalDate.now());
+        }
+
+        @Transactional
+        public Loan disburseLoan(
+                        Long loanId,
+                        User officer,
+                        String disbursementMethod,
+                        LocalDate selectedDisbursementDate) {
 
                 if (officer == null
                                 || officer.getOrganization() == null
@@ -1609,18 +1618,27 @@ public class LoanService {
                 // EXACT DISBURSEMENT TIMESTAMP
                 // ============================================================
 
-                LocalDateTime exactDisbursementTimestamp = LocalDateTime.now();
+                LocalDate disbursementDate = selectedDisbursementDate != null
+                                ? selectedDisbursementDate
+                                : LocalDate.now();
+                if (disbursementDate.isAfter(LocalDate.now())) {
+                        throw new IllegalArgumentException("Disbursement date cannot be in the future.");
+                }
+                // A selected date-only historical transaction is stored at the
+                // beginning of its local calendar day, and drives all schedules.
+                LocalDateTime exactDisbursementTimestamp = disbursementDate.atStartOfDay();
 
                 loan.setDisbursedAt(
                                 exactDisbursementTimestamp);
+                // Once money has actually been advanced, the contractual loan
+                // start date must reflect the same selected historical date.
+                loan.setStartDate(disbursementDate);
 
                 loan.setDisbursedAmount(
                                 exactPrincipal);
 
                 // Repair stale legacy balances before the first ACTIVE-state save.
                 reconcileContractualOutstandingBalances(loan);
-
-                LocalDate disbursementDate = exactDisbursementTimestamp.toLocalDate();
 
                 Integer duration = loan.getDurationMonths() != null
                                 ? loan.getDurationMonths()
@@ -2380,11 +2398,20 @@ public class LoanService {
                         String status,
                         String type) {
 
-                return getLoans(org, page, size, status, type, null);
+                return getLoans(org, page, size, status, type, null, null);
         }
 
         /**
-         * Lists loans using the existing reporting visibility scope and optional
+         * Existing service callers use the normal portfolio by default.
+         */
+        public Page<Loan> getLoans(
+                        Organization org, int page, int size,
+                        String status, String type, String search) {
+                return getLoans(org, page, size, status, type, search, null);
+        }
+
+        /**
+         * Lists loans using an explicit portfolio visibility selection and optional
          * borrower/reference search. Search is executed in the database so it
          * works across all pages rather than only the currently loaded page.
          */
@@ -2394,7 +2421,13 @@ public class LoanService {
                         int size,
                         String status,
                         String type,
-                        String search) {
+                        String search,
+                        String visibility) {
+
+                // Validate scope before any query. Role comes from the server security context,
+                // never from a client-supplied isBusinessOwner flag.
+                LoanPortfolioVisibility selectedVisibility = LoanPortfolioVisibility.resolve(
+                                visibility, ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (org == null
                                 || org.getId() == null) {
@@ -2460,7 +2493,6 @@ public class LoanService {
                         normalizedSearch = null;
                 }
 
-                boolean includeBusinessOwnerOnly = ReportingScopeService.includeBusinessOwnerOnly();
                 PageRequest pageable = PageRequest.of(page, size);
 
                 // Use the dedicated unfiltered query for the normal portfolio load.
@@ -2468,9 +2500,12 @@ public class LoanService {
                 // nullable enum/string predicates when the request is simply
                 // /api/loans?page=0&size=25.
                 if (ls == null && lt == null && normalizedSearch == null) {
+                        if (selectedVisibility == LoanPortfolioVisibility.BUSINESS_OWNER_ONLY) {
+                                return loanRepo.findBusinessOwnerOnlyPortfolio(org, pageable);
+                        }
                         return loanRepo.findVisiblePortfolio(
                                         org,
-                                        includeBusinessOwnerOnly,
+                                        selectedVisibility == LoanPortfolioVisibility.ALL,
                                         pageable);
                 }
 
@@ -2484,8 +2519,10 @@ public class LoanService {
                 org.springframework.data.jpa.domain.Specification<Loan> filters = (root, query, cb) -> {
                         java.util.List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
                         predicates.add(cb.equal(root.get("organization"), org));
-                        if (!includeBusinessOwnerOnly) {
+                        if (selectedVisibility == LoanPortfolioVisibility.NORMAL) {
                                 predicates.add(cb.isFalse(cb.coalesce(root.<Boolean>get("businessOwnerOnly"), false)));
+                        } else if (selectedVisibility == LoanPortfolioVisibility.BUSINESS_OWNER_ONLY) {
+                                predicates.add(cb.isTrue(root.<Boolean>get("businessOwnerOnly")));
                         }
                         if (statusFilter != null)
                                 predicates.add(cb.equal(root.get("status"), statusFilter));

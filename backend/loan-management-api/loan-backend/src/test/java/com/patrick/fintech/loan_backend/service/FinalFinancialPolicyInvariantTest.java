@@ -23,8 +23,8 @@ class FinalFinancialPolicyInvariantTest {
         }
 
         @Test
-        void extensionFeeIsExactlyTenPercentOfOutstandingPrincipal() {
-                assertEquals(new BigDecimal("123456.79"),
+        void extensionFeeIsExactlyFivePercentOfOutstandingPrincipal() {
+                assertEquals(new BigDecimal("61728.39"),
                                 FinancialPolicy.extensionFee(new BigDecimal("1234567.89")));
         }
 
@@ -104,7 +104,7 @@ class FinalFinancialPolicyInvariantTest {
                 BigDecimal principal = new BigDecimal("800000.00");
                 BigDecimal extensionFee = FinancialPolicy.extensionFee(principal);
 
-                assertEquals(new BigDecimal("80000.00"), extensionFee);
+                assertEquals(new BigDecimal("40000.00"), extensionFee);
                 assertEquals(new BigDecimal("40000.00"),
                                 FinancialPolicy.contractualMonthlyCharge(principal,
                                                 FinancialPolicy.MONTHLY_INTEREST_RATE));

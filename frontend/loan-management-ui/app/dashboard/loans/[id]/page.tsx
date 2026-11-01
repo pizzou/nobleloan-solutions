@@ -1151,6 +1151,11 @@ export default function LoanDetailPage() {
     applicationFeeRate: "",
     approvedAmount: "",
     businessOwnerOnly: false,
+    disbursementDate: new Date(
+      Date.now() - new Date().getTimezoneOffset() * 60_000,
+    )
+      .toISOString()
+      .slice(0, 10),
   });
 
   const [stSaving, setStSaving] = useState(false);
@@ -1655,6 +1660,11 @@ export default function LoanDetailPage() {
           : "2",
       approvedAmount: loan?.amount != null ? String(loan.amount) : "",
       businessOwnerOnly: Boolean(loan?.businessOwnerOnly),
+      disbursementDate: new Date(
+        Date.now() - new Date().getTimezoneOffset() * 60_000,
+      )
+        .toISOString()
+        .slice(0, 10),
     });
     setStOpen(true);
   };
@@ -1739,7 +1749,15 @@ export default function LoanDetailPage() {
         label = `Loan rejection — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status === "DISBURSED") {
         url = `/loans/${loanId}/disburse`;
-        body = { disbursementMethod: "BANK_TRANSFER" };
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(stForm.disbursementDate)) {
+          throw new Error(
+            "Select the date the borrower actually received the loan.",
+          );
+        }
+        body = {
+          disbursementMethod: "BANK_TRANSFER",
+          disbursementDate: stForm.disbursementDate,
+        };
         label = `Loan disbursement — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status) {
         url = `/loans/${loanId}/status`;
@@ -1783,7 +1801,12 @@ export default function LoanDetailPage() {
         } else if (stForm.status === "REJECTED") {
           await loanApi.reject(loanId, stForm.rejectionReason, idempotencyKey);
         } else if (stForm.status === "DISBURSED") {
-          await loanApi.disburse(loanId, "BANK_TRANSFER", idempotencyKey);
+          await loanApi.disburse(
+            loanId,
+            "BANK_TRANSFER",
+            idempotencyKey,
+            stForm.disbursementDate,
+          );
         } else {
           await loanApi.updateStatus(
             loanId,
@@ -3992,6 +4015,37 @@ export default function LoanDetailPage() {
                 })()}
               </Select>
             </FormGroup>
+            {stForm.status === "DISBURSED" && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+                <FormGroup
+                  label="Actual date borrower received the loan"
+                  required
+                >
+                  <Input
+                    type="date"
+                    required
+                    max={new Date(
+                      Date.now() - new Date().getTimezoneOffset() * 60_000,
+                    )
+                      .toISOString()
+                      .slice(0, 10)}
+                    value={stForm.disbursementDate}
+                    onChange={(e) =>
+                      setStForm((f) => ({
+                        ...f,
+                        disbursementDate: e.target.value,
+                      }))
+                    }
+                  />
+                </FormGroup>
+                <p className="text-xs text-amber-900">
+                  The repayment schedule and accounting entry will use this
+                  date. The system separately audits the date and time you
+                  record the disbursement. A closed accounting period may
+                  prevent backdating.
+                </p>
+              </div>
+            )}
             {stForm.status === "APPROVED" && (
               <div className="space-y-5">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">

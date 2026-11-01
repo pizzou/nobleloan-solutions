@@ -12,6 +12,9 @@ type MoneyField =
   | "interestOutstanding"
   | "managementFeePaid"
   | "managementFeeOutstanding"
+  | "applicationFee"
+  | "applicationFeePaid"
+  | "applicationFeeOutstanding"
   | "penaltiesAssessed"
   | "penaltiesPaid";
 type Proposal = {
@@ -34,6 +37,12 @@ const MONEY_FIELDS: { key: MoneyField; label: string }[] = [
   { key: "interestOutstanding", label: "Interest remaining" },
   { key: "managementFeePaid", label: "Management fee paid" },
   { key: "managementFeeOutstanding", label: "Management fee remaining" },
+  { key: "applicationFee", label: "Application fee (original Excel amount)" },
+  {
+    key: "applicationFeePaid",
+    label: "Application fee collected at disbursement",
+  },
+  { key: "applicationFeeOutstanding", label: "Application fee still unpaid" },
   { key: "penaltiesAssessed", label: "Penalties assessed" },
   { key: "penaltiesPaid", label: "Penalties paid" },
 ];
@@ -67,6 +76,9 @@ export default function LegacyCorrectionPage() {
     interestOutstanding: "",
     managementFeePaid: "",
     managementFeeOutstanding: "",
+    applicationFee: "",
+    applicationFeePaid: "",
+    applicationFeeOutstanding: "",
     penaltiesAssessed: "",
     penaltiesPaid: "",
   });
@@ -90,7 +102,14 @@ export default function LegacyCorrectionPage() {
     setHistory(Array.isArray(h) ? h : []);
     const next: Record<MoneyField, string> = {} as Record<MoneyField, string>;
     for (const field of MONEY_FIELDS)
-      next[field.key] = String(l[field.key] ?? 0);
+      next[field.key] = String(
+        field.key === "applicationFeeOutstanding"
+          ? Math.max(
+              0,
+              Number(l.applicationFee ?? 0) - Number(l.applicationFeePaid ?? 0),
+            )
+          : (l[field.key] ?? 0),
+      );
     setForm(next);
     setDue(l.nextDueDate ?? "");
     setDuration(l.durationMonths == null ? "" : String(l.durationMonths));
@@ -283,6 +302,12 @@ export default function LegacyCorrectionPage() {
             values as they are. Correctly recorded original principal, borrower
             identity and NLS reference are protected. A duration correction is
             an Excel transcription repair, not a new restructuring.
+          </p>
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            For imported application fees, enter the exact amount shown in the
+            original Excel workbook. The collected amount plus unpaid amount
+            must equal that fee. These changes are historical corrections, not
+            new fee income or repayments for the current month.
           </p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {MONEY_FIELDS.map((f) => (

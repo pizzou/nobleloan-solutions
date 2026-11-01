@@ -45,6 +45,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 
@@ -127,7 +129,9 @@ public class LoanController {
 
                         @RequestParam(required = false) String type,
 
-                        @RequestParam(required = false) String search) {
+                        @RequestParam(required = false) String search,
+
+                        @RequestParam(required = false) String visibility) {
 
                 Organization organization = currentUserUtil
                                 .getCurrentUser()
@@ -141,7 +145,8 @@ public class LoanController {
                                                                 size,
                                                                 status,
                                                                 type,
-                                                                search))));
+                                                                search,
+                                                                visibility))));
         }
 
         // ================================================================
@@ -567,6 +572,17 @@ public class LoanController {
                 String method = body != null
                                 ? body.getOrDefault("disbursementMethod", "BANK_TRANSFER")
                                 : "BANK_TRANSFER";
+                String requestedDisbursementDate = body != null ? body.get("disbursementDate") : null;
+                LocalDate selectedDisbursementDate;
+                try {
+                        selectedDisbursementDate = requestedDisbursementDate == null
+                                        || requestedDisbursementDate.isBlank()
+                                                        ? LocalDate.now()
+                                                        : LocalDate.parse(requestedDisbursementDate.trim());
+                } catch (DateTimeParseException ex) {
+                        throw new IllegalArgumentException(
+                                        "Disbursement date must use ISO format yyyy-MM-dd.", ex);
+                }
 
                 Map<String, String> request = body == null ? Map.of("disbursementMethod", method) : body;
                 var outcome = idempotencyService.checkOrReserve(
@@ -581,7 +597,7 @@ public class LoanController {
                 }
 
                 try {
-                        Loan loan = loanService.disburseLoan(id, user, method);
+                        Loan loan = loanService.disburseLoan(id, user, method, selectedDisbursementDate);
                         LoanResponse response = ResponseDtoMapper.loan(loan);
                         idempotencyService.recordSuccess(idempotencyKey, org, response, 200);
                         return ResponseEntity.ok(ApiResponse.ok("Loan disbursed", response));

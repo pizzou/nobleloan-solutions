@@ -60,7 +60,7 @@ public class LoanRestructuringService {
          * Institution policy:
          *
          * Extension/restructuring fee =
-         * 10% of the outstanding principal at the moment
+         * 5% of the outstanding principal at the moment
          * the extension is approved/requested.
          *
          * This is NOT principal.
@@ -82,7 +82,7 @@ public class LoanRestructuringService {
          * Business rule:
          *
          * Extension fee =
-         * 10% × outstanding principal at the time of extension.
+         * 5% × outstanding principal at the time of extension.
          *
          * Important:
          *
@@ -144,7 +144,7 @@ public class LoanRestructuringService {
                 /*
                  * Capture the balance BEFORE changing anything.
                  *
-                 * This is the amount used to calculate the 10% fee.
+                 * This is the amount used to calculate the 5% fee.
                  */
                 BigDecimal outstandingAtExtension = safe(loan.getOutstandingBalanceDecimal());
 
@@ -154,7 +154,7 @@ public class LoanRestructuringService {
                 }
 
                 /*
-                 * 10% extension fee.
+                 * 5% extension fee.
                  *
                  * This value is frozen for this extension event.
                  */

@@ -1188,6 +1188,81 @@ public class AccountingService {
         }
 
         /**
+         * Recognizes the application fee already collected at the historical
+         * disbursement of an imported loan. Legacy opening journals deliberately
+         * do not replay cash movements; this entry reclassifies the fee from
+         * migration opening equity (3010) to application-fee income (4100),
+         * matching the established V108 migration treatment. Its source key is
+         * identical to the V108 key, so retries and existing entries are safe.
+         */
+        @Transactional
+        public JournalEntry postHistoricalApplicationFeeIncome(Loan loan) {
+                if (loan == null || loan.getId() == null) {
+                        throw new IllegalArgumentException("Persisted legacy loan is required");
+                }
+
+                BigDecimal applicationFeePaid = money(loan.getApplicationFeePaidDecimal()).max(ZERO);
+                if (applicationFeePaid.compareTo(ZERO) <= 0) {
+                        return null;
+                }
+
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+
+                JournalEntry originalDisbursement = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(), "LOAN_DISBURSEMENT", String.valueOf(loan.getId()))
+                                .orElse(null);
+                if (originalDisbursement != null && !Boolean.TRUE.equals(originalDisbursement.getReversed())) {
+                        boolean alreadyRecognized = lineRepo.findByJournalEntry_Id(originalDisbursement.getId())
+                                        .stream()
+                                        .anyMatch(line -> line.getAccount() != null
+                                                        && "4100".equals(line.getAccount().getCode())
+                                                        && money(line.getCredit()).compareTo(applicationFeePaid) >= 0);
+                        if (alreadyRecognized) {
+                                log.info("Legacy application fee income is already included in disbursement journal; "
+                                                + "skipping reclassification. loanId={}", loan.getId());
+                                return originalDisbursement;
+                        }
+                }
+                ensureChartOfAccounts(org);
+
+                ChartOfAccount equityAccount = account(org, "3010");
+                ChartOfAccount incomeAccount = account(org, "4100");
+                if (incomeAccount.getType() != ChartOfAccount.AccountType.INCOME) {
+                        throw new IllegalStateException("GL 4100 must be an income account");
+                }
+
+                String reference = loan.getReferenceNumber() != null && !loan.getReferenceNumber().isBlank()
+                                ? loan.getReferenceNumber().trim()
+                                : "LOAN-" + loan.getId();
+                String sourceId = loan.getId() + ":APPLICATION_FEE_INCOME";
+                LocalDate entryDate = loan.getDisbursedAt() != null
+                                ? loan.getDisbursedAt().toLocalDate()
+                                : (loan.getStartDate() != null ? loan.getStartDate() : LocalDate.now());
+
+                List<JournalLine> lines = new ArrayList<>();
+                lines.add(JournalLine.builder()
+                                .account(equityAccount)
+                                .debit(applicationFeePaid)
+                                .credit(ZERO)
+                                .description("Remove collected legacy application fee from migration equity — "
+                                                + reference)
+                                .build());
+                lines.add(JournalLine.builder()
+                                .account(incomeAccount)
+                                .debit(ZERO)
+                                .credit(applicationFeePaid)
+                                .description("Recognize collected legacy application fee income — " + reference)
+                                .build());
+
+                return postAtDate(org, loan.getBranch(), "APPLICATION_FEE_INCOME_RECLASSIFICATION",
+                                sourceId, reference,
+                                "Reclassify collected historical application fee to income — " + reference,
+                                entryDate, lines);
+        }
+
+        /**
          * Idempotently repairs accounting opening journals for already-imported
          * historical loans. Existing journals are returned by the generic
          * source-event idempotency check, so this is safe to run repeatedly.
@@ -1217,6 +1292,10 @@ public class AccountingService {
                          */
                         JournalEntry opening = postHistoricalLoanOpening(loan);
                         if (opening != null) {
+                                repaired++;
+                        }
+                        JournalEntry applicationFeeIncome = postHistoricalApplicationFeeIncome(loan);
+                        if (applicationFeeIncome != null) {
                                 repaired++;
                         }
 
@@ -1880,7 +1959,10 @@ public class AccountingService {
                                                         .build());
                 }
 
-                post(
+                LocalDate accountingDisbursementDate = loan.getDisbursedAt() != null
+                                ? loan.getDisbursedAt().toLocalDate()
+                                : LocalDate.now();
+                postAtDate(
                                 org,
                                 loan.getBranch(),
                                 "LOAN_DISBURSEMENT",
@@ -1894,6 +1976,7 @@ public class AccountingService {
                                                 + applicationFee.toPlainString()
                                                 + ", net cash "
                                                 + netCashDisbursed.toPlainString(),
+                                accountingDisbursementDate,
                                 lines);
 
                 log.info(
@@ -2338,7 +2421,7 @@ public class AccountingService {
         // ============================================================
 
         /**
-         * Record a 10% extension/restructuring fee as a receivable and
+         * Record a 5% extension/restructuring fee as a receivable and
          * fee income. The fee is never added to loan principal.
          */
         @Transactional
@@ -2385,7 +2468,7 @@ public class AccountingService {
                                 "LOAN_EXTENSION_FEE",
                                 sourceId,
                                 reference,
-                                "10% extension fee assessed for " + reference,
+                                "5% extension fee assessed for " + reference,
                                 List.of(
                                                 JournalLine.builder()
                                                                 .account(account(org, "1170"))

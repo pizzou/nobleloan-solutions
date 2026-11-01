@@ -328,8 +328,10 @@ public class CollectionsService {
 
                 return cases.stream()
 
-                                .filter(
-                                                Objects::nonNull)
+                                .filter(Objects::nonNull)
+                                // Filtering the main loan register is insufficient: collection
+                                // cases also contain borrower identity and financial balances.
+                                .filter(this::isVisibleToCurrentUser)
 
                                 .filter(
                                                 c -> bucket == null
@@ -446,7 +448,46 @@ public class CollectionsService {
                                                         + caseId);
                 }
 
+                if (!isVisibleToCurrentUser(collectionCase)) {
+                        // Do not expose existence of a confidential case.
+                        throw new IllegalArgumentException("Collection case not found: " + caseId);
+                }
+
                 return collectionCase;
+        }
+
+        /**
+         * Apply the same organization and confidentiality checks before writes.
+         * Background synchronization still uses its established internal path.
+         */
+        @Transactional
+        public CollectionCase assignAgentForOrg(Long caseId, Long agentUserId,
+                        String assignedBy, Long orgId) {
+                getCaseForOrg(caseId, orgId);
+                return assignAgent(caseId, agentUserId, assignedBy);
+        }
+
+        @Transactional
+        public CollectionAction logActionForOrg(Long caseId, CollectionAction.ActionType type,
+                        String notes, String performedBy, String outcome, LocalDate promiseDate,
+                        Double promiseAmount, Long orgId) {
+                getCaseForOrg(caseId, orgId);
+                return logAction(caseId, type, notes, performedBy, outcome, promiseDate, promiseAmount);
+        }
+
+        @Transactional(readOnly = true)
+        public List<CollectionAction> getActionsForOrg(Long caseId, Long orgId) {
+                getCaseForOrg(caseId, orgId);
+                return getActions(caseId);
+        }
+
+        /**
+         * Keep confidential loans out of collections even if their case was
+         * generated before the Business Owner changed reporting visibility.
+         */
+        private boolean isVisibleToCurrentUser(CollectionCase collectionCase) {
+                return collectionCase != null && collectionCase.getLoan() != null
+                                && ReportingScopeService.isVisibleToCurrentUser(collectionCase.getLoan());
         }
 
         // ============================================================
@@ -951,7 +992,7 @@ public class CollectionsService {
 
                 for (CollectionCase collectionCase : cases) {
 
-                        if (collectionCase == null) {
+                        if (!isVisibleToCurrentUser(collectionCase)) {
                                 continue;
                         }
 

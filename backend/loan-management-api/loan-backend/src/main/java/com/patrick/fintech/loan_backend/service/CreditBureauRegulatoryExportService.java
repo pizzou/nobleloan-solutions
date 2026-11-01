@@ -586,6 +586,34 @@ public class CreditBureauRegulatoryExportService {
                 }
         }
 
+        /**
+         * Returns CRB columns [surname, forename1, forename2, forename3].
+         * Multi-part first names are spread across the forename columns.
+         * An accidentally multi-part surname is split into additional forenames
+         * and the last token is retained as the surname. More than four total
+         * names require staff correction; exporting a merged/truncated name is
+         * invalid for the regulatory workbook.
+         */
+        static String[] splitConsumerNames(String firstName, String lastName) {
+                String joined = ((firstName == null ? "" : firstName.trim()) + " "
+                                + (lastName == null ? "" : lastName.trim())).trim();
+                if (joined.isBlank()) {
+                        throw new IllegalArgumentException("CRB export requires borrower names.");
+                }
+                String[] parts = joined.split("\\s+");
+                if (parts.length < 2 || parts.length > 4) {
+                        throw new IllegalArgumentException(
+                                        "CRB export needs one surname and one to three separate forenames; "
+                                                        + "correct borrower name fields before exporting: " + joined);
+                }
+                String[] result = new String[4];
+                result[0] = parts[parts.length - 1];
+                for (int i = 0; i < parts.length - 1; i++) {
+                        result[i + 1] = parts[i];
+                }
+                return result;
+        }
+
         private void writeConsumerRow(
                         Row row,
                         Loan loan,
@@ -598,9 +626,14 @@ public class CreditBureauRegulatoryExportService {
 
                 values[0] = salutationFromGender(borrower.getGender());
 
-                values[1] = borrower.getLastName();
-
-                values[2] = borrower.getFirstName();
+                // CRB template: surname and each forename must occupy distinct cells.
+                // Do not silently discard a fourth forename or merge names in one cell.
+                String[] names = splitConsumerNames(
+                                borrower.getFirstName(), borrower.getLastName());
+                values[1] = names[0]; // Surname
+                values[2] = names[1]; // Forename 1
+                values[3] = names[2]; // Forename 2
+                values[4] = names[3]; // Forename 3
 
                 values[5] = borrower.getNationalId();
 

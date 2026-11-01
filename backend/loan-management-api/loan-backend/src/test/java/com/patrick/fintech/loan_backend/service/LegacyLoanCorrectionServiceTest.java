@@ -115,6 +115,47 @@ class LegacyLoanCorrectionServiceTest {
         }
 
         @Test
+        void correctsExactHistoricalApplicationFeeWithoutChangingRepaymentTotals() {
+                var req = new LegacyLoanCorrectionRequest("NLS-000077",
+                                "Original workbook shows a fixed fee deducted on disbursement.",
+                                "Original-Excel-Fee-Column-F", null,
+                                null, null, null, null, null, null, null, null,
+                                new BigDecimal("145000.00"), new BigDecimal("145000.00"), BigDecimal.ZERO);
+                var preview = service.preview(77L, req, owner);
+                assertEquals(new BigDecimal("145000.00"), preview.proposed().get("applicationFee"));
+                assertEquals(new BigDecimal("145000.00"), preview.proposed().get("applicationFeePaid"));
+                assertEquals(BigDecimal.ZERO.setScale(2), preview.proposed().get("applicationFeeOutstanding"));
+                assertEquals(preview.current().get("totalPaid"), preview.proposed().get("totalPaid"));
+                assertEquals(preview.current().get("totalRepayable"), preview.proposed().get("totalRepayable"));
+                assertTrue(preview.receivableDeltas().isEmpty(),
+                                "A historically paid fee must not generate new cash or GL income");
+        }
+
+        @Test
+        void unpaidHistoricalApplicationFeeProducesOnlyReceivableCorrection() {
+                var req = new LegacyLoanCorrectionRequest("NLS-000077",
+                                "Original workbook shows a fee partially withheld.",
+                                "Original-Excel-Fee-Column-F", null,
+                                null, null, null, null, null, null, null, null,
+                                new BigDecimal("145000.00"), new BigDecimal("115000.00"),
+                                new BigDecimal("30000.00"));
+                var preview = service.preview(77L, req, owner);
+                assertEquals(new BigDecimal("30000.00"), preview.receivableDeltas().get("1180"));
+                assertEquals(1, preview.receivableDeltas().size());
+        }
+
+        @Test
+        void rejectsHistoricalApplicationFeeMismatch() {
+                var req = new LegacyLoanCorrectionRequest("NLS-000077",
+                                "Original workbook shows disputed fee components.",
+                                "Original-Excel-Fee-Column-F", null,
+                                null, null, null, null, null, null, null, null,
+                                new BigDecimal("145000.00"), new BigDecimal("100000.00"),
+                                new BigDecimal("30000.00"));
+                assertThrows(IllegalArgumentException.class, () -> service.preview(77L, req, owner));
+        }
+
+        @Test
         void correctionIsBlockedWhenSubsequentFinancialActivityExists() {
                 var req = new LegacyLoanCorrectionRequest("NLS-000077",
                                 "Signed agreement verifies a transcription mistake in the term.",

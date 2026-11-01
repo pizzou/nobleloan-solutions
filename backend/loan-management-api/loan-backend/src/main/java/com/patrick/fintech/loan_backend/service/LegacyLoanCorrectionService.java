@@ -217,6 +217,10 @@ public class LegacyLoanCorrectionService {
         l.setManagementFee(managementPaid.add(managementDue));
         l.setPenaltiesAssessed(penaltyAssessed);
         l.setPenaltiesPaid(penaltyPaid);
+        // Application-fee correction is tracked independently from repayment totals.
+        // A legacy fee already settled at disbursement is not a borrower repayment.
+        l.setApplicationFee(n(v, "applicationFee"));
+        l.setApplicationFeePaid(n(v, "applicationFeePaid"));
         l.setTotalPaid(n(v, "totalPaid"));
         l.setTotalRepayable(n(v, "totalRepayable"));
         // An import transcription mistake in duration is NOT a loan restructuring.
@@ -254,6 +258,26 @@ public class LegacyLoanCorrectionService {
         set(v, "managementFeeOutstanding", r.managementFeeOutstanding());
         set(v, "penaltiesAssessed", r.penaltiesAssessed());
         set(v, "penaltiesPaid", r.penaltiesPaid());
+
+        boolean applicationFeeCorrectionRequested = r.applicationFee() != null
+                || r.applicationFeePaid() != null || r.applicationFeeOutstanding() != null;
+        if (applicationFeeCorrectionRequested) {
+            if (r.applicationFee() == null || r.applicationFeePaid() == null
+                    || r.applicationFeeOutstanding() == null) {
+                throw new IllegalArgumentException(
+                        "Application fee, amount paid and amount outstanding must be supplied together");
+            }
+            set(v, "applicationFee", r.applicationFee());
+            set(v, "applicationFeePaid", r.applicationFeePaid());
+            set(v, "applicationFeeOutstanding", r.applicationFeeOutstanding());
+            BigDecimal fee = n(v, "applicationFee");
+            BigDecimal feePaid = n(v, "applicationFeePaid");
+            BigDecimal feeOutstanding = n(v, "applicationFeeOutstanding");
+            if (feePaid.add(feeOutstanding).compareTo(fee) != 0) {
+                throw new IllegalArgumentException(
+                        "Application fee paid plus outstanding must equal the original application fee");
+            }
+        }
         if (r.durationMonths() != null) {
             if (!Loan.isValidLoanDuration(r.durationMonths()))
                 throw new IllegalArgumentException("Verified imported loan duration must be between "
@@ -268,17 +292,19 @@ public class LegacyLoanCorrectionService {
         }
         if (r.oldestUnpaidDueDate() != null)
             v.put("oldestUnpaidDueDate", r.oldestUnpaidDueDate().toString());
-        boolean changedFinancial = false;
+        boolean changedCoreFinancial = false;
         for (String f : List.of("principalPaid", "interestPaid", "interestOutstanding", "managementFeePaid",
                 "managementFeeOutstanding", "penaltiesAssessed", "penaltiesPaid")) {
-            if (n(before, f).compareTo(n(v, f)) != 0)
-                changedFinancial = true;
+            if (n(before, f).compareTo(n(v, f)) != 0) {
+                changedCoreFinancial = true;
+                break;
+            }
         }
         LocalDate proposedDue = date(v.get("oldestUnpaidDueDate"));
         if (proposedDue != null && l.getStartDate() != null && proposedDue.isBefore(l.getStartDate()))
             throw new IllegalArgumentException("Oldest unpaid due date cannot precede disbursement/start date");
-        if (!changedFinancial)
-            return v; // A due-date-only correction must NEVER rewrite monetary figures.
+        if (!changedCoreFinancial)
+            return v; // Fee-only and due-date-only corrections must NEVER rewrite repayment totals.
         BigDecimal principal = n(v, "principalPaid");
         BigDecimal amount = n(v, "amount");
         if (principal.compareTo(amount) > 0)
@@ -325,6 +351,10 @@ public class LegacyLoanCorrectionService {
         v.put("penaltiesPaid", money(l.getPenaltiesPaidDecimal()));
         v.put("extensionFeePaid", money(l.getExtensionFeePaidDecimal()));
         v.put("extensionFeeOutstanding", money(l.getExtensionFeeOutstandingDecimal()));
+        v.put("applicationFee", money(l.getApplicationFeeDecimal()));
+        v.put("applicationFeePaid", money(l.getApplicationFeePaidDecimal()));
+        v.put("applicationFeeOutstanding", money(l.getApplicationFeeDecimal()
+                .subtract(l.getApplicationFeePaidDecimal()).max(ZERO)));
         v.put("totalPaid", money(l.getTotalPaidDecimal()));
         v.put("totalRepayable", money(l.getTotalRepayableDecimal()));
         v.put("oldestUnpaidDueDate", l.getNextDueDate() == null ? null : l.getNextDueDate().toString());
@@ -340,6 +370,9 @@ public class LegacyLoanCorrectionService {
         diff(out, "1100", before, after, "principalOutstanding");
         diff(out, "1150", before, after, "interestOutstanding");
         diff(out, "1160", before, after, "managementFeeOutstanding");
+        // Application fees are a separate receivable and must not be folded into
+        // principal/interest/management repayment totals or treated as new cash.
+        diff(out, "1180", before, after, "applicationFeeOutstanding");
         // penalties GL is NET assessed minus paid.
         BigDecimal penaltyBefore = n(before, "penaltiesAssessed").subtract(n(before, "penaltiesPaid"));
         BigDecimal penaltyAfter = n(after, "penaltiesAssessed").subtract(n(after, "penaltiesPaid"));
