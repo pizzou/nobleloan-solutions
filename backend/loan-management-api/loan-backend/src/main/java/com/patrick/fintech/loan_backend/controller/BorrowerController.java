@@ -177,8 +177,42 @@ public class BorrowerController {
         // ============================================================
 
         @PostMapping
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<ApiResponse<BorrowerResponse>> create(
                         @Valid @RequestBody BorrowerRequest req) {
+
+                if (req.getEmail() == null || req.getEmail().isBlank()) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST, "Email is required.");
+                }
+
+                String maritalStatus = req.getMaritalStatus().strip().toUpperCase(java.util.Locale.ROOT);
+                boolean married = "MARRIED".equals(maritalStatus);
+                boolean single = "SINGLE".equals(maritalStatus);
+                String spouseName = trimToNull(req.getSpouseFullName());
+                String spouseId = trimToNull(req.getSpouseNationalId());
+                String spousePhone = trimToNull(req.getSpousePhone());
+                String certificate = trimToNull(req.getSingleCertificateNumber());
+                if (married && spouseName == null) {
+                        throw invalidBorrower("Spouse full name is required for a married borrower.");
+                }
+                if (married && spouseId != null && !spouseId.matches("[0-9]{16}")) {
+                        throw invalidBorrower("Spouse National ID must contain exactly 16 digits.");
+                }
+                if (married && spousePhone != null && !spousePhone.matches("0[0-9]{9}")) {
+                        throw invalidBorrower("Spouse phone must contain exactly 10 digits and start with 0.");
+                }
+                if (single && certificate == null) {
+                        throw invalidBorrower("Single status certificate number is required.");
+                }
+                LocalDate dateOfBirth = null;
+                if (trimToNull(req.getDateOfBirth()) != null) {
+                        try {
+                                dateOfBirth = LocalDate.parse(req.getDateOfBirth().strip());
+                        } catch (java.time.format.DateTimeParseException ex) {
+                                throw invalidBorrower("Enter a valid date of birth.");
+                        }
+                }
 
                 Organization org = currentUserUtil
                                 .getCurrentUser()
@@ -195,9 +229,8 @@ public class BorrowerController {
                                                 req.getEmail(),
                                                 org)) {
 
-                        throw new RuntimeException(
-                                        "Email already registered: "
-                                                        + req.getEmail());
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.CONFLICT, "Email already registered.");
                 }
 
                 Borrower borrower = Borrower.builder()
@@ -237,17 +270,14 @@ public class BorrowerController {
                                 .taxIdentificationNumber(
                                                 req.getTaxIdentificationNumber())
 
-                                .dateOfBirth(
-                                                req.getDateOfBirth() != null
-                                                                ? LocalDate.parse(
-                                                                                req.getDateOfBirth())
-                                                                : null)
-
-                                .gender(
-                                                req.getGender())
-
-                                .maritalStatus(
-                                                req.getMaritalStatus())
+                                .dateOfBirth(dateOfBirth)
+                                .gender(req.getGender())
+                                .maritalStatus(maritalStatus)
+                                .singleCertificateNumber(single ? certificate : null)
+                                .spouseFullName(married ? spouseName : null)
+                                .spouseNationalId(married ? spouseId : null)
+                                .spousePhone(married ? spousePhone : null)
+                                .spouseConsent(married ? Boolean.TRUE.equals(req.getSpouseConsent()) : null)
 
                                 .nationality(
                                                 req.getNationality())
@@ -344,8 +374,23 @@ public class BorrowerController {
 
                                 .build();
 
-                Borrower saved = borrowerRepo.save(
-                                borrower);
+                Borrower saved;
+                try {
+                        saved = borrowerRepo.saveAndFlush(borrower);
+                } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+                        Throwable cause = ex.getMostSpecificCause();
+                        if (cause instanceof java.sql.SQLException sql) {
+                                if ("23505".equals(sql.getSQLState())) {
+                                        throw new org.springframework.web.server.ResponseStatusException(
+                                                        HttpStatus.CONFLICT,
+                                                        "A borrower with these identifying details already exists.");
+                                }
+                                if ("22001".equals(sql.getSQLState())) {
+                                        throw invalidBorrower("One or more borrower fields exceed the allowed length.");
+                                }
+                        }
+                        throw ex;
+                }
 
                 // ========================================================
                 // AUDIT
@@ -586,5 +631,13 @@ public class BorrowerController {
                                 ApiResponse.ok(
                                                 "Borrower updated",
                                                 ResponseDtoMapper.borrower(saved)));
+        }
+
+        private static String trimToNull(String value) {
+                return value == null || value.isBlank() ? null : value.strip();
+        }
+
+        private static org.springframework.web.server.ResponseStatusException invalidBorrower(String message) {
+                return new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, message);
         }
 }

@@ -207,6 +207,11 @@ export default function NewBorrowerPage() {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [gender, setGender] = useState("");
   const [maritalStatus, setMaritalStatus] = useState("");
+  const [singleCertificateNumber, setSingleCertificateNumber] = useState("");
+  const [spouseFullName, setSpouseFullName] = useState("");
+  const [spouseNationalId, setSpouseNationalId] = useState("");
+  const [spousePhone, setSpousePhone] = useState("");
+  const [spouseConsent, setSpouseConsent] = useState(false);
   const [nationality, setNationality] = useState("Rwandan");
   const [placeOfBirth, setPlaceOfBirth] = useState("");
   const [address, setAddress] = useState("");
@@ -291,7 +296,9 @@ export default function NewBorrowerPage() {
         "Enter exactly 10 digits starting with 0, for example 0788 123 456.";
     }
 
-    if (cleanEmail && !EMAIL_PATTERN.test(cleanEmail)) {
+    if (!cleanEmail) {
+      nextErrors.email = "Email is required.";
+    } else if (!EMAIL_PATTERN.test(cleanEmail)) {
       nextErrors.email = "Enter a valid email address.";
     } else if (cleanEmail.length > 150) {
       nextErrors.email = "Email address cannot exceed 150 characters.";
@@ -306,6 +313,21 @@ export default function NewBorrowerPage() {
     if (!maritalStatus.trim()) {
       nextErrors.maritalStatus = "Marital status is required.";
     }
+    if (maritalStatus === "SINGLE" && !singleCertificateNumber.trim()) {
+      nextErrors.singleCertificateNumber =
+        "Single status certificate number is required.";
+    }
+    if (maritalStatus === "MARRIED") {
+      if (!spouseFullName.trim())
+        nextErrors.spouseFullName = "Spouse full name is required.";
+      if (spouseNationalId && !/^[0-9]{16}$/.test(spouseNationalId)) {
+        nextErrors.spouseNationalId = "Enter exactly 16 digits.";
+      }
+      if (spousePhone && !RWANDA_PHONE_PATTERN.test(spousePhone)) {
+        nextErrors.spousePhone = "Enter 10 digits starting with 0.";
+      }
+    }
+
     if (!placeOfBirth.trim()) {
       nextErrors.placeOfBirth = "Place of birth is required.";
     }
@@ -401,6 +423,10 @@ export default function NewBorrowerPage() {
     dateOfBirth,
     gender,
     maritalStatus,
+    singleCertificateNumber,
+    spouseFullName,
+    spouseNationalId,
+    spousePhone,
     placeOfBirth,
     address,
     province,
@@ -452,12 +478,21 @@ export default function NewBorrowerPage() {
       await createBorrower({
         firstName: normalizeName(firstName),
         lastName: normalizeName(lastName),
-        email: email.trim() || undefined,
+        email: email.trim(),
         phone: normalizePhone(phone),
         nationalId: normalizeNationalId(nationalId),
         dateOfBirth,
         gender: gender.trim(),
         maritalStatus: maritalStatus.trim(),
+        ...(maritalStatus === "SINGLE" && {
+          singleCertificateNumber: singleCertificateNumber.trim(),
+        }),
+        ...(maritalStatus === "MARRIED" && {
+          spouseFullName: spouseFullName.trim(),
+          spouseNationalId: spouseNationalId || undefined,
+          spousePhone: spousePhone || undefined,
+          spouseConsent,
+        }),
         nationality: nationality.trim() || "Rwandan",
         placeOfBirth: placeOfBirth.trim(),
         addressLine1: address.trim(),
@@ -919,6 +954,99 @@ export default function NewBorrowerPage() {
                   </select>
                 </Field>
 
+                {maritalStatus === "SINGLE" && (
+                  <Field
+                    id="singleCertificateNumber"
+                    label="Single Status Certificate Number"
+                    required
+                    error={errors.singleCertificateNumber}
+                  >
+                    <input
+                      id="singleCertificateNumber"
+                      value={singleCertificateNumber}
+                      inputMode="text"
+                      maxLength={255}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setSingleCertificateNumber(event.target.value)
+                      }
+                      className={inputClass(errors.singleCertificateNumber)}
+                    />
+                  </Field>
+                )}
+
+                {maritalStatus === "MARRIED" && (
+                  <>
+                    <Field
+                      id="spouseFullName"
+                      label="Spouse Full Name"
+                      required
+                      error={errors.spouseFullName}
+                    >
+                      <input
+                        id="spouseFullName"
+                        value={spouseFullName}
+                        inputMode="text"
+                        maxLength={255}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setSpouseFullName(event.target.value)
+                        }
+                        className={inputClass(errors.spouseFullName)}
+                      />
+                    </Field>
+                    <Field
+                      id="spouseNationalId"
+                      label="Spouse National ID"
+                      error={errors.spouseNationalId}
+                    >
+                      <input
+                        id="spouseNationalId"
+                        value={spouseNationalId}
+                        inputMode="numeric"
+                        maxLength={16}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setSpouseNationalId(
+                            normalizeNationalId(event.target.value),
+                          )
+                        }
+                        className={inputClass(errors.spouseNationalId)}
+                      />
+                    </Field>
+                    <Field
+                      id="spousePhone"
+                      label="Spouse Phone"
+                      error={errors.spousePhone}
+                    >
+                      <input
+                        id="spousePhone"
+                        value={spousePhone}
+                        inputMode="tel"
+                        maxLength={10}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setSpousePhone(normalizePhone(event.target.value))
+                        }
+                        className={inputClass(errors.spousePhone)}
+                      />
+                    </Field>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={spouseConsent}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setSpouseConsent(event.target.checked)
+                        }
+                      />
+                      The borrower confirmed spouse consent for this loan
+                      application and any use of jointly owned property as
+                      collateral.
+                    </label>
+                  </>
+                )}
+
                 <Field
                   id="nationality"
                   label="Nationality"
@@ -929,7 +1057,7 @@ export default function NewBorrowerPage() {
                     id="nationality"
                     type="text"
                     value={nationality}
-                    maxLength={100}
+                    maxLength={10}
                     disabled={loading}
                     onChange={(event) => setNationality(event.target.value)}
                     placeholder="Rwandan"
@@ -1048,7 +1176,7 @@ export default function NewBorrowerPage() {
                 <Field
                   id="email"
                   label="Email Address"
-                  hint="Optional"
+                  required
                   error={errors.email}
                 >
                   <input
@@ -1215,6 +1343,7 @@ export default function NewBorrowerPage() {
                     id="country"
                     type="text"
                     value={country}
+                    maxLength={10}
                     disabled={loading}
                     onChange={(event) => setCountry(event.target.value)}
                     placeholder="Rwanda"

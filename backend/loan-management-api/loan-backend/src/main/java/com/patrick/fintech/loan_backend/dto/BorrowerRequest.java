@@ -36,6 +36,14 @@ public class BorrowerRequest {
     private String gender;
     @NotBlank
     private String maritalStatus;
+    @Size(max = 255)
+    private String singleCertificateNumber;
+    @Size(max = 255)
+    private String spouseFullName;
+    private String spouseNationalId;
+    private String spousePhone;
+    private Boolean spouseConsent;
+    @Size(max = 10, message = "Nationality cannot exceed 10 characters")
     private String nationality;
     @jakarta.validation.constraints.NotBlank(message = "Place of birth is required")
     private String placeOfBirth;
@@ -56,6 +64,7 @@ public class BorrowerRequest {
     @Size(max = 255, message = "Physical address village cannot exceed 255 characters")
     private String physicalAddressVillage;
     @jakarta.validation.constraints.NotBlank(message = "Country is required")
+    @Size(max = 10, message = "Country cannot exceed 10 characters")
     private String country;
     private String postalCode;
     private String employerName;

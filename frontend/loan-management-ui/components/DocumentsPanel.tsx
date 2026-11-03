@@ -9,6 +9,7 @@ import {
   previewFile,
   downloadFile,
   verifyFile,
+  completeDocumentReview,
   formatFileSize,
   fileIcon,
   DOCUMENT_TYPE_LABELS,
@@ -281,6 +282,29 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
     }
   };
 
+  const [sendingReview, setSendingReview] = useState(false);
+  const currentFiles = files.filter(
+    (file) => String(file.verificationStatus) !== "EXPIRED",
+  );
+  const reviewReady =
+    currentFiles.length > 0 &&
+    currentFiles.every((file) =>
+      ["VERIFIED", "REJECTED", "REPLACEMENT_REQUESTED"].includes(
+        file.verificationStatus ?? "",
+      ),
+    );
+
+  async function completeReview() {
+    setSendingReview(true);
+    try {
+      toast("success", await completeDocumentReview(borrowerId));
+    } catch (error: unknown) {
+      toast("error", getMsg(error));
+    } finally {
+      setSendingReview(false);
+    }
+  }
+
   const acceptedTypes = useMemo(() => ".pdf,.jpg,.jpeg,.png,.webp", []);
 
   if (loading) {
@@ -302,6 +326,15 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
             {files.length} {files.length !== 1 ? "files" : "file"} uploaded
           </p>
         </div>
+
+        <button
+          type="button"
+          className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+          disabled={!reviewReady || sendingReview || busyFileId !== null}
+          onClick={() => void completeReview()}
+        >
+          {sendingReview ? "Sending…" : "Complete Review & Notify Borrower"}
+        </button>
 
         <label
           className={

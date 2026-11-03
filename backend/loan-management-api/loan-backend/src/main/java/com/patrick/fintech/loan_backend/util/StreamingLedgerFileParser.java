@@ -339,6 +339,7 @@ public final class StreamingLedgerFileParser {
         private List<String> headers = List.of();
         private int headerRow = -1;
         private boolean probeComplete;
+        private boolean compactMonthlyColumns;
 
         private StreamingHandler(String sheetName,
                 List<PendingRecord> ledgerRows,
@@ -363,6 +364,9 @@ public final class StreamingLedgerFileParser {
             }
 
             if (!probeComplete) {
+                compactMonthlyColumns |= "paid management fee".equalsIgnoreCase(clean(current.get(22)))
+                        && "total paid interest".equalsIgnoreCase(clean(current.get(23)))
+                        && "principal balance".equalsIgnoreCase(clean(current.get(27)));
                 probeRows.add(new LinkedHashMap<>(current));
                 probeRowNumbers.add(physicalRow);
                 determineLayout(false);
@@ -472,7 +476,13 @@ public final class StreamingLedgerFileParser {
                     if (!looksLikeMonthly(indexed)) {
                         return;
                     }
-                    mapped = mapMonthly(indexed);
+                    if (compactMonthlyColumns) {
+                        Map<Integer, String> aligned = new LinkedHashMap<>();
+                        indexed.forEach((column, value) -> aligned.put(column >= 22 ? column + 2 : column, value));
+                        mapped = mapMonthly(aligned);
+                    } else {
+                        mapped = mapMonthly(indexed);
+                    }
                 }
                 case CREDIT -> {
                     if (!looksLikeCredit(indexed)) {
@@ -519,7 +529,7 @@ public final class StreamingLedgerFileParser {
         }
 
         private boolean looksLikeMonthly(Map<Integer, String> row) {
-            if (maxIndex(row) + 1 < MONTHLY_MIN_COLUMNS) {
+            if (!compactMonthlyColumns && maxIndex(row) + 1 < MONTHLY_MIN_COLUMNS) {
                 return false;
             }
             String name = clean(row.get(1));
@@ -600,7 +610,8 @@ public final class StreamingLedgerFileParser {
                 out.put("next_due_date", "");
                 out.put("__import_issue", "Partial historical payments exist but column P holds the FIRST "
                         + "scheduled due date, not necessarily the oldest UNPAID installment. "
-                        + "Enter the verified oldest unpaid due date in column AE "
+                        + "Enter the verified oldest unpaid due date in column "
+                        + (compactMonthlyColumns ? "AC " : "AE ")
                         + "(VERIFIED OLDEST UNPAID DUE DATE) before import. "
                         + "Do not calculate days overdue from disbursement or assume earlier installments remain unpaid.");
             } else {

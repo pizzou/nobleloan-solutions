@@ -377,3 +377,12 @@ export const VERIFICATION_STATUS_META: Record<
     className: "bg-amber-50 text-amber-700",
   },
 };
+
+export async function completeDocumentReview(
+  borrowerId: number,
+): Promise<string> {
+  const response = await API.post<{ message: string }>(
+    `/files/borrower/${borrowerId}/complete-review`,
+  );
+  return response.data.message;
+}

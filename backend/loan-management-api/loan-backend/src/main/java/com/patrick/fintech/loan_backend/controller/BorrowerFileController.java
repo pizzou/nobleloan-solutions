@@ -20,6 +20,9 @@ import com.patrick.fintech.loan_backend.model.DocumentType;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.server.ResponseStatusException;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -35,6 +38,11 @@ import java.nio.charset.StandardCharsets;
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
 public class BorrowerFileController {
+
+        private static final Set<VerificationStatus> FINAL_DECISIONS = java.util.EnumSet.of(
+                        VerificationStatus.VERIFIED, VerificationStatus.REJECTED,
+                        VerificationStatus.REPLACEMENT_REQUESTED);
+        private final JdbcTemplate jdbc;
 
         private final BorrowerFileService fileService;
         private final BorrowerRepository borrowerRepository;
@@ -239,7 +247,7 @@ public class BorrowerFileController {
                 try {
                         status = VerificationStatus.valueOf(statusValue.toUpperCase());
                 } catch (Exception ex) {
-                        throw new RuntimeException("Invalid verification status: " + statusValue);
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification status.");
                 }
 
                 BorrowerFile updated = fileService.verify(
@@ -264,42 +272,48 @@ public class BorrowerFileController {
                                 null,
                                 "Documents & KYC");
 
-                if (updated.getBorrower() != null &&
-                                updated.getBorrower().getEmail() != null) {
-
-                        try {
-
-                                switch (status) {
-
-                                        case VERIFIED ->
-                                                mailService.sendDocumentVerified(
-                                                                updated.getBorrower(),
-                                                                updated.getDocumentType().name());
-
-                                        case REJECTED ->
-                                                mailService.sendDocumentRejected(
-                                                                updated.getBorrower(),
-                                                                updated.getDocumentType().name(),
-                                                                comment);
-
-                                        case REPLACEMENT_REQUESTED ->
-                                                mailService.sendDocumentReplacementRequested(
-                                                                updated.getBorrower(),
-                                                                updated.getDocumentType().name(),
-                                                                comment);
-
-                                        default -> {
-                                        }
-                                }
-
-                        } catch (Exception ignored) {
-                        }
-                }
-
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
                                                 "Document " + status.name().toLowerCase().replace('_', ' '),
                                                 updated));
+        }
+
+        @PostMapping("/borrower/{borrowerId}/complete-review")
+        @org.springframework.transaction.annotation.Transactional
+        public ResponseEntity<ApiResponse<Object>> completeReview(@PathVariable Long borrowerId) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                var borrower = borrowerRepository.findById(borrowerId)
+                                .filter(candidate -> candidate.getOrganization().getId().equals(organizationId))
+                                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                                                "Borrower not found"));
+                var files = fileService.getByBorrowerMetadataOnly(borrowerId).stream()
+                                .filter(file -> file.getVerificationStatus() != VerificationStatus.EXPIRED)
+                                .sorted(java.util.Comparator.comparing(BorrowerFile::getId))
+                                .toList();
+                if (files.isEmpty() || files.stream()
+                                .anyMatch(file -> !FINAL_DECISIONS.contains(file.getVerificationStatus()))) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Review all current documents first.");
+                }
+                if (borrower.getEmail() == null || borrower.getEmail().isBlank()) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "The borrower needs an email address.");
+                }
+                var decisions = files.stream().map(file -> java.util.Arrays.asList(
+                                file.getId(), file.getVerificationStatus(), file.getOfficerComment())).toList();
+                String fingerprint = UUID.nameUUIDFromBytes(decisions.toString().getBytes(StandardCharsets.UTF_8))
+                                .toString();
+                int reserved = jdbc.update("""
+                                INSERT INTO borrower_document_review_notices (borrower_id, fingerprint)
+                                VALUES (?, ?) ON CONFLICT DO NOTHING
+                                """, borrowerId, fingerprint);
+                if (reserved == 0) {
+                        return ResponseEntity.ok(ApiResponse.safe("These decisions were already emailed.", null));
+                }
+                if (!mailService.sendDocumentReviewSummary(borrower, files)) {
+                        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                                        "Email delivery failed. Try again.");
+                }
+                return ResponseEntity.ok(ApiResponse.safe("Document review email sent.", null));
         }
 
         @DeleteMapping("/{fileId}")

@@ -216,6 +216,31 @@ public class MailService {
          * This method logs no recipient address or OTP value.
          */
         /** Synchronous email OTP for safe reuse of existing borrower's KYC. */
+        public boolean sendDocumentReviewSummary(Borrower borrower,
+                        java.util.List<com.patrick.fintech.loan_backend.model.BorrowerFile> files) {
+                if (!mailEnabled) {
+                        return false;
+                }
+                StringBuilder html = new StringBuilder("<h2>Document review complete</h2><p>Dear ")
+                                .append(safe(borrower.getFullName())).append(",</p><ul>");
+                for (var file : files) {
+                        String decision = switch (file.getVerificationStatus()) {
+                                case VERIFIED -> "Verified and accepted";
+                                case REJECTED -> "Rejected";
+                                case REPLACEMENT_REQUESTED -> "Replacement requested";
+                                default -> throw new IllegalArgumentException("Document review is incomplete");
+                        };
+                        html.append("<li>").append(safe(humanizeDocType(file.getDocumentType().name())))
+                                        .append(" (").append(safe(file.getFileName())).append(") — ").append(decision);
+                        if (file.getOfficerComment() != null && !file.getOfficerComment().isBlank()) {
+                                html.append(". ").append(safe(file.getOfficerComment()));
+                        }
+                        html.append("</li>");
+                }
+                html.append("</ul><p>Visit your application portal to view the results and upload any requested replacements.</p>");
+                return send(borrower.getEmail(), "Your document review is complete", html.toString());
+        }
+
         public boolean sendBorrowerDocumentReuseOtp(Borrower borrower, String code) {
                 if (!mailEnabled || borrower == null || borrower.getEmail() == null
                                 || borrower.getEmail().isBlank() || code == null || !code.matches("[0-9]{6}")) {

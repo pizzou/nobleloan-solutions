@@ -314,6 +314,14 @@ public class GlobalExceptionHandler {
          * from
          * becoming part of the public API contract.
          */
+        @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+        public ResponseEntity<Map<String, Object>> handleResponseStatus(
+                        org.springframework.web.server.ResponseStatusException ex) {
+                return ResponseEntity.status(ex.getStatusCode())
+                                .body(error(safeClientMessage(ex.getReason(), "The request could not be completed."),
+                                                null));
+        }
+
         @ExceptionHandler(RuntimeException.class)
         public ResponseEntity<Map<String, Object>> handleRuntime(
                         RuntimeException ex) {
