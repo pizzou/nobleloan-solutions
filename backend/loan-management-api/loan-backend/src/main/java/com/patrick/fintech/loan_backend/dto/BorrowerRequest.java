@@ -2,6 +2,7 @@ package com.patrick.fintech.loan_backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
 
 import java.math.BigDecimal;
 
@@ -104,6 +105,7 @@ public class BorrowerRequest {
         this.monthlyIncome = value == null ? null : BigDecimal.valueOf(value);
     }
 
+    @JsonSetter("monthlyIncome")
     public void setMonthlyIncome(BigDecimal value) {
         this.monthlyIncome = value;
     }
@@ -124,6 +126,7 @@ public class BorrowerRequest {
         this.monthlyExpenses = value == null ? null : BigDecimal.valueOf(value);
     }
 
+    @JsonSetter("monthlyExpenses")
     public void setMonthlyExpenses(BigDecimal value) {
         this.monthlyExpenses = value;
     }
@@ -144,6 +147,7 @@ public class BorrowerRequest {
         this.netWorth = value == null ? null : BigDecimal.valueOf(value);
     }
 
+    @JsonSetter("netWorth")
     public void setNetWorth(BigDecimal value) {
         this.netWorth = value;
     }

@@ -334,13 +334,13 @@ public class BorrowerController {
                                 // ------------------------------------------------
 
                                 .monthlyIncome(
-                                                req.getMonthlyIncome())
+                                                req.getMonthlyIncomeDecimal())
 
                                 .monthlyExpenses(
-                                                req.getMonthlyExpenses())
+                                                req.getMonthlyExpensesDecimal())
 
                                 .netWorth(
-                                                req.getNetWorth())
+                                                req.getNetWorthDecimal())
 
                                 // ------------------------------------------------
                                 // CREDIT
@@ -545,11 +545,11 @@ public class BorrowerController {
                 if (req.getPostalCode() != null) {
                         borrower.setPostalCode(req.getPostalCode().trim());
                 }
-                if (req.getNetWorth() != null) {
-                        borrower.setNetWorth(req.getNetWorth());
+                if (req.getNetWorthDecimal() != null) {
+                        borrower.setNetWorth(req.getNetWorthDecimal());
                 }
-                if (req.getMonthlyExpenses() != null) {
-                        borrower.setMonthlyExpenses(req.getMonthlyExpenses());
+                if (req.getMonthlyExpensesDecimal() != null) {
+                        borrower.setMonthlyExpenses(req.getMonthlyExpensesDecimal());
                 }
                 if (req.getJobTitle() != null) {
                         borrower.setJobTitle(req.getJobTitle().trim());
@@ -571,10 +571,10 @@ public class BorrowerController {
                 // UPDATE FINANCIAL INFORMATION
                 // ========================================================
 
-                if (req.getMonthlyIncome() != null) {
+                if (req.getMonthlyIncomeDecimal() != null) {
 
                         borrower.setMonthlyIncome(
-                                        req.getMonthlyIncome());
+                                        req.getMonthlyIncomeDecimal());
                 }
 
                 if (req.getCreditScore() != null) {
