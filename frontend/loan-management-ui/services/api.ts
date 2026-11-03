@@ -16,7 +16,7 @@ const API_BASE_URL = "/api";
 
 const API: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 20000,
+  timeout: 30000,
   withCredentials: true,
   xsrfCookieName: "XSRF-TOKEN",
   xsrfHeaderName: "X-XSRF-TOKEN",
@@ -405,7 +405,7 @@ export const authApi = {
     return post(
       "/auth/send-login-otp",
       { otpChallengeToken: token },
-      { timeout: 20000 },
+      { timeout: 45000 },
     );
   },
 
@@ -1618,3 +1618,64 @@ function getExportAcceptHeader(format: string): string {
 export default API;
 
 export { API };
+
+
+// NOBLELOAN_API_TIMING_V1
+// Diagnostic-only interceptor. No automatic retries or credential logging.
+const nobleRequestStarts = new WeakMap<object, number>();
+
+function nobleSafePath(url?: string): string {
+  return String(url ?? "unknown")
+    .split("?")[0]
+    .replace(/[0-9a-fA-F-]{20,}/g, ":id")
+    .replace(/\/\d+(?=\/|$)/g, "/:id");
+}
+
+API.interceptors.request.use((config) => {
+  nobleRequestStarts.set(config, Date.now());
+  return config;
+});
+
+API.interceptors.response.use(
+  (response) => {
+    const start = nobleRequestStarts.get(response.config);
+    if (start !== undefined) {
+      const elapsed = Date.now() - start;
+      if (elapsed >= 4000) {
+        console.warn("[API PERFORMANCE]", {
+          method: String(response.config.method ?? "GET").toUpperCase(),
+          path: nobleSafePath(response.config.url),
+          durationMs: elapsed,
+          status: response.status,
+        });
+      }
+    }
+    return response;
+  },
+  (error) => {
+    const config = error?.config;
+    const start = config ? nobleRequestStarts.get(config) : undefined;
+    const elapsed = start === undefined ? undefined : Date.now() - start;
+    const code = String(error?.code ?? "");
+    const status = error?.response?.status;
+
+    if (
+      code === "ECONNABORTED" ||
+      code === "ETIMEDOUT" ||
+      code === "ERR_NETWORK" ||
+      (typeof status === "number" && status >= 500) ||
+      (elapsed !== undefined && elapsed >= 4000)
+    ) {
+      console.warn("[API FAILURE]", {
+        method: String(config?.method ?? "GET").toUpperCase(),
+        path: nobleSafePath(config?.url),
+        durationMs: elapsed,
+        timeoutMs: config?.timeout,
+        status,
+        code,
+      });
+    }
+
+    return Promise.reject(error);
+  }
+);
