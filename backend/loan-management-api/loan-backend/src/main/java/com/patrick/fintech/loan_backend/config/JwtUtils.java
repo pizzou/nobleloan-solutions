@@ -23,7 +23,7 @@ public class JwtUtils {
 
     // JWTs expire after the inactivity window even if an older environment
     // retains a longer JWT_EXPIRATION_MS. Active users renew via /auth/renew.
-    @Value("${app.auth.idle-timeout-ms:300000}")
+    @Value("${app.auth.idle-timeout-ms:600000}")
     private long idleTimeoutMs;
 
     public long sessionLifetimeMs() {

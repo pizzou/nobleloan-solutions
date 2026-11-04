@@ -420,7 +420,7 @@ export const authApi = {
   me: () => get("/auth/me"),
 
   /** Only call after a real keyboard, pointer, touch or scroll interaction. */
-  renew: () => post("/auth/renew", {}),
+  renew: () => post("/auth/renew", {}, { timeout: 60000 }),
 
   logout: () => post("/auth/logout"),
 };
@@ -1619,7 +1619,6 @@ export default API;
 
 export { API };
 
-
 // NOBLELOAN_API_TIMING_V1
 // Diagnostic-only interceptor. No automatic retries or credential logging.
 const nobleRequestStarts = new WeakMap<object, number>();
@@ -1677,5 +1676,5 @@ API.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  }
+  },
 );

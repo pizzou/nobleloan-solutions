@@ -1,6 +1,6 @@
 /** Session activity is presentation state only. Authorization remains in
- * a 5-minute signed HttpOnly JWT and is independently checked server-side. */
-export const SESSION_IDLE_MS = 5 * 60 * 1000;
+ * a 10-minute signed HttpOnly JWT and is independently checked server-side. */
+export const SESSION_IDLE_MS = 10 * 60 * 1000;
 export const SESSION_ACTIVITY_KEY = "nls:last-authenticated-activity";
 
 export function lastSessionActivity(): number {

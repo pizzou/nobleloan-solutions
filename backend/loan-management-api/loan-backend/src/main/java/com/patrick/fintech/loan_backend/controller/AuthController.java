@@ -52,7 +52,7 @@ public class AuthController {
     @Value("${app.jwt.expiration-ms:900000}")
     private long sessionMaxAgeMs;
 
-    @Value("${app.auth.idle-timeout-ms:300000}")
+    @Value("${app.auth.idle-timeout-ms:600000}")
     private long idleTimeoutMs;
 
     @GetMapping("/csrf")

@@ -30,7 +30,9 @@ export function useSessionActivity(
     }
     if (!lastSessionActivity()) noteSessionActivity();
     let lastWrite = 0;
-    let lastRenewal = Date.now() - 60_000;
+    let lastRenewal = 0;
+    let renewedActivity = 0;
+    let stopped = false;
     let renewing = false;
     const recordActivity = () => {
       const now = Date.now();
@@ -51,26 +53,23 @@ export function useSessionActivity(
       logoutRef.current();
     };
     const check = () => {
-      if (ending.current) return;
+      if (stopped || ending.current) return;
       const now = Date.now();
       const last = lastSessionActivity();
       if (!last || now - last >= SESSION_IDLE_MS) {
         expire();
         return;
       }
-      // No keepalive when a user is merely looking at a page. Renew only if
-      // there was an interaction since the previous renewal and recently.
-      if (
-        !renewing &&
-        last > lastRenewal &&
-        now - last < 75_000 &&
-        now - lastRenewal >= 45_000
-      ) {
+      // Renew once for each batch of actual interactions, including the last
+      // action before the user pauses. Polling alone never extends a session.
+      if (!renewing && last > renewedActivity && now - lastRenewal >= 45_000) {
         renewing = true;
+        lastRenewal = now;
+        const activityBeingRenewed = last;
         void authApi
           .renew()
           .then(() => {
-            lastRenewal = Date.now();
+            renewedActivity = activityBeingRenewed;
           })
           .catch(() => {
             // Temporary network/5xx errors should not force logout; when
@@ -81,7 +80,7 @@ export function useSessionActivity(
           });
       }
     };
-    const options: AddEventListenerOptions = { passive: true };
+    const options: AddEventListenerOptions = { passive: true, capture: true };
     const events = [
       "pointerdown",
       "pointermove",
@@ -97,10 +96,16 @@ export function useSessionActivity(
         expire();
     };
     window.addEventListener("storage", handleStorage);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     const interval = window.setInterval(check, 10_000);
     check();
     return () => {
+      stopped = true;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("storage", handleStorage);
       events.forEach((event) =>
         window.removeEventListener(event, recordActivity),
