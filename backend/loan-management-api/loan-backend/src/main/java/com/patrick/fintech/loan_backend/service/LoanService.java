@@ -145,37 +145,8 @@ public class LoanService {
                         return DEFAULT_REQUIRED_DOCS;
                 }
 
-                Borrower borrower = loan.getBorrower();
-                List<DocumentType> required = new ArrayList<>();
-
-                // Mandatory for every public application.
-                required.add(DocumentType.NATIONAL_ID);
-                required.add(DocumentType.BANK_STATEMENT);
-                required.add(DocumentType.SELFIE);
-
-                String maritalStatus = borrower.getMaritalStatus();
-                if ("MARRIED".equalsIgnoreCase(maritalStatus)) {
-                        required.add(DocumentType.MARRIAGE_CERTIFICATE);
-                } else {
-                        required.add(DocumentType.SINGLE_CERTIFICATE);
-                }
-
-                String employmentType = borrower.getEmploymentType();
-                if (employmentType != null) {
-                        String normalized = employmentType.trim().toUpperCase(Locale.ROOT)
-                                        .replace('-', '_').replace(' ', '_');
-
-                        if (Set.of("EMPLOYEE", "EMPLOYED", "PERMANENT", "CONTRACT", "SALARIED")
-                                        .contains(normalized)) {
-                                required.add(DocumentType.PAYSLIP);
-                        } else if (Set.of("SELF_EMPLOYED", "SELFEMPLOYED", "BUSINESS",
-                                        "BUSINESS_OWNER", "COMPANY", "COMPANY_OWNER")
-                                        .contains(normalized)) {
-                                required.add(DocumentType.BUSINESS_REGISTRATION);
-                        }
-                }
-
-                return required;
+                return BorrowerDocumentRequirements.required(
+                                loan.getBorrower().getMaritalStatus(), loan.getBorrower().getEmploymentType());
         }
 
         // BORROWER DASHBOARD

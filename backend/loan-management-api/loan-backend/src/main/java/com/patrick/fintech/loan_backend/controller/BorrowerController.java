@@ -32,6 +32,7 @@ import java.time.LocalDate;
 public class BorrowerController {
 
         private final BorrowerRepository borrowerRepo;
+        private final com.patrick.fintech.loan_backend.service.BorrowerFileService borrowerFileService;
 
         private final CurrentUserUtil currentUserUtil;
 
@@ -175,6 +176,32 @@ public class BorrowerController {
         // ============================================================
         // CREATE BORROWER
         // ============================================================
+
+        /**
+         * All files and the borrower commit together; failed uploads roll back the
+         * profile.
+         */
+        @PostMapping(value = "/with-documents", consumes = "multipart/form-data")
+        @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+        public ResponseEntity<ApiResponse<BorrowerResponse>> createWithDocuments(
+                        @Valid @RequestPart("borrower") BorrowerRequest req,
+                        @RequestParam java.util.Map<String, org.springframework.web.multipart.MultipartFile> files)
+                        throws java.io.IOException {
+                var required = com.patrick.fintech.loan_backend.service.BorrowerDocumentRequirements.required(
+                                req.getMaritalStatus(), req.getEmploymentType());
+                for (DocumentType type : required) {
+                        var file = files.get(type.name());
+                        if (file == null || file.isEmpty()) {
+                                throw invalidBorrower("Please upload the required document: " + type.name());
+                        }
+                }
+                var response = create(req);
+                Long borrowerId = java.util.Objects.requireNonNull(response.getBody()).getData().getId();
+                for (DocumentType type : required) {
+                        borrowerFileService.upload(borrowerId, files.get(type.name()), type, false);
+                }
+                return response;
+        }
 
         @PostMapping
         @org.springframework.transaction.annotation.Transactional

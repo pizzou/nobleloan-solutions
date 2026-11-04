@@ -392,6 +392,7 @@ public class BorrowerFileService {
         Set<DocumentType> uploaded = fileRepository.findByBorrowerId(borrowerId)
                 .stream()
                 .filter(f -> f.getData() != null && f.getData().length > 0)
+                .filter(f -> f.getVerificationStatus() != VerificationStatus.REJECTED)
                 .map(BorrowerFile::getDocumentType)
                 .collect(Collectors.toSet());
 

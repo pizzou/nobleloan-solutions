@@ -4,7 +4,7 @@ import React, { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { createBorrower } from "../../../../services/borrowerService";
+import { createBorrowerWithDocuments } from "../../../../services/borrowerService";
 import { toast } from "../../../../hooks/useToast";
 
 type FormErrors = Record<string, string>;
@@ -242,6 +242,34 @@ export default function NewBorrowerPage() {
     ? "Business Activity / Occupation"
     : "Job Title / Occupation";
 
+  const [documents, setDocuments] = useState<Record<string, File>>({});
+  const requiredDocuments: [string, string][] = [
+    ["NATIONAL_ID", "National ID"],
+    ["BANK_STATEMENT", "Bank statement"],
+    ["SELFIE", "Borrower photograph / selfie"],
+    maritalStatus === "MARRIED"
+      ? ["MARRIAGE_CERTIFICATE", "Marriage certificate"]
+      : ["SINGLE_CERTIFICATE", "Single-status certificate"],
+  ];
+  if (
+    ["EMPLOYEE", "EMPLOYED", "PERMANENT", "CONTRACT", "SALARIED"].includes(
+      employmentType,
+    )
+  ) {
+    requiredDocuments.push(["PAYSLIP", "Payslip"]);
+  } else if (
+    [
+      "SELF_EMPLOYED",
+      "SELFEMPLOYED",
+      "BUSINESS",
+      "BUSINESS_OWNER",
+      "COMPANY",
+      "COMPANY_OWNER",
+    ].includes(employmentType)
+  ) {
+    requiredDocuments.push(["BUSINESS_REGISTRATION", "Business registration"]);
+  }
+
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [serverError, setServerError] = useState("");
@@ -472,43 +500,60 @@ export default function NewBorrowerPage() {
       return;
     }
 
+    const missing = requiredDocuments.filter(
+      ([type]) => !documents[type] || documents[type].size === 0,
+    );
+    if (missing.length) {
+      setServerError(
+        `Upload the required documents: ${missing.map(([, label]) => label).join(", ")}.`,
+      );
+      document
+        .getElementById("required-documents")
+        ?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
     setLoading(true);
 
     try {
-      await createBorrower({
-        firstName: normalizeName(firstName),
-        lastName: normalizeName(lastName),
-        email: email.trim(),
-        phone: normalizePhone(phone),
-        nationalId: normalizeNationalId(nationalId),
-        dateOfBirth,
-        gender: gender.trim(),
-        maritalStatus: maritalStatus.trim(),
-        ...(maritalStatus === "SINGLE" && {
-          singleCertificateNumber: singleCertificateNumber.trim(),
-        }),
-        ...(maritalStatus === "MARRIED" && {
-          spouseFullName: spouseFullName.trim(),
-          spouseNationalId: spouseNationalId || undefined,
-          spousePhone: spousePhone || undefined,
-          spouseConsent,
-        }),
-        nationality: nationality.trim() || "Rwandan",
-        placeOfBirth: placeOfBirth.trim(),
-        addressLine1: address.trim(),
-        physicalAddressProvince: province.trim(),
-        physicalAddressDistrict: district.trim(),
-        physicalAddressSector: sector.trim(),
-        physicalAddressCell: cell.trim(),
-        physicalAddressVillage: village.trim(),
-        country: country.trim(),
-        creditScore: creditScore.trim() ? Number(creditScore) : undefined,
-        employmentType: employmentType.trim(),
-        employerName: employerName.trim() || undefined,
-        jobTitle: jobTitle.trim() || undefined,
-        monthlyIncome: Number(monthlyIncome),
-        monthlyExpenses: Number(monthlyExpenses),
-      });
+      await createBorrowerWithDocuments(
+        {
+          firstName: normalizeName(firstName),
+          lastName: normalizeName(lastName),
+          email: email.trim(),
+          phone: normalizePhone(phone),
+          nationalId: normalizeNationalId(nationalId),
+          dateOfBirth,
+          gender: gender.trim(),
+          maritalStatus: maritalStatus.trim(),
+          ...(maritalStatus === "SINGLE" && {
+            singleCertificateNumber: singleCertificateNumber.trim(),
+          }),
+          ...(maritalStatus === "MARRIED" && {
+            spouseFullName: spouseFullName.trim(),
+            spouseNationalId: spouseNationalId || undefined,
+            spousePhone: spousePhone || undefined,
+            spouseConsent,
+          }),
+          nationality: nationality.trim() || "Rwandan",
+          placeOfBirth: placeOfBirth.trim(),
+          addressLine1: address.trim(),
+          physicalAddressProvince: province.trim(),
+          physicalAddressDistrict: district.trim(),
+          physicalAddressSector: sector.trim(),
+          physicalAddressCell: cell.trim(),
+          physicalAddressVillage: village.trim(),
+          country: country.trim(),
+          creditScore: creditScore.trim() ? Number(creditScore) : undefined,
+          employmentType: employmentType.trim(),
+          employerName: employerName.trim() || undefined,
+          jobTitle: jobTitle.trim() || undefined,
+          monthlyIncome: Number(monthlyIncome),
+          monthlyExpenses: Number(monthlyExpenses),
+        },
+        Object.fromEntries(
+          requiredDocuments.map(([type]) => [type, documents[type]]),
+        ),
+      );
 
       toast("success", "Borrower created successfully.");
 
@@ -1547,6 +1592,74 @@ export default function NewBorrowerPage() {
               </div>
             </div>
           </div>
+
+          <section
+            id="required-documents"
+            className="border-t border-slate-200 px-5 py-6 sm:px-7"
+          >
+            <h2 className="text-lg font-bold text-slate-900">
+              Required documents
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Attach the borrower's documents before creating the profile. Loan
+              approval requires all applicable documents; verification is
+              required before disbursement.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              PDF, JPG, PNG or WEBP. Maximum 8 MB per document.
+            </p>
+            <div className="mt-5 grid gap-5 sm:grid-cols-2">
+              {requiredDocuments.map(([type, label]) => (
+                <Field
+                  key={type}
+                  id={`document-${type}`}
+                  label={label}
+                  required
+                  error={errors[`document-${type}`]}
+                >
+                  <input
+                    id={`document-${type}`}
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    disabled={loading}
+                    className="block w-full rounded-lg border border-slate-300 p-3 text-sm"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      const valid =
+                        file &&
+                        file.size > 0 &&
+                        file.size <= 8 * 1024 * 1024 &&
+                        [
+                          "application/pdf",
+                          "image/jpeg",
+                          "image/png",
+                          "image/webp",
+                        ].includes(file.type);
+                      setDocuments((current) => {
+                        const next = { ...current };
+                        if (valid) next[type] = file;
+                        else delete next[type];
+                        return next;
+                      });
+                      setErrors((current) => ({
+                        ...current,
+                        [`document-${type}`]:
+                          file && !valid
+                            ? "Choose a non-empty PDF or image up to 8 MB."
+                            : "",
+                      }));
+                      if (file && !valid) event.target.value = "";
+                    }}
+                  />
+                  {documents[type] && (
+                    <p className="mt-1 text-xs text-emerald-700">
+                      Selected: {documents[type].name}
+                    </p>
+                  )}
+                </Field>
+              ))}
+            </div>
+          </section>
 
           {/* Actions */}
           <div className="border-t border-slate-100 bg-slate-50/70 px-5 py-5 sm:px-7">
