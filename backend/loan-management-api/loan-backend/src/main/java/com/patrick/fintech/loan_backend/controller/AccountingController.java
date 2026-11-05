@@ -345,7 +345,8 @@ public class AccountingController {
                  */
                 List<JournalEntry> entries = journalRepo.findVisibleByOrganizationIdOrderByEntryDateDesc(
                                 orgId,
-                                com.patrick.fintech.loan_backend.service.ReportingScopeService.includeBusinessOwnerOnly());
+                                com.patrick.fintech.loan_backend.service.ReportingScopeService
+                                                .includeBusinessOwnerOnly());
 
                 if (entries == null) {
                         entries = List.of();
@@ -512,11 +513,14 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/trial-balance")
-        public ResponseEntity<ApiResponse<Map<String, Object>>> trialBalance() {
+        public ResponseEntity<ApiResponse<Map<String, Object>>> trialBalance(
+                        @RequestParam(required = false) String asOf) {
 
                 Long orgId = requireOrganizationId();
 
-                Map<String, Object> report = accountingService.getTrialBalance(orgId);
+                LocalDate date = parseDate(asOf, "asOf");
+                Map<String, Object> report = accountingService.getTrialBalance(
+                                orgId, date != null ? date : LocalDate.now());
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
@@ -530,11 +534,14 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/balance-sheet")
-        public ResponseEntity<ApiResponse<Map<String, Object>>> balanceSheet() {
+        public ResponseEntity<ApiResponse<Map<String, Object>>> balanceSheet(
+                        @RequestParam(required = false) String asOf) {
 
                 Long orgId = requireOrganizationId();
 
-                Map<String, Object> report = accountingService.getBalanceSheet(orgId);
+                LocalDate date = parseDate(asOf, "asOf");
+                Map<String, Object> report = accountingService.getBalanceSheet(
+                                orgId, date != null ? date : LocalDate.now());
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
@@ -823,11 +830,13 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/trial-balance/export")
-        public ResponseEntity<String> exportTrialBalance() {
+        public ResponseEntity<String> exportTrialBalance(
+                        @RequestParam(required = false) String asOf) {
 
                 Long orgId = requireOrganizationId();
 
-                Map<String, Object> tb = accountingService.getTrialBalance(orgId);
+                Map<String, Object> tb = accountingService.getTrialBalance(orgId,
+                                java.util.Objects.requireNonNullElse(parseDate(asOf, "asOf"), LocalDate.now()));
 
                 if (tb == null) {
                         tb = Map.of();
@@ -891,11 +900,13 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/balance-sheet/export")
-        public ResponseEntity<String> exportBalanceSheet() {
+        public ResponseEntity<String> exportBalanceSheet(
+                        @RequestParam(required = false) String asOf) {
 
                 Long orgId = requireOrganizationId();
 
-                Map<String, Object> bs = accountingService.getBalanceSheet(orgId);
+                Map<String, Object> bs = accountingService.getBalanceSheet(orgId,
+                                java.util.Objects.requireNonNullElse(parseDate(asOf, "asOf"), LocalDate.now()));
 
                 if (bs == null) {
                         bs = Map.of();
@@ -1001,11 +1012,13 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/trial-balance/export/excel")
-        public ResponseEntity<byte[]> exportTrialBalanceExcel() {
+        public ResponseEntity<byte[]> exportTrialBalanceExcel(
+                        @RequestParam(required = false) String asOf) {
 
                 Long orgId = requireOrganizationId();
 
-                Map<String, Object> tb = accountingService.getTrialBalance(orgId);
+                Map<String, Object> tb = accountingService.getTrialBalance(orgId,
+                                java.util.Objects.requireNonNullElse(parseDate(asOf, "asOf"), LocalDate.now()));
 
                 if (tb == null) {
                         tb = Map.of();
@@ -1031,7 +1044,8 @@ public class AccountingController {
         }
 
         @GetMapping("/trial-balance/export/pdf")
-        public ResponseEntity<byte[]> exportTrialBalancePdf() {
+        public ResponseEntity<byte[]> exportTrialBalancePdf(
+                        @RequestParam(required = false) String asOf) {
 
                 Organization organization = orgRepo.findById(requireOrganizationId())
                                 .orElseThrow(() -> new IllegalStateException(
@@ -1039,7 +1053,8 @@ public class AccountingController {
 
                 Long orgId = organization.getId();
 
-                Map<String, Object> tb = accountingService.getTrialBalance(orgId);
+                Map<String, Object> tb = accountingService.getTrialBalance(orgId,
+                                java.util.Objects.requireNonNullElse(parseDate(asOf, "asOf"), LocalDate.now()));
 
                 if (tb == null) {
                         tb = Map.of();
@@ -1070,11 +1085,13 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/balance-sheet/export/excel")
-        public ResponseEntity<byte[]> exportBalanceSheetExcel() {
+        public ResponseEntity<byte[]> exportBalanceSheetExcel(
+                        @RequestParam(required = false) String asOf) {
 
                 Long orgId = requireOrganizationId();
 
-                Map<String, Object> bs = accountingService.getBalanceSheet(orgId);
+                Map<String, Object> bs = accountingService.getBalanceSheet(orgId,
+                                java.util.Objects.requireNonNullElse(parseDate(asOf, "asOf"), LocalDate.now()));
 
                 if (bs == null) {
                         bs = Map.of();
@@ -1100,7 +1117,8 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/balance-sheet/export/pdf")
-        public ResponseEntity<byte[]> exportBalanceSheetPdf() {
+        public ResponseEntity<byte[]> exportBalanceSheetPdf(
+                        @RequestParam(required = false) String asOf) {
 
                 Organization organization = orgRepo.findById(requireOrganizationId())
                                 .orElseThrow(() -> new IllegalStateException(
@@ -1108,7 +1126,8 @@ public class AccountingController {
 
                 Long orgId = organization.getId();
 
-                Map<String, Object> bs = accountingService.getBalanceSheet(orgId);
+                Map<String, Object> bs = accountingService.getBalanceSheet(orgId,
+                                java.util.Objects.requireNonNullElse(parseDate(asOf, "asOf"), LocalDate.now()));
 
                 if (bs == null) {
                         bs = Map.of();

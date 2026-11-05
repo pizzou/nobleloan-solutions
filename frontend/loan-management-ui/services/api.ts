@@ -987,9 +987,15 @@ export const accountingApi = {
 
   ledger: (accountId: number) => get(`/accounting/ledger/${accountId}`),
 
-  trialBalance: () => get("/accounting/trial-balance"),
+  trialBalance: (asOf?: string) =>
+    get(
+      `/accounting/trial-balance${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`,
+    ),
 
-  balanceSheet: () => get("/accounting/balance-sheet"),
+  balanceSheet: (asOf?: string) =>
+    get(
+      `/accounting/balance-sheet${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`,
+    ),
 
   profitAndLoss: (from?: string, to?: string) =>
     get(

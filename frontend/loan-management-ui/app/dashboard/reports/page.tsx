@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import API from "../../../services/api";
+import FinancialPeriodFilter, {
+  financialPeriodPreset,
+  type FinancialPeriod,
+} from "../../../components/reports/FinancialPeriodFilter";
 import { getDashboardStats } from "../../../services/dashboardService";
 import { PageSpinner } from "../../../components/ui/Skeleton";
 import FinancialPerformanceCharts, {
@@ -490,10 +494,12 @@ function ExportButtons({
   endpoint,
   label,
   accounting = false,
+  period,
 }: {
   endpoint: string;
   label: string;
   accounting?: boolean;
+  period?: FinancialPeriod;
 }) {
   const [loading, setLoading] = useState<"csv" | "excel" | null>(null);
 
@@ -511,12 +517,19 @@ function ExportButtons({
           ? `/reports/export/${endpoint}/excel`
           : `/reports/export/${endpoint}`;
 
+      const query =
+        !accounting || !period
+          ? ""
+          : endpoint === "trial-balance" || endpoint === "balance-sheet"
+            ? `?asOf=${encodeURIComponent(period.to)}`
+            : `?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}`;
+
       const extension = format === "excel" ? "xlsx" : "csv";
 
       const datePart = new Date().toISOString().slice(0, 10);
 
       await downloadBlob(
-        url,
+        `${url}${query}`,
         `${filenamePart(label)}-${datePart}.${extension}`,
       );
     } catch (error) {
@@ -706,11 +719,13 @@ function ReportDocument({
   title,
   description,
   endpoint,
+  period,
 }: {
   icon: Parameters<typeof Icon>[0]["name"];
   title: string;
   description: string;
   endpoint: string;
+  period: FinancialPeriod;
 }) {
   return (
     <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm">
@@ -729,7 +744,12 @@ function ReportDocument({
       </div>
 
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <ExportButtons endpoint={endpoint} label={title} accounting />
+        <ExportButtons
+          endpoint={endpoint}
+          label={title}
+          accounting
+          period={period}
+        />
       </div>
     </div>
   );
@@ -772,6 +792,9 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
 
   const [accountingError, setAccountingError] = useState<string | null>(null);
+  const [financialPeriod, setFinancialPeriod] = useState<FinancialPeriod>(() =>
+    financialPeriodPreset("this-month"),
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -864,7 +887,9 @@ export default function ReportsPage() {
         }
 
         const results = await Promise.allSettled([
-          API.get(`/reports/accounting/${organizationId}`),
+          API.get(
+            `/reports/accounting/${organizationId}?from=${encodeURIComponent(financialPeriod.from)}&to=${encodeURIComponent(financialPeriod.to)}`,
+          ),
         ]);
 
         if (!mounted) return;
@@ -1017,7 +1042,7 @@ export default function ReportsPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [financialPeriod.from, financialPeriod.to]);
 
   /* ==========================================================================
      DERIVED VALUES
@@ -1225,13 +1250,9 @@ export default function ReportsPage() {
     ]),
   );
 
-  const reportingFrom =
-    profitAndLoss?.from ?? monthlyAccounting[0]?.from ?? asOfDate;
+  const reportingFrom = financialPeriod.from;
 
-  const reportingTo =
-    profitAndLoss?.to ??
-    monthlyAccounting[monthlyAccounting.length - 1]?.to ??
-    asOfDate;
+  const reportingTo = financialPeriod.to;
 
   const hasAccountingReports = Boolean(
     trialBalance || balanceSheet || profitAndLoss || cashFlow,
@@ -1319,6 +1340,11 @@ export default function ReportsPage() {
             </Link>
           </div>
         </header>
+
+        <FinancialPeriodFilter
+          value={financialPeriod}
+          onApply={setFinancialPeriod}
+        />
 
         {/* ==================================================================
            WARNING
@@ -2159,6 +2185,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="ledger"
               endpoint="trial-balance"
+              period={financialPeriod}
               title="Trial Balance"
               description="Account balances and debit/credit control totals."
             />
@@ -2166,6 +2193,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="balance"
               endpoint="balance-sheet"
+              period={financialPeriod}
               title="Statement of Financial Position"
               description="Assets, liabilities and equity at the reporting date."
             />
@@ -2173,6 +2201,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="profit"
               endpoint="profit-and-loss"
+              period={financialPeriod}
               title="Statement of Profit or Loss"
               description="Income, expenses and net earnings for the period."
             />
@@ -2180,6 +2209,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="cash"
               endpoint="cash-flow"
+              period={financialPeriod}
               title="Statement of Cash Flows"
               description="Cash generated and used through lending and collections."
             />

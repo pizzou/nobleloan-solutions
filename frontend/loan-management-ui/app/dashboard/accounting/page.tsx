@@ -9,6 +9,10 @@ import {
 } from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
+import FinancialPeriodFilter, {
+  financialPeriodPreset,
+  type FinancialPeriod,
+} from "@/components/reports/FinancialPeriodFilter";
 import { toast } from "@/hooks/useToast";
 
 /* =========================================================
@@ -165,6 +169,9 @@ export default function AccountingPage() {
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
   const [pnl, setPnl] = useState<ProfitAndLoss | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlow | null>(null);
+  const [financialPeriod, setFinancialPeriod] = useState<FinancialPeriod>(() =>
+    financialPeriodPreset("this-month"),
+  );
   const [branchSummary, setBranchSummary] = useState<BranchSummaryRow[]>([]);
   const [controlTotals, setControlTotals] = useState<{
     totalDisbursed?: number | string;
@@ -228,11 +235,17 @@ export default function AccountingPage() {
       ] = await Promise.all([
         accountingApi.chartOfAccounts().catch(() => []),
         accountingApi.journal().catch(() => []),
-        accountingApi.trialBalance().catch(() => null),
-        accountingApi.balanceSheet().catch(() => null),
-        accountingApi.profitAndLoss().catch(() => null),
-        accountingApi.cashFlow().catch(() => null),
-        accountingApi.branchSummary().catch(() => []),
+        accountingApi.trialBalance(financialPeriod.to).catch(() => null),
+        accountingApi.balanceSheet(financialPeriod.to).catch(() => null),
+        accountingApi
+          .profitAndLoss(financialPeriod.from, financialPeriod.to)
+          .catch(() => null),
+        accountingApi
+          .cashFlow(financialPeriod.from, financialPeriod.to)
+          .catch(() => null),
+        accountingApi
+          .branchSummary(financialPeriod.from, financialPeriod.to)
+          .catch(() => []),
         bankAccountApi.list().catch(() => []),
         branchApi.list().catch(() => []),
         loanApi.dashboard().catch(() => null),
@@ -261,7 +274,7 @@ export default function AccountingPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [financialPeriod.from, financialPeriod.to]);
 
   useEffect(() => {
     void loadAll();
@@ -464,6 +477,11 @@ export default function AccountingPage() {
      LOADING
   ======================================================= */
 
+  const visibleJournal = journal.filter((entry) => {
+    const date = String(entry.entryDate ?? "").slice(0, 10);
+    return date >= financialPeriod.from && date <= financialPeriod.to;
+  });
+
   if (loading) {
     return <PageSpinner />;
   }
@@ -499,6 +517,11 @@ export default function AccountingPage() {
             : "Reconcile Imported Loans"}
         </button>
       </div>
+
+      <FinancialPeriodFilter
+        value={financialPeriod}
+        onApply={setFinancialPeriod}
+      />
 
       {reconciliationSummary && (
         <div
@@ -869,7 +892,7 @@ export default function AccountingPage() {
             <div className="font-bold text-gray-900">Profit &amp; Loss</div>
 
             <p className="text-xs text-gray-500 mt-1">
-              Current month-to-date income and expenses.
+              Income and expenses for the selected reporting period.
             </p>
           </div>
 
@@ -935,7 +958,7 @@ export default function AccountingPage() {
             <div className="font-bold text-gray-900">Cash Flow</div>
 
             <p className="text-xs text-gray-500 mt-1">
-              Current month-to-date cash movement.
+              Cash movements for the selected reporting period.
             </p>
           </div>
 
@@ -1051,13 +1074,13 @@ export default function AccountingPage() {
 
       {tab === "Journal" && (
         <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-          {journal.length === 0 && (
+          {visibleJournal.length === 0 && (
             <div className="px-5 py-8 text-center text-gray-400 text-sm">
               No journal entries yet.
             </div>
           )}
 
-          {journal.map((entry) => (
+          {visibleJournal.map((entry) => (
             <div key={entry.id}>
               <div
                 role="button"
