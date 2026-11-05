@@ -162,8 +162,12 @@ public class BorrowerFileController {
                                                                 borrowerId)));
         }
 
+        // The mandatory access audit writes a journal entry via Propagation.REQUIRED.
+        // A read-only surrounding transaction makes that INSERT fail on PostgreSQL.
+        // Keep the access authorization, byte handling and audit atomic in one
+        // writable transaction: no unaudited download is returned on failure.
         @GetMapping("/download/{fileId}")
-        @org.springframework.transaction.annotation.Transactional(readOnly = true)
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<byte[]> download(
                         @PathVariable Long fileId) {
 
@@ -174,8 +178,10 @@ public class BorrowerFileController {
                                 "Downloaded");
         }
 
+        // Preview is also a mandatory audited access, so its transaction must
+        // permit the audit insert while still rolling back on audit failure.
         @GetMapping("/preview/{fileId}")
-        @org.springframework.transaction.annotation.Transactional(readOnly = true)
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<byte[]> preview(
                         @PathVariable Long fileId) {
 
