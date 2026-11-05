@@ -181,6 +181,7 @@ public class BorrowerFileService {
             boolean available = file.getData() != null && file.getData().length > 0;
             entityManager.detach(file);
             file.setContentAvailable(available);
+            file.setLoanId(file.getLoan() == null ? null : file.getLoan().getId());
             file.setDocumentReviewDueAt(BorrowerDocumentReusePolicy.reviewDueAt(file));
             file.setUpdateRequired(BorrowerDocumentReusePolicy.reviewerUpdateRequired(file, LocalDate.now()));
             file.setData(null);
@@ -202,6 +203,44 @@ public class BorrowerFileService {
                 .findFirstByBorrowerIdAndDocumentTypeAndLoanIsNullOrderByUploadedAtDescIdDesc(borrowerId, type)
                 .map(f -> BorrowerDocumentReusePolicy.reusable(f, LocalDate.now()))
                 .orElse(false);
+    }
+
+    /**
+     * An immovable-collateral valuation must belong to THIS loan and have a
+     * final VERIFIED decision. Borrower-level KYC and older loan reports are
+     * intentionally not eligible.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasVerifiedExpertiseForLoan(Long loanId, Long borrowerId) {
+        if (loanId == null || borrowerId == null)
+            return false;
+        // Only the latest evidence counts. An older VERIFIED report must not
+        // bypass a newer PENDING, REJECTED or replacement-requested report.
+        return fileRepository.findByBorrowerId(borrowerId).stream()
+                .filter(file -> file.getLoan() != null && loanId.equals(file.getLoan().getId()))
+                .filter(file -> file.getDocumentType() == DocumentType.COLLATERAL_EXPERTISE)
+                .max(java.util.Comparator
+                        .comparing(BorrowerFile::getUploadedAt,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
+                        .thenComparing(BorrowerFile::getId,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
+                .filter(file -> file.getVerificationStatus() == VerificationStatus.VERIFIED)
+                .filter(file -> file.getData() != null && file.getData().length > 0)
+                .isPresent();
+    }
+
+    /**
+     * Documents list/approval UI can distinguish missing expertise from pending
+     * review.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasUploadedExpertiseForLoan(Long loanId, Long borrowerId) {
+        if (loanId == null || borrowerId == null)
+            return false;
+        return fileRepository.findByBorrowerId(borrowerId).stream()
+                .filter(file -> file.getLoan() != null && loanId.equals(file.getLoan().getId()))
+                .filter(file -> file.getDocumentType() == DocumentType.COLLATERAL_EXPERTISE)
+                .anyMatch(file -> file.getData() != null && file.getData().length > 0);
     }
 
     /**

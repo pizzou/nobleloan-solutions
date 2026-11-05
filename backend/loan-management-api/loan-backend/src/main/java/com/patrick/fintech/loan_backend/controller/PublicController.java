@@ -3345,6 +3345,31 @@ public class PublicController {
                         throw new IllegalArgumentException("Maximum nine additional supporting documents.");
                 }
 
+                if ("NONE".equals(normalizedCollateralType)
+                                && collateralExpertiseDocument != null && !collateralExpertiseDocument.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                        "No collateral selected: remove the collateral expertise report.");
+                }
+                long totalApplicationFileBytes = 0L;
+                for (MultipartFile file : java.util.Arrays.asList(
+                                nationalIdFile, bankStatementFile, marriageCertificateFile,
+                                singleCertificateFile, selfieFile, payslipFile,
+                                businessRegistrationFile, collateralExpertiseDocument)) {
+                        if (file != null)
+                                totalApplicationFileBytes += file.getSize();
+                }
+                if (otherSupportingDocuments != null) {
+                        for (MultipartFile file : otherSupportingDocuments) {
+                                if (file != null)
+                                        totalApplicationFileBytes += file.getSize();
+                        }
+                }
+                if (totalApplicationFileBytes > 30L * 1024 * 1024) {
+                        throw new IllegalArgumentException(
+                                        "Total application attachments must not exceed 30 MB. "
+                                                        + "Please reduce the supporting file sizes.");
+                }
+
                 // ========================================================
                 // PERSIST REQUIRED DOCUMENTS BEFORE CREATING THE LOAN
                 // ========================================================

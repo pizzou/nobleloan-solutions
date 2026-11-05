@@ -665,6 +665,22 @@ public class LoanService {
                 if (!java.util.Set.of("NONE", "MOVABLE", "IMMOVABLE").contains(collateralType)) {
                         throw new IllegalArgumentException("Collateral type must be NONE, MOVABLE or IMMOVABLE.");
                 }
+                // A collateral choice must reconcile with its declared value and description.
+                String collateralDescription = req.getCollateralDescription();
+                if ("NONE".equals(collateralType)) {
+                        if ((collateralDescription != null && !collateralDescription.isBlank())
+                                        || (collateralValue != null && collateralValue.compareTo(ZERO) != 0)) {
+                                throw new IllegalArgumentException(
+                                                "No collateral was selected; remove collateral description and value.");
+                        }
+                } else {
+                        if (collateralDescription == null || collateralDescription.isBlank()) {
+                                throw new IllegalArgumentException("Describe the proposed loan collateral.");
+                        }
+                        if (collateralValue == null || collateralValue.compareTo(ZERO) <= 0) {
+                                throw new IllegalArgumentException("Collateral value must be greater than zero.");
+                        }
+                }
                 Loan loan = Loan.builder()
                                 .referenceNumber(
                                                 generateRef(org))
@@ -956,6 +972,8 @@ public class LoanService {
                                                                         .map(DocumentType::name)
                                                                         .collect(Collectors.joining(", ")));
                 }
+
+                requireVerifiedImmovableExpertise(loan);
 
                 // ============================================================
                 // PRICING SNAPSHOT
@@ -1518,6 +1536,8 @@ public class LoanService {
                                                                         .map(DocumentType::name)
                                                                         .collect(Collectors.joining(", ")));
                 }
+
+                requireVerifiedImmovableExpertise(loan);
 
                 // Production disbursement must be backed by a current, provider-backed
                 // KYC/AML clearance. ProductionConfigurationValidator already fails
@@ -2722,6 +2742,16 @@ public class LoanService {
         // DOCUMENT REQUIREMENTS
         // ================================================================
 
+        private void requireVerifiedImmovableExpertise(Loan loan) {
+                if (loan != null && "IMMOVABLE".equalsIgnoreCase(loan.getCollateralType())
+                                && !fileService.hasVerifiedExpertiseForLoan(
+                                                loan.getId(), loan.getBorrower().getId())) {
+                        throw new IllegalStateException(
+                                        "This immovable-collateral loan requires a VERIFIED expertise/valuation "
+                                                        + "report attached to this loan before approval or disbursement.");
+                }
+        }
+
         public Map<String, Object> getDocumentRequirements(
                         Long loanId,
                         Long orgId) {
@@ -2771,6 +2801,21 @@ public class LoanService {
                                 loan.getBorrower().getId(),
                                 required);
 
+                if ("IMMOVABLE".equalsIgnoreCase(loan.getCollateralType())) {
+                        required = new java.util.ArrayList<>(required);
+                        required.add(DocumentType.COLLATERAL_EXPERTISE);
+                        boolean hasExpertise = fileService.hasUploadedExpertiseForLoan(
+                                        loan.getId(), loan.getBorrower().getId());
+                        if (!hasExpertise) {
+                                missing = new java.util.ArrayList<>(missing);
+                                missing.add(DocumentType.COLLATERAL_EXPERTISE);
+                        } else if (!fileService.hasVerifiedExpertiseForLoan(
+                                        loan.getId(), loan.getBorrower().getId())) {
+                                unverified = new java.util.ArrayList<>(unverified);
+                                unverified.add(DocumentType.COLLATERAL_EXPERTISE);
+                        }
+                }
+
                 result.put(
                                 "required",
                                 required.stream()
@@ -2791,7 +2836,7 @@ public class LoanService {
 
                 result.put(
                                 "readyToApprove",
-                                missing.isEmpty());
+                                missing.isEmpty() && !unverified.contains(DocumentType.COLLATERAL_EXPERTISE));
 
                 result.put(
                                 "readyToDisburse",

@@ -148,6 +148,23 @@ public class LoanController {
                         throw new org.springframework.web.server.ResponseStatusException(
                                         HttpStatus.BAD_REQUEST, "Maximum nine additional supporting documents.");
                 }
+                if ("NONE".equals(category) && expertise != null && !expertise.isEmpty()) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Do not attach collateral expertise when collateral type is NONE.");
+                }
+                long bytes = expertise == null ? 0L : expertise.getSize();
+                if (otherDocuments != null) {
+                        for (var doc : otherDocuments) {
+                                if (doc != null)
+                                        bytes += doc.getSize();
+                        }
+                }
+                if (bytes > 24L * 1024 * 1024) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.PAYLOAD_TOO_LARGE,
+                                        "Loan supporting documents exceed the 24 MB total upload limit.");
+                }
                 // @RequestPart is not handled by RequestBodyAdvice: run the KYC guard
                 // explicitly.
                 loanCreationDocumentGuard.validateRequiredDocuments(req);

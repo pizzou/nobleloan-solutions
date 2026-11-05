@@ -88,6 +88,13 @@ public class BorrowerFile {
     private byte[] data;
 
     /** True when the database row contains non-empty binary content. */
+    /**
+     * Exposes the loan relationship only as metadata; the entity relation stays
+     * private.
+     */
+    @Transient
+    private Long loanId;
+
     @Transient
     private boolean contentAvailable;
 

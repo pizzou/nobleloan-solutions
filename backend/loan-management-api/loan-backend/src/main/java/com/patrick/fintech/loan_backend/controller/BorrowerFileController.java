@@ -427,7 +427,8 @@ public class BorrowerFileController {
                 if (FINAL_DECISIONS.contains(status)) {
                         scheduleCombinedNotification(
                                         updated.getBorrower().getId(),
-                                        user.getOrganization().getId());
+                                        user.getOrganization().getId(),
+                                        updated.getLoan() == null ? null : updated.getLoan().getId());
                 }
 
                 return ResponseEntity.ok(
@@ -449,7 +450,8 @@ public class BorrowerFileController {
          */
         private void scheduleCombinedNotification(
                         Long borrowerId,
-                        Long organizationId) {
+                        Long organizationId,
+                        Long changedLoanId) {
 
                 if (!TransactionSynchronizationManager
                                 .isSynchronizationActive()) {
@@ -474,10 +476,23 @@ public class BorrowerFileController {
                                                                         transaction.setPropagationBehavior(
                                                                                         TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 
-                                                                        transaction.execute(
-                                                                                        status -> sendCombinedNotificationIfReady(
-                                                                                                        borrowerId,
-                                                                                                        organizationId));
+                                                                        if (changedLoanId == null) {
+                                                                                transaction.execute(
+                                                                                                status -> sendCombinedNotificationIfReady(
+                                                                                                                borrowerId,
+                                                                                                                organizationId));
+                                                                        }
+                                                                        // Distinct loan-specific reports are reviewed
+                                                                        // as one set.
+                                                                        // They do not enter the borrower KYC summary
+                                                                        // above.
+                                                                        if (changedLoanId != null) {
+                                                                                transaction.execute(
+                                                                                                status -> sendLoanEvidenceSummaryIfReady(
+                                                                                                                borrowerId,
+                                                                                                                changedLoanId,
+                                                                                                                organizationId));
+                                                                        }
 
                                                                 } catch (RuntimeException ex) {
                                                                         log.error(
@@ -490,6 +505,88 @@ public class BorrowerFileController {
                                                                 }
                                                         }
                                                 });
+        }
+
+        /**
+         * Send one combined email after all current loan-attached supporting
+         * documents have FINAL decisions. Reuse V132's durable fingerprint
+         * deduplication, prefixed by loan id to avoid KYC collisions.
+         */
+        private ReviewNotificationResult sendLoanEvidenceSummaryIfReady(
+                        Long borrowerId, Long loanId, Long orgId) {
+                Borrower borrower = borrowerRepository.findById(borrowerId)
+                                .filter(item -> item.getOrganization() != null
+                                                && orgId.equals(item.getOrganization().getId()))
+                                .orElseThrow(() -> new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Borrower not found."));
+                List<BorrowerFile> allLoanEvidence = fileService.getByBorrowerMetadataOnly(borrowerId)
+                                .stream()
+                                .filter(file -> loanId.equals(file.getLoanId()))
+                                .filter(file -> file.getDocumentType() == DocumentType.COLLATERAL_EXPERTISE
+                                                || file.getDocumentType() == DocumentType.COLLATERAL_DOCUMENT
+                                                || file.getDocumentType() == DocumentType.OTHER)
+                                .toList();
+                // A replaced expertise file supersedes older versions; otherwise an
+                // obsolete pending copy could prevent the consolidated email forever.
+                BorrowerFile currentExpertise = allLoanEvidence.stream()
+                                .filter(file -> file.getDocumentType() == DocumentType.COLLATERAL_EXPERTISE)
+                                .max(NEWEST_FIRST).orElse(null);
+                List<BorrowerFile> docs = allLoanEvidence.stream()
+                                .filter(file -> file.getDocumentType() != DocumentType.COLLATERAL_EXPERTISE
+                                                || file == currentExpertise)
+                                .sorted(Comparator.comparing(BorrowerFile::getId))
+                                .toList();
+                if (docs.isEmpty() || docs.stream()
+                                .anyMatch(file -> !FINAL_DECISIONS.contains(file.getVerificationStatus()))) {
+                        return ReviewNotificationResult.INCOMPLETE;
+                }
+                if (borrower.getEmail() == null || borrower.getEmail().isBlank()) {
+                        return ReviewNotificationResult.EMAIL_MISSING;
+                }
+                StringBuilder source = new StringBuilder("loan:").append(loanId).append('\n');
+                for (BorrowerFile file : docs) {
+                        source.append(file.getId()).append('|')
+                                        .append(file.getDocumentType()).append('|')
+                                        .append(file.getVerificationStatus()).append('|')
+                                        .append(file.getOfficerComment()).append('\n');
+                }
+                String fingerprint = UUID.nameUUIDFromBytes(
+                                source.toString().getBytes(StandardCharsets.UTF_8)).toString();
+                if (jdbc.update("""
+                                INSERT INTO borrower_document_review_notices (borrower_id, fingerprint)
+                                VALUES (?, ?) ON CONFLICT DO NOTHING
+                                """, borrowerId, fingerprint) == 0) {
+                        return ReviewNotificationResult.ALREADY_SENT;
+                }
+                if (!mailService.sendDocumentReviewSummary(borrower, docs)) {
+                        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                                        "Loan collateral review email failed; retry the review notification.");
+                }
+                log.info("Combined loan evidence review notice sent for borrower {} loan {}",
+                                borrowerId, loanId);
+                return ReviewNotificationResult.SENT;
+        }
+
+        @PostMapping("/borrower/{borrowerId}/loan/{loanId}/complete-review")
+        @org.springframework.transaction.annotation.Transactional
+        public ResponseEntity<ApiResponse<Object>> completeLoanEvidenceReview(
+                        @PathVariable Long borrowerId, @PathVariable Long loanId) {
+                User user = currentUserUtil.getCurrentUser();
+                ReviewNotificationResult result = sendLoanEvidenceSummaryIfReady(
+                                borrowerId, loanId, user.getOrganization().getId());
+                if (result == ReviewNotificationResult.INCOMPLETE) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                        "Finish reviewing all loan supporting documents first.");
+                }
+                if (result == ReviewNotificationResult.EMAIL_MISSING) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                        "Borrower email address is required.");
+                }
+                return ResponseEntity.ok(ApiResponse.safe(
+                                result == ReviewNotificationResult.SENT
+                                                ? "Combined loan evidence email sent."
+                                                : "This loan evidence review was already emailed.",
+                                null));
         }
 
         /**
@@ -564,9 +661,8 @@ public class BorrowerFileController {
                                 borrower.getEmploymentType());
 
                 Map<DocumentType, BorrowerFile> latestByType = new EnumMap<>(DocumentType.class);
-                // Optional supporting documents can have several files under one
-                // category. Every distinct attachment must be included in the
-                // completion check and the consolidated email.
+                // All distinct borrower-level optional attachments participate in the KYC
+                // summary.
                 List<BorrowerFile> supportingFiles = new ArrayList<>();
 
                 for (BorrowerFile file : fileService.getByBorrowerMetadataOnly(borrowerId)) {
@@ -584,7 +680,6 @@ public class BorrowerFileController {
                                 }
                                 continue;
                         }
-
                         BorrowerFile previous = latestByType.get(file.getDocumentType());
 
                         if (previous == null
@@ -620,7 +715,6 @@ public class BorrowerFileController {
                 }
 
                 current.addAll(supportingFiles);
-
                 if (current.isEmpty()) {
                         return ReviewNotificationResult.INCOMPLETE;
                 }

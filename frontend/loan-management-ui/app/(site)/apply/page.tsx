@@ -283,6 +283,19 @@ function ApplyPageContent() {
       return;
     }
 
+    if (
+      form.collateralType !== "NONE" &&
+      (!form.collateral.trim() ||
+        !Number.isFinite(Number(form.collateralValue)) ||
+        Number(form.collateralValue) <= 0)
+    ) {
+      setError(
+        "Collateral description and a positive valuation are required when collateral is selected.",
+      );
+      setSaving(false);
+      setStep(3);
+      return;
+    }
     if (form.collateralType === "IMMOVABLE" && !collateralExpertise) {
       setError(
         "An expertise / valuation report is mandatory for immovable collateral.",
@@ -296,6 +309,8 @@ function ApplyPageContent() {
       ...extraEvidence,
     ];
     if (
+      supportFiles.reduce((total, file) => total + file.size, 0) >
+        24 * 1024 * 1024 ||
       extraEvidence.length > 9 ||
       supportFiles.some(
         (file) =>
@@ -417,6 +432,9 @@ function ApplyPageContent() {
         "application",
         JSON.stringify({
           ...form,
+          collateral: form.collateralType === "NONE" ? "" : form.collateral,
+          collateralValue:
+            form.collateralType === "NONE" ? "" : form.collateralValue,
           nationality,
           tenantSlug: slug,
           ...(reuseExistingDocuments && reuseProof ? { reuseProof } : {}),
@@ -1333,6 +1351,14 @@ function ApplyPageContent() {
                       collateralType: event.target.value,
                     }));
                     setCollateralExpertise(null);
+                    if (event.target.value === "NONE") {
+                      setForm((previous) => ({
+                        ...previous,
+                        collateralType: "NONE",
+                        collateral: "",
+                        collateralValue: "",
+                      }));
+                    }
                   }}
                 >
                   <option value="NONE">No collateral</option>

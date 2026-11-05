@@ -472,6 +472,14 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                         </span>
                       )}
 
+                      {(f as typeof f & { loanId?: number | null }).loanId && (
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold text-[10px] uppercase tracking-wide">
+                          Loan #
+                          {(f as typeof f & { loanId?: number | null }).loanId}{" "}
+                          — loan-specific evidence
+                        </span>
+                      )}
+
                       {f.uploadedByApplicant && (
                         <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-semibold text-[10px] uppercase tracking-wide">
                           From Applicant

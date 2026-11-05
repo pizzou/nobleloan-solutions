@@ -352,11 +352,18 @@ function NewLoanForm() {
     duration <= 6 &&
     Boolean(startDate) &&
     purpose.trim().length >= 10 &&
+    (collateralType === "NONE" ||
+      (collateralDescription.trim().length > 0 &&
+        collateralValue.trim().length > 0 &&
+        Number(collateralValue) > 0)) &&
     (collateralType !== "IMMOVABLE" || Boolean(collateralExpertise)) &&
     (!collateralExpertise ||
       (ALLOWED_MIME_TYPES.has(collateralExpertise.type) &&
         collateralExpertise.size > 0 &&
         collateralExpertise.size <= MAX_DOCUMENT_BYTES)) &&
+    (collateralExpertise?.size ?? 0) +
+      extraEvidence.reduce((sum, file) => sum + file.size, 0) <=
+      24 * 1024 * 1024 &&
     extraEvidence.length <= 9 &&
     extraEvidence.every(
       (file) =>
@@ -543,8 +550,10 @@ function NewLoanForm() {
         repaymentFrequency: "MONTHLY",
         purpose: purpose.trim(),
         notes: notes.trim() || undefined,
-        collateralValue: collateralValue ? Number(collateralValue) : undefined,
-        collateralDescription: collateralDescription.trim() || undefined,
+        collateralValue:
+          collateralType === "NONE" ? undefined : Number(collateralValue),
+        collateralDescription:
+          collateralType === "NONE" ? undefined : collateralDescription.trim(),
         collateralType,
       };
       const multipart = new FormData();
@@ -782,6 +791,10 @@ function NewLoanForm() {
                     event.target.value as "NONE" | "MOVABLE" | "IMMOVABLE",
                   );
                   setCollateralExpertise(null);
+                  if (event.target.value === "NONE") {
+                    setCollateralValue("");
+                    setCollateralDescription("");
+                  }
                 }}
               >
                 <option value="NONE">No collateral</option>
