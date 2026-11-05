@@ -63,6 +63,7 @@ public class LoanResponse {
     private String notes;
     private String purpose;
     private String collateralDescription;
+    private String collateralType;
     private BigDecimal collateralValue;
     private String rejectionReason;
     private Boolean imported;

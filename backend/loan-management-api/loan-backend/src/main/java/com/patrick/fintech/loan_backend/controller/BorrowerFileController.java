@@ -564,12 +564,24 @@ public class BorrowerFileController {
                                 borrower.getEmploymentType());
 
                 Map<DocumentType, BorrowerFile> latestByType = new EnumMap<>(DocumentType.class);
+                // Optional supporting documents can have several files under one
+                // category. Every distinct attachment must be included in the
+                // completion check and the consolidated email.
+                List<BorrowerFile> supportingFiles = new ArrayList<>();
 
                 for (BorrowerFile file : fileService.getByBorrowerMetadataOnly(borrowerId)) {
 
                         if (file == null
                                         || file.getDocumentType() == null
                                         || file.getLoan() != null) {
+                                continue;
+                        }
+
+                        if (file.getDocumentType() == DocumentType.COLLATERAL_DOCUMENT
+                                        || file.getDocumentType() == DocumentType.OTHER) {
+                                if (file.getVerificationStatus() != VerificationStatus.EXPIRED) {
+                                        supportingFiles.add(file);
+                                }
                                 continue;
                         }
 
@@ -607,6 +619,8 @@ public class BorrowerFileController {
                         current.add(file);
                 }
 
+                current.addAll(supportingFiles);
+
                 if (current.isEmpty()) {
                         return ReviewNotificationResult.INCOMPLETE;
                 }
@@ -628,7 +642,8 @@ public class BorrowerFileController {
 
                 current.sort(
                                 Comparator.comparing(
-                                                file -> file.getDocumentType().name()));
+                                                (BorrowerFile file) -> file.getDocumentType().name())
+                                                .thenComparing(BorrowerFile::getId));
 
                 // This fingerprint changes for a new document version,
                 // changed final decision or changed review comment.

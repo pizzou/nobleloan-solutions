@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { borrowerApi, loanApi } from "@/services/api";
+import { borrowerApi, post } from "@/services/api";
 import {
   DOCUMENT_TYPE_LABELS,
   getFilesByBorrower,
@@ -188,6 +188,13 @@ function NewLoanForm() {
   );
 
   const [purpose, setPurpose] = useState("");
+  const [collateralType, setCollateralType] = useState<
+    "NONE" | "MOVABLE" | "IMMOVABLE"
+  >("NONE");
+  const [collateralExpertise, setCollateralExpertise] = useState<File | null>(
+    null,
+  );
+  const [extraEvidence, setExtraEvidence] = useState<File[]>([]);
   const [collateralValue, setCollateralValue] = useState("");
   const [collateralDescription, setCollateralDescription] = useState("");
   const [notes, setNotes] = useState("");
@@ -345,6 +352,18 @@ function NewLoanForm() {
     duration <= 6 &&
     Boolean(startDate) &&
     purpose.trim().length >= 10 &&
+    (collateralType !== "IMMOVABLE" || Boolean(collateralExpertise)) &&
+    (!collateralExpertise ||
+      (ALLOWED_MIME_TYPES.has(collateralExpertise.type) &&
+        collateralExpertise.size > 0 &&
+        collateralExpertise.size <= MAX_DOCUMENT_BYTES)) &&
+    extraEvidence.length <= 9 &&
+    extraEvidence.every(
+      (file) =>
+        ALLOWED_MIME_TYPES.has(file.type) &&
+        file.size > 0 &&
+        file.size <= MAX_DOCUMENT_BYTES,
+    ) &&
     (!collateralValue ||
       (Number.isFinite(Number(collateralValue)) &&
         Number(collateralValue) >= 0));
@@ -512,8 +531,9 @@ function NewLoanForm() {
         );
       }
 
-      // Existing maker-checker creation workflow.
-      const created = await loanApi.create({
+      // Preserve maker-checker flow and existing validation; submit collateral
+      // evidence in the SAME database transaction as the loan application.
+      const request = {
         borrowerId: numericBorrowerId,
         loanType,
         amount: principal,
@@ -525,7 +545,19 @@ function NewLoanForm() {
         notes: notes.trim() || undefined,
         collateralValue: collateralValue ? Number(collateralValue) : undefined,
         collateralDescription: collateralDescription.trim() || undefined,
-      });
+        collateralType,
+      };
+      const multipart = new FormData();
+      multipart.append(
+        "loan",
+        new Blob([JSON.stringify(request)], { type: "application/json" }),
+      );
+      if (collateralExpertise)
+        multipart.append("collateralExpertiseDocument", collateralExpertise);
+      extraEvidence.forEach((file) =>
+        multipart.append("otherSupportingDocuments", file),
+      );
+      const created = await post("/loans/with-collateral-documents", multipart);
 
       const id = Number(created?.id);
 
@@ -739,6 +771,54 @@ function NewLoanForm() {
             <h2 className="font-semibold text-slate-900">
               3. Security and supporting information
             </h2>
+
+            <label className="mt-4 block text-sm font-medium">
+              Collateral type
+              <select
+                className={fieldStyle}
+                value={collateralType}
+                onChange={(event) => {
+                  setCollateralType(
+                    event.target.value as "NONE" | "MOVABLE" | "IMMOVABLE",
+                  );
+                  setCollateralExpertise(null);
+                }}
+              >
+                <option value="NONE">No collateral</option>
+                <option value="MOVABLE">
+                  Movable — vehicles, machinery, equipment
+                </option>
+                <option value="IMMOVABLE">
+                  Immovable — land, buildings, property
+                </option>
+              </select>
+            </label>
+            {collateralType !== "NONE" && (
+              <label className="mt-4 block text-sm font-medium">
+                Expertise / valuation report{" "}
+                {collateralType === "IMMOVABLE" ? "(required)" : "(optional)"}
+                <input
+                  className={fieldStyle}
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  onChange={(event) =>
+                    setCollateralExpertise(event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+            )}
+            <label className="mt-4 block text-sm font-medium">
+              Other supporting documents (optional, up to 9)
+              <input
+                className={fieldStyle}
+                type="file"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.webp"
+                onChange={(event) =>
+                  setExtraEvidence(Array.from(event.target.files ?? []))
+                }
+              />
+            </label>
 
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-medium">
@@ -1000,6 +1080,12 @@ function NewLoanForm() {
               <dd className="font-semibold">{startDate}</dd>
             </div>
 
+            <div>
+              <dt className="text-slate-500">Collateral type</dt>
+              <dd className="font-semibold">
+                {collateralType.replaceAll("_", " ")}
+              </dd>
+            </div>
             <div>
               <dt className="text-slate-500">Collateral value</dt>
               <dd className="font-semibold">

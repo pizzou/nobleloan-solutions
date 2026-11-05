@@ -78,6 +78,8 @@ public class LoanController {
         private final ObjectMapper objectMapper;
         private final LoanAdministrationService loanAdministrationService;
         private final LoanContractService loanContractService;
+        private final com.patrick.fintech.loan_backend.service.BorrowerFileService borrowerFileService;
+        private final LoanCreationDocumentGuard loanCreationDocumentGuard;
 
         // ================================================================
         // CREATE LOAN
@@ -88,6 +90,11 @@ public class LoanController {
         public ResponseEntity<ApiResponse<LoanResponse>> createLoan(
                         @Valid @RequestBody LoanRequest req) {
 
+                if ("IMMOVABLE".equalsIgnoreCase(req.getCollateralType())) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Immovable collateral must include an expertise report. Use the document upload loan creation form.");
+                }
                 User user = currentUserUtil.getCurrentUser();
 
                 Loan loan = loanService.createLoan(
@@ -112,6 +119,60 @@ public class LoanController {
                                                 ApiResponse.ok(
                                                                 "Loan application created and submitted for approval",
                                                                 ResponseDtoMapper.loan(loan)));
+        }
+
+        /**
+         * Atomically create a loan and its supporting files. Existing JSON creation
+         * remains available for loan requests WITHOUT immovable collateral.
+         */
+        @PostMapping(value = "/with-collateral-documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        @PreAuthorize("hasAnyRole('LOAN_OFFICER','ADMIN','MANAGER')")
+        @Transactional(rollbackFor = Exception.class)
+        public ResponseEntity<ApiResponse<LoanResponse>> createWithCollateralDocuments(
+                        @Valid @RequestPart("loan") LoanRequest req,
+                        @RequestPart(value = "collateralExpertiseDocument", required = false) org.springframework.web.multipart.MultipartFile expertise,
+                        @RequestPart(value = "otherSupportingDocuments", required = false) List<org.springframework.web.multipart.MultipartFile> otherDocuments)
+                        throws java.io.IOException {
+                String category = req.getCollateralType() == null ? "NONE"
+                                : req.getCollateralType().trim().toUpperCase(java.util.Locale.ROOT);
+                if (!java.util.Set.of("NONE", "MOVABLE", "IMMOVABLE").contains(category)) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST, "Invalid collateral type.");
+                }
+                if ("IMMOVABLE".equals(category) && (expertise == null || expertise.isEmpty())) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.UNPROCESSABLE_ENTITY,
+                                        "Collateral expertise / valuation report is mandatory for immovable collateral.");
+                }
+                if ((otherDocuments == null ? 0 : otherDocuments.size()) > 9) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST, "Maximum nine additional supporting documents.");
+                }
+                // @RequestPart is not handled by RequestBodyAdvice: run the KYC guard
+                // explicitly.
+                loanCreationDocumentGuard.validateRequiredDocuments(req);
+                User user = currentUserUtil.getCurrentUser();
+                Loan loan = loanService.createLoan(req, user.getOrganization().getId(), user);
+                Long borrowerId = loan.getBorrower().getId();
+                if (expertise != null && !expertise.isEmpty()) {
+                        borrowerFileService.uploadEvidenceForLoan(borrowerId, loan, expertise,
+                                        com.patrick.fintech.loan_backend.model.DocumentType.COLLATERAL_EXPERTISE,
+                                        false);
+                }
+                if (otherDocuments != null) {
+                        for (var file : otherDocuments) {
+                                if (file != null && !file.isEmpty()) {
+                                        borrowerFileService.uploadEvidenceForLoan(borrowerId, loan, file,
+                                                        com.patrick.fintech.loan_backend.model.DocumentType.OTHER,
+                                                        false);
+                                }
+                        }
+                }
+                loanApprovalService.initiateChain(loan);
+                loanContractService.generateForNewLoan(loan, user);
+                return ResponseEntity.status(HttpStatus.CREATED)
+                                .body(ApiResponse.ok("Loan application created and submitted for approval",
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         // ================================================================

@@ -185,10 +185,17 @@ public class BorrowerController {
         @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
         public ResponseEntity<ApiResponse<BorrowerResponse>> createWithDocuments(
                         @Valid @RequestPart("borrower") BorrowerRequest req,
-                        @RequestParam java.util.Map<String, org.springframework.web.multipart.MultipartFile> files)
+                        @RequestParam java.util.Map<String, org.springframework.web.multipart.MultipartFile> files,
+                        @RequestPart(value = "collateralDocuments", required = false) java.util.List<org.springframework.web.multipart.MultipartFile> collateralDocuments,
+                        @RequestPart(value = "otherSupportingDocuments", required = false) java.util.List<org.springframework.web.multipart.MultipartFile> otherSupportingDocuments)
                         throws java.io.IOException {
                 var required = com.patrick.fintech.loan_backend.service.BorrowerDocumentRequirements.required(
                                 req.getMaritalStatus(), req.getEmploymentType());
+                int optionalDocumentCount = (collateralDocuments == null ? 0 : collateralDocuments.size())
+                                + (otherSupportingDocuments == null ? 0 : otherSupportingDocuments.size());
+                if (optionalDocumentCount > 10) {
+                        throw invalidBorrower("A maximum of 10 additional documents including expertise is allowed.");
+                }
                 for (DocumentType type : required) {
                         var file = files.get(type.name());
                         if (file == null || file.isEmpty()) {
@@ -200,7 +207,36 @@ public class BorrowerController {
                 for (DocumentType type : required) {
                         borrowerFileService.upload(borrowerId, files.get(type.name()), type, false);
                 }
+                saveOptionalBorrowerDocuments(borrowerId, collateralDocuments, otherSupportingDocuments);
                 return response;
+        }
+
+        private void saveOptionalBorrowerDocuments(
+                        Long borrowerId,
+                        java.util.List<org.springframework.web.multipart.MultipartFile> collateralDocuments,
+                        java.util.List<org.springframework.web.multipart.MultipartFile> otherSupportingDocuments)
+                        throws java.io.IOException {
+                int total = (collateralDocuments == null ? 0 : collateralDocuments.size())
+                                + (otherSupportingDocuments == null ? 0 : otherSupportingDocuments.size());
+                if (total > 10) {
+                        throw invalidBorrower("A maximum of 10 optional supporting documents is allowed.");
+                }
+                if (collateralDocuments != null) {
+                        for (var file : collateralDocuments) {
+                                if (file == null || file.isEmpty()) {
+                                        throw invalidBorrower("Supporting documents cannot be empty.");
+                                }
+                                borrowerFileService.upload(borrowerId, file, DocumentType.COLLATERAL_DOCUMENT, false);
+                        }
+                }
+                if (otherSupportingDocuments != null) {
+                        for (var file : otherSupportingDocuments) {
+                                if (file == null || file.isEmpty()) {
+                                        throw invalidBorrower("Supporting documents cannot be empty.");
+                                }
+                                borrowerFileService.upload(borrowerId, file, DocumentType.OTHER, false);
+                        }
+                }
         }
 
         @PostMapping

@@ -1,5 +1,9 @@
 "use client";
 
+import OptionalSupportingDocuments, {
+  type OptionalSupportingDocument,
+} from "../../../../components/OptionalSupportingDocuments";
+
 import React, { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -243,6 +247,9 @@ export default function NewBorrowerPage() {
     : "Job Title / Occupation";
 
   const [documents, setDocuments] = useState<Record<string, File>>({});
+  const [supportingDocuments, setSupportingDocuments] = useState<
+    OptionalSupportingDocument[]
+  >([]);
   const requiredDocuments: [string, string][] = [
     ["NATIONAL_ID", "National ID"],
     ["BANK_STATEMENT", "Bank statement"],
@@ -553,6 +560,7 @@ export default function NewBorrowerPage() {
         Object.fromEntries(
           requiredDocuments.map(([type]) => [type, documents[type]]),
         ),
+        supportingDocuments,
       );
 
       toast("success", "Borrower created successfully.");
@@ -1658,6 +1666,16 @@ export default function NewBorrowerPage() {
                   )}
                 </Field>
               ))}
+            </div>
+            <div className="mt-6">
+              <OptionalSupportingDocuments
+                collateralType="NONE"
+                onCollateralTypeChange={() => {}}
+                showCollateralSelector={false}
+                documents={supportingDocuments}
+                onChange={setSupportingDocuments}
+                disabled={loading}
+              />
             </div>
           </section>
 

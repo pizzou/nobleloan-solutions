@@ -1,3 +1,4 @@
+import type { OptionalSupportingDocument } from "../components/OptionalSupportingDocuments";
 import { get, post, put } from "./api";
 import { Borrower } from "../types";
 
@@ -94,10 +95,11 @@ export const updateBorrower = (
   payload: Partial<Borrower>,
 ): Promise<Borrower> => put(`/borrowers/${id}`, payload) as Promise<Borrower>;
 
-/** Save profile and required documents atomically through the staff API. */
+/** Save profile, mandatory documents, and optional evidence atomically. */
 export const createBorrowerWithDocuments = (
   payload: Parameters<typeof createBorrower>[0],
   documents: Record<string, File>,
+  supportingDocuments: OptionalSupportingDocument[] = [],
 ): Promise<Borrower> => {
   const form = new FormData();
   form.append(
@@ -105,6 +107,15 @@ export const createBorrowerWithDocuments = (
     new Blob([JSON.stringify(payload)], { type: "application/json" }),
   );
   Object.entries(documents).forEach(([type, file]) => form.append(type, file));
+  supportingDocuments.forEach(({ category, file }) =>
+    form.append(
+      category === "COLLATERAL_DOCUMENT" || category === "COLLATERAL_EXPERTISE"
+        ? "collateralDocuments"
+        : "otherSupportingDocuments",
+      file,
+      file.name,
+    ),
+  );
   return post("/borrowers/with-documents", form, {
     timeout: 120000,
   }) as Promise<Borrower>;

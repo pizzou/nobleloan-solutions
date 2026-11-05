@@ -446,6 +446,10 @@ public class Loan {
         @Column(name = "purpose", columnDefinition = "TEXT")
         private String purpose;
 
+        @Column(name = "collateral_type", nullable = false, length = 12)
+        @lombok.Builder.Default
+        private String collateralType = "NONE";
+
         @Column(name = "collateral_description", columnDefinition = "TEXT")
         private String collateralDescription;
 

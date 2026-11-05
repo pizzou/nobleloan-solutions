@@ -2908,6 +2908,8 @@ public class PublicController {
                         @RequestPart(value = "selfie", required = false) MultipartFile selfieFile,
                         @RequestPart(value = "payslip", required = false) MultipartFile payslipFile,
                         @RequestPart(value = "businessRegistration", required = false) MultipartFile businessRegistrationFile,
+                        @RequestPart(value = "collateralExpertiseDocument", required = false) MultipartFile collateralExpertiseDocument,
+                        @RequestPart(value = "otherSupportingDocuments", required = false) List<MultipartFile> otherSupportingDocuments,
                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
                 Map<String, Object> body;
@@ -3327,6 +3329,22 @@ public class PublicController {
                                         businessRegistrationFile);
                 }
 
+                String requestedCollateralType = str(body.get("collateralType"));
+                String normalizedCollateralType = requestedCollateralType == null
+                                ? "NONE"
+                                : requestedCollateralType.trim().toUpperCase(java.util.Locale.ROOT);
+                if (!java.util.Set.of("NONE", "MOVABLE", "IMMOVABLE").contains(normalizedCollateralType)) {
+                        throw new IllegalArgumentException("Invalid collateral type.");
+                }
+                if ("IMMOVABLE".equals(normalizedCollateralType)
+                                && (collateralExpertiseDocument == null || collateralExpertiseDocument.isEmpty())) {
+                        throw new IllegalArgumentException(
+                                        "Collateral expertise / valuation report is required for immovable collateral.");
+                }
+                if (otherSupportingDocuments != null && otherSupportingDocuments.size() > 9) {
+                        throw new IllegalArgumentException("Maximum nine additional supporting documents.");
+                }
+
                 // ========================================================
                 // PERSIST REQUIRED DOCUMENTS BEFORE CREATING THE LOAN
                 // ========================================================
@@ -3461,6 +3479,7 @@ public class PublicController {
                                                                                 "purpose")))
                                 .notes(
                                                 "Submitted via public website")
+                                .collateralType(normalizedCollateralType)
                                 .collateralValue(
                                                 collateralValue)
                                 .collateralDescription(
@@ -3488,6 +3507,24 @@ public class PublicController {
                                 req,
                                 org.getId(),
                                 null);
+
+                // Loan-specific collateral evidence, never reusable as borrower KYC.
+                try {
+                        if (collateralExpertiseDocument != null && !collateralExpertiseDocument.isEmpty()) {
+                                fileService.uploadEvidenceForLoan(borrower.getId(), loan,
+                                                collateralExpertiseDocument, DocumentType.COLLATERAL_EXPERTISE, true);
+                        }
+                        if (otherSupportingDocuments != null) {
+                                for (MultipartFile doc : otherSupportingDocuments) {
+                                        if (doc != null && !doc.isEmpty()) {
+                                                fileService.uploadEvidenceForLoan(borrower.getId(), loan,
+                                                                doc, DocumentType.OTHER, true);
+                                        }
+                                }
+                        }
+                } catch (java.io.IOException e) {
+                        throw new IllegalStateException("Could not securely save loan supporting documents.", e);
+                }
 
                 /*
                  * Persist the exact active product terms selected above.

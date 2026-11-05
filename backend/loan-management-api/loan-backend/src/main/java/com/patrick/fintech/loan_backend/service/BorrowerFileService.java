@@ -105,6 +105,22 @@ public class BorrowerFileService {
         return fileRepository.save(borrowerFile);
     }
 
+    /** Store validated evidence on the EXACT loan, not as reusable borrower KYC. */
+    @Transactional
+    public BorrowerFile uploadEvidenceForLoan(Long borrowerId, Loan loan,
+            MultipartFile document, DocumentType category, boolean uploadedByApplicant)
+            throws IOException {
+        if (loan == null || loan.getId() == null || loan.getBorrower() == null
+                || !borrowerId.equals(loan.getBorrower().getId())
+                || !java.util.Set.of(DocumentType.COLLATERAL_EXPERTISE,
+                        DocumentType.COLLATERAL_DOCUMENT, DocumentType.OTHER).contains(category)) {
+            throw new IllegalArgumentException("Invalid loan-related supporting document.");
+        }
+        BorrowerFile saved = upload(borrowerId, document, category, uploadedByApplicant);
+        saved.setLoan(loan);
+        return fileRepository.save(saved);
+    }
+
     /**
      * Store a signed copy under the borrower's documents and link it to this exact
      * loan.

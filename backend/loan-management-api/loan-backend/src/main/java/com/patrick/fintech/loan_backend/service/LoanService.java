@@ -659,6 +659,12 @@ public class LoanService {
                 // BUILD LOAN
                 // ============================================================
 
+                String collateralType = req.getCollateralType() == null
+                                ? "NONE"
+                                : req.getCollateralType().trim().toUpperCase(java.util.Locale.ROOT);
+                if (!java.util.Set.of("NONE", "MOVABLE", "IMMOVABLE").contains(collateralType)) {
+                        throw new IllegalArgumentException("Collateral type must be NONE, MOVABLE or IMMOVABLE.");
+                }
                 Loan loan = Loan.builder()
                                 .referenceNumber(
                                                 generateRef(org))
@@ -696,6 +702,7 @@ public class LoanService {
                                 .totalPaid(ZERO)
                                 .purpose(req.getPurpose())
                                 .notes(req.getNotes())
+                                .collateralType(collateralType)
                                 .collateralDescription(
                                                 req.getCollateralDescription())
                                 .collateralValue(

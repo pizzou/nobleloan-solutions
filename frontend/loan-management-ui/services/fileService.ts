@@ -350,6 +350,7 @@ export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   EMPLOYMENT_LETTER: "Employment Letter",
   BUSINESS_REGISTRATION: "Business Registration Certificate",
   COLLATERAL_DOCUMENT: "Collateral Document",
+  COLLATERAL_EXPERTISE: "Collateral Expertise / Valuation Report",
   SINGLE_CERTIFICATE: "Single Status Certificate",
   MARRIAGE_CERTIFICATE: "Marriage Certificate",
   SELFIE: "Selfie",

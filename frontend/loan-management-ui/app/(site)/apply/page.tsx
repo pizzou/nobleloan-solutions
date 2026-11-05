@@ -34,6 +34,10 @@ function ApplyPageContent() {
   const [reuseVerificationBusy, setReuseVerificationBusy] = useState(false);
   const [reuseVerificationMessage, setReuseVerificationMessage] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [collateralExpertise, setCollateralExpertise] = useState<File | null>(
+    null,
+  );
+  const [extraEvidence, setExtraEvidence] = useState<File[]>([]);
   const [applicationDocuments, setApplicationDocuments] = useState<
     Record<string, File | null>
   >({
@@ -91,6 +95,7 @@ function ApplyPageContent() {
     durationMonths: "1",
     purpose: "",
     collateral: "",
+    collateralType: "NONE",
     collateralValue: "",
 
     // Declaration
@@ -278,6 +283,39 @@ function ApplyPageContent() {
       return;
     }
 
+    if (form.collateralType === "IMMOVABLE" && !collateralExpertise) {
+      setError(
+        "An expertise / valuation report is mandatory for immovable collateral.",
+      );
+      setSaving(false);
+      setStep(3);
+      return;
+    }
+    const supportFiles = [
+      ...(collateralExpertise ? [collateralExpertise] : []),
+      ...extraEvidence,
+    ];
+    if (
+      extraEvidence.length > 9 ||
+      supportFiles.some(
+        (file) =>
+          file.size <= 0 ||
+          file.size > 8 * 1024 * 1024 ||
+          ![
+            "application/pdf",
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+          ].includes(file.type),
+      )
+    ) {
+      setError(
+        "Maximum nine other files, up to 8 MB each (PDF, JPG, PNG or WEBP).",
+      );
+      setSaving(false);
+      setStep(3);
+      return;
+    }
     const nationality = form.nationality.trim() || "Rwandan";
 
     const crbRequiredFields: Array<[string, string]> = [
@@ -385,6 +423,11 @@ function ApplyPageContent() {
         }),
       );
 
+      if (collateralExpertise)
+        multipart.append("collateralExpertiseDocument", collateralExpertise);
+      extraEvidence.forEach((file) =>
+        multipart.append("otherSupportingDocuments", file),
+      );
       const documentPartNames: Record<string, string> = {
         NATIONAL_ID: "nationalId",
         BANK_STATEMENT: "bankStatement",
@@ -1277,6 +1320,57 @@ function ApplyPageContent() {
                   placeholder="Describe how you will use this loan…"
                   value={form.purpose}
                   onChange={set("purpose")}
+                />
+              </Field>
+
+              <Field label="Collateral type">
+                <select
+                  className={inp}
+                  value={form.collateralType}
+                  onChange={(event) => {
+                    setForm((previous) => ({
+                      ...previous,
+                      collateralType: event.target.value,
+                    }));
+                    setCollateralExpertise(null);
+                  }}
+                >
+                  <option value="NONE">No collateral</option>
+                  <option value="MOVABLE">
+                    Movable — vehicle, machinery, equipment
+                  </option>
+                  <option value="IMMOVABLE">
+                    Immovable — land, building, property
+                  </option>
+                </select>
+              </Field>
+              {form.collateralType !== "NONE" && (
+                <Field
+                  label={
+                    form.collateralType === "IMMOVABLE"
+                      ? "Expertise / valuation report (required)"
+                      : "Expertise / valuation report (optional)"
+                  }
+                >
+                  <input
+                    type="file"
+                    className={inp}
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(event) =>
+                      setCollateralExpertise(event.target.files?.[0] ?? null)
+                    }
+                  />
+                </Field>
+              )}
+              <Field label="Other supporting documents (optional, up to 9)">
+                <input
+                  type="file"
+                  className={inp}
+                  multiple
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  onChange={(event) =>
+                    setExtraEvidence(Array.from(event.target.files ?? []))
+                  }
                 />
               </Field>
 
