@@ -37,8 +37,7 @@ public class LoanApplicationSnapshotWriter {
             "jobTitle", "natureOfBusiness", "employmentTypeOther",
             "monthlyIncome", "monthlyExpenses", "loanType", "amount",
             "durationMonths", "purpose", "collateral", "collateralType",
-            "collateralValue", "acceptedTerms"
-    );
+            "collateralValue", "acceptedTerms");
 
     private final LoanApplicationSnapshotRepository snapshotRepository;
     private final ObjectMapper objectMapper;
