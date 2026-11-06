@@ -9,6 +9,7 @@ import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanContract;
 import com.patrick.fintech.loan_backend.service.LoanContractService;
+import com.patrick.fintech.loan_backend.service.LoanApplicationFormService;
 import com.patrick.fintech.loan_backend.model.LoanComment;
 import com.patrick.fintech.loan_backend.model.LoanApproval;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
@@ -78,6 +79,7 @@ public class LoanController {
         private final ObjectMapper objectMapper;
         private final LoanAdministrationService loanAdministrationService;
         private final LoanContractService loanContractService;
+        private final LoanApplicationFormService loanApplicationFormService;
         private final com.patrick.fintech.loan_backend.service.BorrowerFileService borrowerFileService;
         private final LoanCreationDocumentGuard loanCreationDocumentGuard;
 
@@ -249,6 +251,31 @@ public class LoanController {
         // ================================================================
         // LOAN CONTRACT DRAFT
         // ================================================================
+
+        // A read-only copy of the saved borrower application for staff records.
+        // Available for existing and new loans; never changes approval or disbursement.
+        @GetMapping("/{id}/application-form")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
+        public ResponseEntity<byte[]> downloadLoanApplicationForm(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                Loan loan = loanService.getLoanForOrg(id, organizationId);
+                byte[] bytes = loanApplicationFormService.render(loan);
+
+                auditService.log(loan.getOrganization(), user,
+                                "LOAN_APPLICATION_FORM_DOWNLOADED", "LOAN",
+                                String.valueOf(loan.getId()),
+                                "Downloaded application form for loan " + loan.getReferenceNumber(),
+                                null, null, "Loan Applications");
+
+                return ResponseEntity.ok()
+                                .contentType(MediaType.parseMediaType(
+                                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                .header(HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=\"NLS-Application-" + id + ".docx\"")
+                                .header(HttpHeaders.CACHE_CONTROL, "no-store, private")
+                                .body(bytes);
+        }
 
         @PostMapping("/{id}/contract/generate")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
