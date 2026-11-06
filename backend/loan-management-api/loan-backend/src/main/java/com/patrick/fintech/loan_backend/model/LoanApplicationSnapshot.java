@@ -34,11 +34,13 @@ public class LoanApplicationSnapshot {
 
     @JsonIgnore
     @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "loan_id", nullable = false, unique = true,
-            foreignKey = @ForeignKey(name = "fk_loan_application_snapshot_loan"))
+    @JoinColumn(name = "loan_id", nullable = false, unique = true, foreignKey = @ForeignKey(name = "fk_loan_application_snapshot_loan"))
     private Loan loan;
 
-    /** Only whitelisted applicant-provided fields; encrypted with the existing PII converter. */
+    /**
+     * Only whitelisted applicant-provided fields; encrypted with the existing PII
+     * converter.
+     */
     @JsonIgnore
     @Convert(converter = CryptoConverter.class)
     @Column(name = "encrypted_answers", nullable = false, columnDefinition = "TEXT")
