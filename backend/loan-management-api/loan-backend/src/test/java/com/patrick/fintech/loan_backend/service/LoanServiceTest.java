@@ -167,6 +167,7 @@ class LoanServiceTest {
                                 .durationMonths(6)
                                 .currency("RWF")
                                 .startDate("2026-01-01")
+                                .collateralType("IMMOVABLE")
                                 .collateralValue(new BigDecimal("15000.00"))
                                 .collateralDescription("Land title")
                                 .build();
