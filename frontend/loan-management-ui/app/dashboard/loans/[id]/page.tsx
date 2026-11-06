@@ -1043,6 +1043,7 @@ export default function LoanDetailPage() {
   const [contractSent, setContractSent] = useState(false);
   const [contractNoticeQueued, setContractNoticeQueued] = useState(false);
   const [contractBusy, setContractBusy] = useState(false);
+  const [applicationFormBusy, setApplicationFormBusy] = useState(false);
   const [signedContractFile, setSignedContractFile] = useState<File | null>(
     null,
   );
@@ -2113,6 +2114,42 @@ export default function LoanDetailPage() {
     }
   };
 
+  const downloadLoanApplicationForm = async () => {
+    if (!hasValidLoanId || applicationFormBusy) return;
+    setApplicationFormBusy(true);
+    setMsg(null);
+    try {
+      const result = await get(`/loans/${loanId}/application-form`, {
+        responseType: "blob",
+      });
+      const fileBlob =
+        result instanceof Blob
+          ? result
+          : new Blob([result], {
+              type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            });
+      const url = window.URL.createObjectURL(fileBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `NLS-Application-${loan?.referenceNumber ?? loanId}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      setMsg({
+        type: "success",
+        text: "Loan application form downloaded. Signature areas remain blank for signing.",
+      });
+    } catch {
+      setMsg({
+        type: "error",
+        text: "Unable to download the application form. Please check your access and retry.",
+      });
+    } finally {
+      setApplicationFormBusy(false);
+    }
+  };
+
   const downloadContractDraft = async () => {
     if (!hasValidLoanId || contractBusy) return;
     setContractBusy(true);
@@ -2963,6 +3000,29 @@ export default function LoanDetailPage() {
               </button>
             </div>
           )}
+
+        <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-teal-900">Loan Application Form</h3>
+              <p className="mt-1 text-sm text-teal-800">
+                Download the saved application information with NLS branding,
+                collateral details and blank signature spaces for the borrower
+                and authorized company representative.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={downloadLoanApplicationForm}
+              disabled={!hasValidLoanId || applicationFormBusy}
+              className="rounded-lg bg-teal-800 px-5 py-3 text-sm font-bold text-white transition hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {applicationFormBusy
+                ? "Preparing application…"
+                : "Download Application Form (.docx)"}
+            </button>
+          </div>
+        </div>
 
         <div className="flex border-b border-gray-200 mb-5 gap-0 overflow-x-auto">
           {visibleTabs.map((t) => (
