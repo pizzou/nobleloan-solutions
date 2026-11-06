@@ -1049,7 +1049,7 @@ public class LoanService {
                         }
                 }
 
-                penaltyRate = FinancialPolicy.MONTHLY_PENALTY_RATE;
+                penaltyRate = FinancialPolicy.penaltyRateFor(loan.getImported());
 
                 BigDecimal totalMonthlyRate = money(interestRate.add(managementFeeRate));
 
@@ -1560,7 +1560,7 @@ public class LoanService {
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null
                                 ? moneyValue(loan.getApplicationFeeRateDecimal())
                                 : APPLICATION_FEE_RATE;
-                BigDecimal penaltyRate = FinancialPolicy.MONTHLY_PENALTY_RATE;
+                BigDecimal penaltyRate = FinancialPolicy.penaltyRateFor(loan.getImported());
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementFeeRate);

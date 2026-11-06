@@ -25,6 +25,23 @@ public final class FinancialPolicy {
         public static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("15.00");
 
         /**
+         * Imported legacy loans retain their original 10% monthly penalty rate.
+         * New loans created by the application use 15% monthly.
+         * Both rates are percentages, prorated by actual days in each month.
+         */
+        public static final BigDecimal LEGACY_MONTHLY_PENALTY_RATE = new BigDecimal("10.00");
+
+        /**
+         * Keep the penalty rate tied to the loan's origin. A later approval,
+         * extension or moratorium must not reprice an imported legacy loan.
+         */
+        public static BigDecimal penaltyRateFor(Boolean imported) {
+                return Boolean.TRUE.equals(imported)
+                                ? LEGACY_MONTHLY_PENALTY_RATE
+                                : MONTHLY_PENALTY_RATE;
+        }
+
+        /**
          * Legacy compatibility alias.
          *
          * Existing code may still reference DAILY_PENALTY_RATE.

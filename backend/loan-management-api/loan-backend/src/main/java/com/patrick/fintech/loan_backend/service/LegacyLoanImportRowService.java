@@ -1195,6 +1195,10 @@ public class LegacyLoanImportRowService {
                                         .interestRate(
                                                         effectiveInterestRate)
 
+                                        // Imported legacy loans keep 10% monthly penalty.
+                                        // Historical assessed/paid penalty balances are unchanged.
+                                        .penaltyRate(FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE)
+
                                         // ------------------------------------------------
                                         // FIXED MANAGEMENT FEE
                                         // ------------------------------------------------

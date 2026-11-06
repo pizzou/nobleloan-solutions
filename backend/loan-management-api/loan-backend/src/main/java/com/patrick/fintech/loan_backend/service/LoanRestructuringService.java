@@ -197,7 +197,7 @@ public class LoanRestructuringService {
                  */
                 loan.setInterestRate(MONTHLY_INTEREST_RATE);
                 loan.setManagementFeeRate(MONTHLY_MANAGEMENT_FEE_RATE);
-                loan.setPenaltyRate(FinancialPolicy.MONTHLY_PENALTY_RATE);
+                loan.setPenaltyRate(FinancialPolicy.penaltyRateFor(loan.getImported()));
 
                 loan.setInterestRateType(
                                 "MONTHLY");
@@ -1033,7 +1033,7 @@ public class LoanRestructuringService {
 
                 loan.setInterestRate(MONTHLY_INTEREST_RATE);
                 loan.setManagementFeeRate(MONTHLY_MANAGEMENT_FEE_RATE);
-                loan.setPenaltyRate(FinancialPolicy.MONTHLY_PENALTY_RATE);
+                loan.setPenaltyRate(FinancialPolicy.penaltyRateFor(loan.getImported()));
                 loan.setApplicationFeeRate(APPLICATION_FEE_RATE);
                 loan.setInterestRateType(
                                 "MONTHLY");

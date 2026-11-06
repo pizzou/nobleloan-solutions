@@ -2346,8 +2346,9 @@ public class AccountingService {
 
         /**
          * Records the daily late-payment penalty as a receivable. The platform
-         * policy is 10% of outstanding principal per chargeable day after a 3-day grace
-         * period.
+         * rate comes from the saved loan: 10% per month for imported legacy loans,
+         * 15% per month for new system loans, prorated daily after three full
+         * calendar grace days.
          */
         @Transactional
         public JournalEntry postPenaltyAccrual(
@@ -2392,8 +2393,10 @@ public class AccountingService {
                                 "PENALTY_ACCRUAL",
                                 sourceId,
                                 reference,
-                                "10% daily penalty accrual after 3-day grace period for " + reference
-                                                + " (" + accrualDate + ")",
+                                "Penalty accrual at "
+                                                + loan.getPenaltyRateDecimal().stripTrailingZeros().toPlainString()
+                                                + "% monthly (daily-prorated) after 3-day grace period for "
+                                                + reference + " (" + accrualDate + ")",
                                 List.of(
                                                 JournalLine.builder()
                                                                 .account(account(org, "1175"))

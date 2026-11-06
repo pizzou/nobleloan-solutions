@@ -38,6 +38,7 @@ import com.patrick.fintech.loan_backend.service.FlutterwaveService;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.service.LoanContractService;
+import com.patrick.fintech.loan_backend.service.LoanApplicationSnapshotWriter;
 import com.patrick.fintech.loan_backend.service.MailService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.NotificationService;
@@ -99,6 +100,7 @@ public class PublicController {
 
         private final LoanService loanService;
         private final LoanContractService loanContractService;
+        private final LoanApplicationSnapshotWriter loanApplicationSnapshotWriter;
         private final BorrowerFileService fileService;
         private final com.patrick.fintech.loan_backend.service.BorrowerDocumentReuseVerificationService borrowerReuseVerificationService;
         private final SmsService smsService;
@@ -3567,6 +3569,11 @@ public class PublicController {
 
                 loan = loanRepo.save(
                                 loan);
+
+                // Preserve original public application answers for the downloadable form.
+                // The writer joins this existing transaction and encrypts the snapshot at rest.
+                // A failed snapshot save rolls back the application instead of losing answers.
+                loanApplicationSnapshotWriter.save(loan, body);
 
                 // Generate only after product-specific rates/fees have been applied, so the
                 // document reflects the actual product selected by the borrower.

@@ -715,8 +715,9 @@ public class PaymentService {
                                         : calculateHistoricalPenaltyToDate(
                                                         loan, currentBalance, earliestPenaltyDate, today);
 
-                        // Contractual penalty is 10% per month, prorated daily
-                        // after the 3-day grace period. There is no separate
+                        // Contractual penalty uses the individual loan's saved monthly
+                        // rate (legacy 10%, new loans 15%), prorated daily after
+                        // the 3-day grace period. There is no separate
                         // cumulative cap beyond the outstanding principal used
                         // for each daily accrual.
                         newlyCalculatedPenalty = roundMoney(
