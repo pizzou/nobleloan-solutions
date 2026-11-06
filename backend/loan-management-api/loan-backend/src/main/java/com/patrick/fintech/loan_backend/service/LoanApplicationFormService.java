@@ -28,6 +28,9 @@ import java.time.format.DateTimeFormatter;
  * Read-only snapshot of saved borrower and loan application data.
  * Does not create, approve, change or disburse a loan.
  * This form is not the signed loan agreement.
+ *
+ * Works with both previously saved loans and new loans; missing historical
+ * details are explicitly marked as not recorded, never fabricated.
  */
 @Service
 public class LoanApplicationFormService {
@@ -54,7 +57,7 @@ public class LoanApplicationFormService {
             center(header.createParagraph(), "NOBLE LOAN SOLUTIONS LTD", 10, true);
             center(header.createParagraph(), "CONFIDENTIAL - LOAN APPLICATION", 8, true);
 
-            // Reserve enough room for the repeating branded header on every page.
+            // Reserve room for the repeating branded header on every page.
             var section = document.getDocument().getBody().isSetSectPr()
                     ? document.getDocument().getBody().getSectPr()
                     : document.getDocument().getBody().addNewSectPr();
@@ -140,9 +143,9 @@ public class LoanApplicationFormService {
             section(document, "6. BORROWER DECLARATION AND STAFF REVIEW");
             paragraph(document, "I confirm that the information provided in this application is "
                     + "accurate and may be checked in accordance with the lender's applicable policies.");
-            // Blank wet-signature areas for the borrower and the company's
-            // authorized representative, matching the contract's two-party layout.
-            // Never insert a stored signature or imply that the form was signed.
+
+            // Blank signature areas are intentional. No electronic signature or
+            // company approval is implied by generating the document.
             XWPFTable signatures = document.createTable(4, 2);
             signatures.setWidth("100%");
             setCell(signatures.getRow(0).getCell(0), "BORROWER / APPLICANT", true);
@@ -195,6 +198,7 @@ public class LoanApplicationFormService {
         run.setText(content);
     }
 
+    /** Create TWO cells up front. The former createTable() call made only one. */
     private static XWPFTable table(XWPFDocument doc) {
         XWPFTable table = doc.createTable(1, 2);
         table.setWidth("100%");
