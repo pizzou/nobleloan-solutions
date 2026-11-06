@@ -2136,11 +2136,22 @@ export default function LoanDetailPage() {
       link.click();
       link.remove();
       window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+<<<<<<< HEAD
       setMsg({ type: "success", text: "Application form downloaded." });
     } catch {
       setMsg({
         type: "error",
         text: "Unable to download the application form.",
+=======
+      setMsg({
+        type: "success",
+        text: "Loan application form downloaded. Signature areas remain blank for signing.",
+      });
+    } catch {
+      setMsg({
+        type: "error",
+        text: "Unable to download the application form. Please check your access and retry.",
+>>>>>>> a3aaa74284033d2f067f91574fb0b04d58f213d4
       });
     } finally {
       setApplicationFormBusy(false);
@@ -3003,8 +3014,14 @@ export default function LoanDetailPage() {
             <div>
               <h3 className="font-bold text-teal-900">Loan Application Form</h3>
               <p className="mt-1 text-sm text-teal-800">
+<<<<<<< HEAD
                 Download the bilingual NLS form with saved borrower details and
                 blank signature spaces.
+=======
+                Download the saved application information with NLS branding,
+                collateral details and blank signature spaces for the borrower
+                and authorized company representative.
+>>>>>>> a3aaa74284033d2f067f91574fb0b04d58f213d4
               </p>
             </div>
             <button
