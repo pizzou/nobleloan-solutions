@@ -38,6 +38,11 @@ public class BorrowerRequest {
     private String gender;
     @NotBlank
     private String maritalStatus;
+    private String singleCertificateNumber;
+    private String spouseFullName;
+    private String spouseNationalId;
+    private String spousePhone;
+    private Boolean spouseConsent;
     private String nationality;
     @jakarta.validation.constraints.NotBlank(message = "Place of birth is required")
     private String placeOfBirth;

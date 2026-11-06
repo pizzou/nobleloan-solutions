@@ -719,7 +719,7 @@ function ApplyPageContent() {
                   >
                     <option value="">Select…</option>
 
-                    {["Single", "Married", "Divorced", "Widowed"].map((m) => (
+                    {["Single", "Married"].map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>

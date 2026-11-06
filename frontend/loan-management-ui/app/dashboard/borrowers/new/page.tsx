@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -40,6 +40,86 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * may normalize this value later when they require +250.
  */
 const RWANDA_PHONE_PATTERN = /^0\d{9}$/;
+
+type KycDocumentType =
+  | "NATIONAL_ID"
+  | "BANK_STATEMENT"
+  | "SELFIE"
+  | "MARRIAGE_CERTIFICATE"
+  | "SINGLE_CERTIFICATE"
+  | "PAYSLIP"
+  | "BUSINESS_REGISTRATION";
+
+type RequiredKycDocument = {
+  type: KycDocumentType;
+  label: string;
+  accept: string;
+};
+
+const KYC_PART_NAMES: Record<KycDocumentType, string> = {
+  NATIONAL_ID: "nationalId",
+  BANK_STATEMENT: "bankStatement",
+  SELFIE: "selfie",
+  MARRIAGE_CERTIFICATE: "marriageCertificate",
+  SINGLE_CERTIFICATE: "singleCertificate",
+  PAYSLIP: "payslip",
+  BUSINESS_REGISTRATION: "businessRegistration",
+};
+
+const DOCUMENT_ACCEPT =
+  ".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp";
+
+function getRequiredKycDocuments(
+  maritalStatus: string,
+  employmentType: string,
+): RequiredKycDocument[] {
+  const documents: RequiredKycDocument[] = [
+    { type: "NATIONAL_ID", label: "National ID", accept: DOCUMENT_ACCEPT },
+    {
+      type: "BANK_STATEMENT",
+      label: "Bank statement (last 3 months)",
+      accept: DOCUMENT_ACCEPT,
+    },
+    {
+      type: "SELFIE",
+      label: "Borrower selfie / photo",
+      accept: ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp",
+    },
+  ];
+
+  if (maritalStatus === "MARRIED") {
+    documents.push({
+      type: "MARRIAGE_CERTIFICATE",
+      label: "Marriage certificate",
+      accept: DOCUMENT_ACCEPT,
+    });
+  } else if (maritalStatus === "SINGLE") {
+    documents.push({
+      type: "SINGLE_CERTIFICATE",
+      label: "Single-status certificate",
+      accept: DOCUMENT_ACCEPT,
+    });
+  }
+
+  const employment = employmentType.trim().toUpperCase().replace(/[ -]/g, "_");
+  if (["EMPLOYEE", "EMPLOYED", "PERMANENT", "CONTRACT", "SALARIED"].includes(employment)) {
+    documents.push({
+      type: "PAYSLIP",
+      label: "Recent payslip",
+      accept: DOCUMENT_ACCEPT,
+    });
+  } else if (
+    ["SELF_EMPLOYED", "SELFEMPLOYED", "BUSINESS", "BUSINESS_OWNER", "COMPANY", "COMPANY_OWNER"].includes(employment)
+  ) {
+    documents.push({
+      type: "BUSINESS_REGISTRATION",
+      label: "Business registration certificate",
+      accept: DOCUMENT_ACCEPT,
+    });
+  }
+
+  return documents;
+}
 
 function normalizePhone(value: string): string {
   return value.replace(/\D/g, "").slice(0, 10);
@@ -218,6 +298,31 @@ export default function NewBorrowerPage() {
   const [country, setCountry] = useState("Rwanda");
   const [creditScore, setCreditScore] = useState("");
 
+  const [singleCertificateNumber, setSingleCertificateNumber] = useState("");
+  const [spouseFullName, setSpouseFullName] = useState("");
+  const [spouseNationalId, setSpouseNationalId] = useState("");
+  const [spousePhone, setSpousePhone] = useState("");
+  const [spouseConsent, setSpouseConsent] = useState(false);
+
+  const [employmentType, setEmploymentType] = useState("EMPLOYED");
+  const [employerName, setEmployerName] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+
+  const [documentFiles, setDocumentFiles] = useState<Record<KycDocumentType, File | null>>({
+    NATIONAL_ID: null,
+    BANK_STATEMENT: null,
+    SELFIE: null,
+    MARRIAGE_CERTIFICATE: null,
+    SINGLE_CERTIFICATE: null,
+    PAYSLIP: null,
+    BUSINESS_REGISTRATION: null,
+  });
+
+  const requiredDocuments = useMemo(
+    () => getRequiredKycDocuments(maritalStatus, employmentType),
+    [maritalStatus, employmentType],
+  );
+
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [serverError, setServerError] = useState("");
@@ -290,9 +395,39 @@ export default function NewBorrowerPage() {
     if (!gender.trim()) {
       nextErrors.gender = "Gender is required.";
     }
-    if (!maritalStatus.trim()) {
-      nextErrors.maritalStatus = "Marital status is required.";
+    if (!["SINGLE", "MARRIED"].includes(maritalStatus)) {
+      nextErrors.maritalStatus =
+        "Choose Single or Married so the corresponding certificate can be collected.";
     }
+    if (maritalStatus === "SINGLE" && !singleCertificateNumber.trim()) {
+      nextErrors.singleCertificateNumber = "Single-status certificate number is required.";
+    }
+    if (maritalStatus === "MARRIED" && !spouseFullName.trim()) {
+      nextErrors.spouseFullName = "Spouse full name is required for a married borrower.";
+    }
+    if (spouseNationalId.trim() && !/^\d{16}$/.test(spouseNationalId.trim())) {
+      nextErrors.spouseNationalId = "Spouse National ID must contain exactly 16 digits.";
+    }
+    if (spousePhone.trim() && !RWANDA_PHONE_PATTERN.test(spousePhone.trim())) {
+      nextErrors.spousePhone = "Spouse phone must contain exactly 10 digits and start with 0.";
+    }
+    if (!employmentType.trim()) {
+      nextErrors.employmentType = "Employment type is required.";
+    }
+
+    for (const document of requiredDocuments) {
+      const file = documentFiles[document.type];
+      if (!file) {
+        nextErrors[document.type] = document.label + " is required.";
+      } else if (file.size <= 0) {
+        nextErrors[document.type] = document.label + " is empty.";
+      } else if (file.size > 8 * 1024 * 1024) {
+        nextErrors[document.type] = document.label + " must not exceed 8 MB.";
+      } else if (!/\.(pdf|jpe?g|png|webp)$/i.test(file.name)) {
+        nextErrors[document.type] = document.label + " must be a PDF, JPG, PNG or WEBP file.";
+      }
+    }
+
     if (!placeOfBirth.trim()) {
       nextErrors.placeOfBirth = "Place of birth is required.";
     }
@@ -340,6 +475,13 @@ export default function NewBorrowerPage() {
     dateOfBirth,
     gender,
     maritalStatus,
+    singleCertificateNumber,
+    spouseFullName,
+    spouseNationalId,
+    spousePhone,
+    employmentType,
+    documentFiles,
+    requiredDocuments,
     placeOfBirth,
     address,
     province,
@@ -380,7 +522,7 @@ export default function NewBorrowerPage() {
     setLoading(true);
 
     try {
-      await createBorrower({
+      const borrowerPayload = {
         firstName: normalizeName(firstName),
         lastName: normalizeName(lastName),
         email: email.trim() || undefined,
@@ -389,7 +531,20 @@ export default function NewBorrowerPage() {
         nationalId: normalizeNationalId(nationalId),
         dateOfBirth,
         gender: gender.trim(),
-        maritalStatus: maritalStatus.trim(),
+        maritalStatus,
+        singleCertificateNumber:
+          maritalStatus === "SINGLE" ? singleCertificateNumber.trim() : undefined,
+        spouseFullName:
+          maritalStatus === "MARRIED" ? normalizeName(spouseFullName) : undefined,
+        spouseNationalId:
+          maritalStatus === "MARRIED" && spouseNationalId.trim()
+            ? spouseNationalId.trim()
+            : undefined,
+        spousePhone:
+          maritalStatus === "MARRIED" && spousePhone.trim()
+            ? normalizePhone(spousePhone)
+            : undefined,
+        spouseConsent: maritalStatus === "MARRIED" ? spouseConsent : undefined,
         nationality: nationality.trim() || "Rwandan",
         placeOfBirth: placeOfBirth.trim(),
         addressLine1: address.trim(),
@@ -399,8 +554,25 @@ export default function NewBorrowerPage() {
         physicalAddressCell: cell.trim(),
         physicalAddressVillage: undefined,
         country: country.trim(),
+        employmentType,
+        employerName: employerName.trim() || undefined,
+        jobTitle: jobTitle.trim() || undefined,
         creditScore: creditScore.trim() ? Number(creditScore) : undefined,
-      });
+      };
+
+      const multipart = new FormData();
+      multipart.append(
+        "borrower",
+        new Blob([JSON.stringify(borrowerPayload)], { type: "application/json" }),
+      );
+      for (const document of requiredDocuments) {
+        const file = documentFiles[document.type];
+        if (file) {
+          multipart.append(KYC_PART_NAMES[document.type], file, file.name);
+        }
+      }
+
+      await createBorrower(multipart);
 
       toast("success", "Borrower created successfully.");
 
@@ -841,10 +1013,96 @@ export default function NewBorrowerPage() {
                     <option value="">Select status</option>
                     <option value="SINGLE">Single</option>
                     <option value="MARRIED">Married</option>
-                    <option value="DIVORCED">Divorced</option>
-                    <option value="WIDOWED">Widowed</option>
                   </select>
                 </Field>
+
+                {maritalStatus === "SINGLE" && (
+                  <Field
+                    id="singleCertificateNumber"
+                    label="Single-status Certificate Number"
+                    required
+                    error={errors.singleCertificateNumber}
+                  >
+                    <input
+                      id="singleCertificateNumber"
+                      type="text"
+                      value={singleCertificateNumber}
+                      maxLength={100}
+                      disabled={loading}
+                      onChange={(event) => setSingleCertificateNumber(event.target.value)}
+                      placeholder="Certificate reference number"
+                      className={inputClass(errors.singleCertificateNumber)}
+                    />
+                  </Field>
+                )}
+
+                {maritalStatus === "MARRIED" && (
+                  <>
+                    <Field
+                      id="spouseFullName"
+                      label="Spouse Full Name"
+                      required
+                      error={errors.spouseFullName}
+                    >
+                      <input
+                        id="spouseFullName"
+                        type="text"
+                        value={spouseFullName}
+                        maxLength={150}
+                        disabled={loading}
+                        onChange={(event) => setSpouseFullName(event.target.value)}
+                        placeholder="Spouse's legal full name"
+                        className={inputClass(errors.spouseFullName)}
+                      />
+                    </Field>
+                    <Field
+                      id="spouseNationalId"
+                      label="Spouse National ID"
+                      hint="Optional · 16 digits"
+                      error={errors.spouseNationalId}
+                    >
+                      <input
+                        id="spouseNationalId"
+                        type="text"
+                        value={spouseNationalId}
+                        maxLength={16}
+                        inputMode="numeric"
+                        disabled={loading}
+                        onChange={(event) => setSpouseNationalId(normalizeNationalId(event.target.value))}
+                        placeholder="16-digit spouse ID"
+                        className={inputClass(errors.spouseNationalId)}
+                      />
+                    </Field>
+                    <Field
+                      id="spousePhone"
+                      label="Spouse Phone"
+                      hint="Optional"
+                      error={errors.spousePhone}
+                    >
+                      <input
+                        id="spousePhone"
+                        type="tel"
+                        value={spousePhone}
+                        maxLength={10}
+                        inputMode="tel"
+                        disabled={loading}
+                        onChange={(event) => setSpousePhone(normalizePhone(event.target.value))}
+                        placeholder="0788 123 456"
+                        className={inputClass(errors.spousePhone)}
+                      />
+                    </Field>
+                    <label className="flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={spouseConsent}
+                        disabled={loading}
+                        onChange={(event) => setSpouseConsent(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Spouse consent recorded
+                    </label>
+                  </>
+                )}
 
                 <Field
                   id="nationality"
@@ -1147,8 +1405,131 @@ export default function NewBorrowerPage() {
                   />
                 </Field>
               </div>
-            </section>{" "}
+            </section>
             <FormDivider />
+
+            {/* Employment profile */}
+            <section>
+              <SectionHeader
+                number="04"
+                title="Employment Profile"
+                description="Employment type determines whether a payslip or business registration document is required."
+              />
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <Field
+                  id="employmentType"
+                  label="Employment Type"
+                  required
+                  error={errors.employmentType}
+                >
+                  <select
+                    id="employmentType"
+                    value={employmentType}
+                    disabled={loading}
+                    onChange={(event) => setEmploymentType(event.target.value)}
+                    className={inputClass(errors.employmentType)}
+                  >
+                    <option value="EMPLOYED">Employed / Salaried</option>
+                    <option value="SELF_EMPLOYED">Self-employed</option>
+                    <option value="BUSINESS_OWNER">Business owner</option>
+                    <option value="FARMER">Farmer</option>
+                    <option value="RETIRED">Retired</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </Field>
+                <Field id="employerName" label="Employer / Business Name">
+                  <input
+                    id="employerName"
+                    type="text"
+                    value={employerName}
+                    maxLength={150}
+                    disabled={loading}
+                    onChange={(event) => setEmployerName(event.target.value)}
+                    placeholder="Employer or business name"
+                    className={inputClass()}
+                  />
+                </Field>
+                <Field id="jobTitle" label="Job Title / Occupation">
+                  <input
+                    id="jobTitle"
+                    type="text"
+                    value={jobTitle}
+                    maxLength={120}
+                    disabled={loading}
+                    onChange={(event) => setJobTitle(event.target.value)}
+                    placeholder="e.g. Accountant, Shop owner, Farmer"
+                    className={inputClass()}
+                  />
+                </Field>
+              </div>
+            </section>
+            <FormDivider />
+
+            {/* Mandatory KYC documents */}
+            <section>
+              <SectionHeader
+                number="05"
+                title="Required KYC Documents"
+                description="Upload every document required by the borrower's marital and employment profile. Staff verification is required before disbursement."
+              />
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                {requiredDocuments.map((document) => {
+                  const file = documentFiles[document.type];
+                  return (
+                    <div
+                      key={document.type}
+                      className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
+                    >
+                      <label
+                        htmlFor={"document-" + document.type}
+                        className="block text-sm font-semibold text-slate-800"
+                      >
+                        {document.label}
+                        <span className="ml-1 text-red-500">*</span>
+                      </label>
+                      <input
+                        id={"document-" + document.type}
+                        type="file"
+                        accept={document.accept}
+                        required
+                        disabled={loading}
+                        onChange={(event) => {
+                          const selected = event.target.files?.[0] ?? null;
+                          setDocumentFiles((current) => ({
+                            ...current,
+                            [document.type]: selected,
+                          }));
+                          if (errors[document.type]) {
+                            setErrors((current) => ({
+                              ...current,
+                              [document.type]: "",
+                            }));
+                          }
+                        }}
+                        className="mt-3 block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
+                      />
+                      <p className="mt-2 text-xs text-slate-500">
+                        {file
+                          ? file.name + " · " + (file.size / (1024 * 1024)).toFixed(2) + " MB"
+                          : document.type === "SELFIE"
+                            ? "Upload a clear recent photo of the borrower. Maximum 8 MB."
+                            : "PDF, JPG, PNG or WEBP · Maximum 8 MB."}
+                      </p>
+                      {errors[document.type] && (
+                        <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">
+                          {errors[document.type]}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+                Uploaded files are stored as Pending. Missing files block approval, and staff must verify every current required document before disbursement.
+              </p>
+            </section>
+            <FormDivider />
+
             {/* Compliance note */}
             <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
               <div className="flex items-start gap-3">
