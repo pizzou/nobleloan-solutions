@@ -85,7 +85,7 @@ export const getBorrowerById = (
  */
 
 export const createBorrower = (
-  payload: Partial<Borrower>,
+  payload: FormData | Partial<Borrower>,
 ): Promise<Borrower> =>
   post(
     '/borrowers',

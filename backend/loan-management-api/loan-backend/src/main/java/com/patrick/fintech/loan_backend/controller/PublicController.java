@@ -34,6 +34,7 @@ import com.patrick.fintech.loan_backend.security.HmacIndexer;
 import com.patrick.fintech.loan_backend.service.AirtelMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.BorrowerFileService;
+import com.patrick.fintech.loan_backend.service.BorrowerDocumentRequirements;
 import com.patrick.fintech.loan_backend.service.FlutterwaveService;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.patrick.fintech.loan_backend.service.LoanService;
@@ -4465,24 +4466,33 @@ public class PublicController {
                         MultipartFile payslipFile,
                         MultipartFile businessRegistrationFile) {
 
-                requirePublicDocument(nationalIdFile, "National ID");
-                requirePublicDocument(bankStatementFile, "Bank Statement");
-                requirePublicDocument(selfieFile, "Selfie");
-
-                if ("MARRIED".equalsIgnoreCase(maritalStatus)) {
-                        requirePublicDocument(marriageCertificateFile, "Marriage Certificate");
-                } else if ("SINGLE".equalsIgnoreCase(maritalStatus)) {
-                        requirePublicDocument(singleCertificateFile, "Single Status Certificate");
-                } else {
-                        throw new IllegalArgumentException(
-                                        "Marital status must be Married or Single, and the corresponding certificate is mandatory.");
+                for (DocumentType required : BorrowerDocumentRequirements.forProfile(
+                                maritalStatus, employmentType)) {
+                        MultipartFile supplied = switch (required) {
+                                case NATIONAL_ID -> nationalIdFile;
+                                case BANK_STATEMENT -> bankStatementFile;
+                                case SELFIE -> selfieFile;
+                                case MARRIAGE_CERTIFICATE -> marriageCertificateFile;
+                                case SINGLE_CERTIFICATE -> singleCertificateFile;
+                                case PAYSLIP -> payslipFile;
+                                case BUSINESS_REGISTRATION -> businessRegistrationFile;
+                                default -> null;
+                        };
+                        requirePublicDocument(supplied, publicDocumentLabel(required));
                 }
+        }
 
-                if (isEmployeeEmploymentType(employmentType)) {
-                        requirePublicDocument(payslipFile, "Payslip");
-                } else if (isBusinessEmploymentType(employmentType)) {
-                        requirePublicDocument(businessRegistrationFile, "Business Registration / Company Certificate");
-                }
+        private String publicDocumentLabel(DocumentType type) {
+                return switch (type) {
+                        case NATIONAL_ID -> "National ID";
+                        case BANK_STATEMENT -> "Bank Statement";
+                        case SELFIE -> "Selfie";
+                        case MARRIAGE_CERTIFICATE -> "Marriage Certificate";
+                        case SINGLE_CERTIFICATE -> "Single Status Certificate";
+                        case PAYSLIP -> "Payslip";
+                        case BUSINESS_REGISTRATION -> "Business Registration / Company Certificate";
+                        default -> type.name().replace('_', ' ');
+                };
         }
 
         private void requirePublicDocument(MultipartFile file, String label) {
