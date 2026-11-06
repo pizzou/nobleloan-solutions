@@ -196,7 +196,7 @@ public class LoanApplicationFormService {
     }
 
     private static XWPFTable table(XWPFDocument doc) {
-        XWPFTable table = doc.createTable();
+        XWPFTable table = doc.createTable(1, 2);
         table.setWidth("100%");
         return table;
     }
