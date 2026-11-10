@@ -35,6 +35,7 @@ public class AuthController {
     private final SmsService smsService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final LoginLockoutService loginLockoutService;
     private static final SecureRandom OTP_RANDOM = new SecureRandom();
 
     @Value("${app.environment:development}")
@@ -76,8 +77,8 @@ public class AuthController {
 
     private static final java.util.Set<String> EMAIL_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER", "BUSINESS_OWNER");
 
-    private static final int MAX_FAILED_ATTEMPTS = 5;
-    private static final int LOCKOUT_MINUTES = 15;
+    private static final int MAX_FAILED_ATTEMPTS = LoginLockoutService.MAX_FAILED_ATTEMPTS;
+    private static final int LOCKOUT_MINUTES = LoginLockoutService.LOCKOUT_MINUTES;
     private static final int MAX_OTP_ATTEMPTS = 5;
     private static final int OTP_EXPIRY_MINUTES = 5;
 
@@ -104,37 +105,30 @@ public class AuthController {
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(email, req.getPassword()));
-        } catch (Exception e) {
+        } catch (BadCredentialsException e) {
             if (user != null) {
-                int attempts = (user.getFailedLoginAttempts() == null ? 0 : user.getFailedLoginAttempts()) + 1;
-                user.setFailedLoginAttempts(attempts);
-                if (attempts >= MAX_FAILED_ATTEMPTS) {
-                    user.setLockedUntil(java.time.LocalDateTime.now().plusMinutes(LOCKOUT_MINUTES));
-                    userRepository.save(user);
+                LoginLockoutService.Failure failure = loginLockoutService.registerInvalidPassword(user.getId());
+                if (failure.locked()) {
                     auditService.logAuthenticationAsync(user.getOrganization(), user, "ACCOUNT_LOCKED", "AUTH",
-                            String.valueOf(user.getId()), "Account locked after " + attempts + " failed login attempts",
-                            null, null, "Authentication");
+                            String.valueOf(user.getId()),
+                            "Account locked following repeated invalid passwords", null, null, "Authentication");
                     throw new RuntimeException(
                             "Too many failed attempts. Account locked for " + LOCKOUT_MINUTES + " minutes.");
                 }
-                userRepository.save(user);
                 auditService.logAuthenticationAsync(user.getOrganization(), user, "LOGIN_FAILED", "AUTH",
                         String.valueOf(user.getId()),
-                        "Failed login attempt (" + attempts + "/" + MAX_FAILED_ATTEMPTS + ")",
+                        "Failed login attempt (" + failure.attempts() + "/" + MAX_FAILED_ATTEMPTS + ")",
                         null, null, "Authentication");
             }
+            // Deliberately do not reveal whether the email exists.
             throw new RuntimeException("Invalid email or password");
         }
 
-        user = userRepository.findByEmailIgnoreCase(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        // Successful password check — reset the failure counter and any lock.
-        if ((user.getFailedLoginAttempts() != null && user.getFailedLoginAttempts() > 0)
-                || user.getLockedUntil() != null) {
-            user.setFailedLoginAttempts(0);
-            user.setLockedUntil(null);
+        if (user == null || !loginLockoutService.clearAfterValidPassword(user.getId())) {
+            throw new RuntimeException("Account locked. Contact the administrator or try again after 24 hours.");
         }
+        user = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new RuntimeException("Invalid email or password"));
 
         boolean emailOtpRequired = isEmailOtpRole(user);
 

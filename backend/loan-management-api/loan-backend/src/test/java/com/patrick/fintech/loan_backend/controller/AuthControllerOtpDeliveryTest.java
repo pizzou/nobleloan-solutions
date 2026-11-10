@@ -8,6 +8,7 @@ import com.patrick.fintech.loan_backend.repository.UserRepository;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.AuthService;
 import com.patrick.fintech.loan_backend.service.MailService;
+import com.patrick.fintech.loan_backend.service.LoginLockoutService;
 import com.patrick.fintech.loan_backend.service.MfaService;
 import com.patrick.fintech.loan_backend.service.SmsService;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +41,7 @@ class AuthControllerOtpDeliveryTest {
     private SmsService smsService;
     private PasswordEncoder passwordEncoder;
     private AuditService auditService;
+    private LoginLockoutService loginLockoutService;
     private AuthController controller;
     private User user;
 
@@ -54,9 +56,11 @@ class AuthControllerOtpDeliveryTest {
         smsService = mock(SmsService.class);
         passwordEncoder = mock(PasswordEncoder.class);
         auditService = mock(AuditService.class);
+        loginLockoutService = mock(LoginLockoutService.class);
 
         controller = new AuthController(authenticationManager, authService, jwtUtils,
-                userRepository, mfaService, mailService, smsService, passwordEncoder, auditService);
+                userRepository, mfaService, mailService, smsService, passwordEncoder, auditService,
+                loginLockoutService);
 
         Role role = new Role();
         role.setName("MANAGER");

@@ -70,6 +70,12 @@ export default function ContactPage() {
     "idle" | "sending" | "success" | "error"
   >("idle");
   const [error, setError] = useState("");
+  const [shareLocation, setShareLocation] = useState(false);
+  const [location, setLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [locationMessage, setLocationMessage] = useState("");
 
   const mapHref = useMemo(
     () =>
@@ -82,7 +88,14 @@ export default function ContactPage() {
     setStatus("sending");
     setError("");
     try {
-      await publicApi.contact({ tenantSlug: tenant.slug, ...form });
+      const payload = {
+        tenantSlug: tenant.slug,
+        ...form,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+        shareLocation: shareLocation && location !== null,
+        ...(shareLocation && location ? location : {}),
+      };
+      await publicApi.contact(payload);
       setForm({
         name: "",
         email: "",
@@ -91,6 +104,9 @@ export default function ContactPage() {
         message: "",
       });
       setStatus("success");
+      setShareLocation(false);
+      setLocation(null);
+      setLocationMessage("");
     } catch (cause) {
       setStatus("error");
       setError(
@@ -399,6 +415,66 @@ export default function ContactPage() {
                   confidential credentials.
                 </span>
               </label>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
+                <p>
+                  To help us handle your enquiry, we record your IP address,
+                  browser and operating system, device category and time zone.
+                  We do not collect your computer's name or precise location
+                  automatically.
+                </p>
+                <label className="mt-3 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={shareLocation}
+                    className="mt-0.5"
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setShareLocation(enabled);
+                      setLocation(null);
+                      setLocationMessage("");
+                      if (!enabled) return;
+                      if (!navigator.geolocation) {
+                        setLocationMessage(
+                          "Location sharing is unavailable on this browser.",
+                        );
+                        return;
+                      }
+                      navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                          setLocation({
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                          });
+                          setLocationMessage(
+                            "Approximate location ready to share.",
+                          );
+                        },
+                        () => {
+                          setShareLocation(false);
+                          setLocationMessage(
+                            "Location was not shared. You can still send your message.",
+                          );
+                        },
+                        {
+                          enableHighAccuracy: false,
+                          timeout: 10000,
+                          maximumAge: 60000,
+                        },
+                      );
+                    }}
+                  />
+                  <span>
+                    Optionally share my approximate location with Noble support
+                    (browser permission required).
+                  </span>
+                </label>
+                {locationMessage && (
+                  <p role="status" className="mt-2">
+                    {locationMessage}
+                  </p>
+                )}
+              </div>
 
               {status === "success" && (
                 <div

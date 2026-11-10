@@ -149,7 +149,8 @@ public class PublicController {
 
         @PostMapping("/contact")
         public ResponseEntity<ApiResponse<String>> submitContact(
-                        @RequestBody Map<String, Object> body) {
+                        @RequestBody Map<String, Object> body,
+                        jakarta.servlet.http.HttpServletRequest httpRequest) {
 
                 String slug = str(
                                 body.get("tenantSlug"));
@@ -172,11 +173,20 @@ public class PublicController {
 
                 String phone = str(body.get("phone"));
 
-                if (name == null || message == null) {
-
-                        throw new RuntimeException(
-                                        "Name and message are required");
+                if (name == null || name.isBlank() || message == null || message.isBlank()) {
+                        throw new IllegalArgumentException("Full name and message are required");
                 }
+                name = name.trim().replaceAll("\\s+", " ");
+                if (name.length() > 120 || name.split(" ").length < 2) {
+                        throw new IllegalArgumentException(
+                                        "Enter your full name (at least two names, maximum 120 characters).");
+                }
+                if (message.length() > 3000) {
+                        throw new IllegalArgumentException("Message must not exceed 3000 characters.");
+                }
+
+                com.patrick.fintech.loan_backend.util.ContactVisitorMetadata details = com.patrick.fintech.loan_backend.util.ContactVisitorMetadata
+                                .from(httpRequest, body);
 
                 contactMessageRepo.save(
                                 ContactMessage.builder()
@@ -186,6 +196,14 @@ public class PublicController {
                                                 .phone(phone)
                                                 .subject(subject)
                                                 .message(message)
+                                                .ipAddress(details.ipAddress())
+                                                .deviceType(details.deviceType())
+                                                .operatingSystem(details.operatingSystem())
+                                                .browserName(details.browserName())
+                                                .timeZone(details.timeZone())
+                                                .userAgent(details.userAgent())
+                                                .approximateLocation(details.approximateLocation())
+                                                .locationConsent(details.locationConsent())
                                                 .build());
 
                 List<User> staff = userRepo.findByOrganization(org)

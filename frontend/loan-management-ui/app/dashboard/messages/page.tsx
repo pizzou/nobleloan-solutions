@@ -11,6 +11,14 @@ interface ContactMsg {
   phone?: string;
   subject?: string;
   message: string;
+  ipAddress?: string | null;
+  deviceType?: string | null;
+  operatingSystem?: string | null;
+  browserName?: string | null;
+  timeZone?: string | null;
+  userAgent?: string | null;
+  approximateLocation?: string | null;
+  locationConsent?: boolean;
   read: boolean;
   createdAt: string;
 }
@@ -593,6 +601,36 @@ export default function MessagesPage() {
                                 </span>
                               </div>
                             </div>
+                          </div>
+
+                          <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                              Visitor information (unverified device
+                              information)
+                            </p>
+                            <dl className="mt-3 grid gap-x-5 gap-y-3 text-xs sm:grid-cols-2">
+                              {[
+                                ["Full name", message.name],
+                                ["IP address", message.ipAddress],
+                                ["Device", message.deviceType],
+                                ["Operating system", message.operatingSystem],
+                                ["Browser", message.browserName],
+                                ["Time zone", message.timeZone],
+                                [
+                                  "Approximate location (visitor shared)",
+                                  message.approximateLocation,
+                                ],
+                              ].map(([label, value]) => (
+                                <div key={label || ""}>
+                                  <dt className="font-bold text-slate-500">
+                                    {label}
+                                  </dt>
+                                  <dd className="mt-1 break-words text-slate-800">
+                                    {value || "Not available"}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
                           </div>
 
                           <div className="mt-5 border-t border-slate-200 pt-4">
