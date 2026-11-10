@@ -373,9 +373,10 @@ public final class LedgerFileParser {
         String startDate = normalizeDateString(cellValue(row.getCell(14), formatter, evaluator));
         String nextDueDate = normalizeDateString(cellValue(row.getCell(15), formatter, evaluator));
 
-        BigDecimal principalPaid = decimalOrZero(cellValue(row.getCell(26), formatter, evaluator));
-        BigDecimal interestPaid = decimalOrZero(cellValue(row.getCell(25), formatter, evaluator));
-        BigDecimal managementPaid = decimalOrZero(cellValue(row.getCell(23), formatter, evaluator));
+        boolean compact = hasVerifiedDueHeader(row.getSheet(), 28);
+        BigDecimal principalPaid = decimalOrZero(cellValue(monthlyCell(row, 26, compact), formatter, evaluator));
+        BigDecimal interestPaid = decimalOrZero(cellValue(monthlyCell(row, 25, compact), formatter, evaluator));
+        BigDecimal managementPaid = decimalOrZero(cellValue(monthlyCell(row, 23, compact), formatter, evaluator));
         BigDecimal managementOutstanding = decimalOrZero(cellValue(row.getCell(21), formatter, evaluator));
 
         // IMPORTANT: columns V/W/X/Y in the historical workbook are
@@ -391,9 +392,9 @@ public final class LedgerFileParser {
         BigDecimal applicationOutstanding = BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP);
         BigDecimal applicationPaid = applicationFeeAmount;
 
-        BigDecimal interestOutstanding = decimalOrZero(cellValue(row.getCell(28), formatter, evaluator));
-        BigDecimal principalOutstanding = decimalOrZero(cellValue(row.getCell(29), formatter, evaluator));
-        BigDecimal penalties = decimalOrZero(cellValue(row.getCell(27), formatter, evaluator));
+        BigDecimal interestOutstanding = decimalOrZero(cellValue(monthlyCell(row, 28, compact), formatter, evaluator));
+        BigDecimal principalOutstanding = decimalOrZero(cellValue(monthlyCell(row, 29, compact), formatter, evaluator));
+        BigDecimal penalties = decimalOrZero(cellValue(monthlyCell(row, 27, compact), formatter, evaluator));
 
         BigDecimal totalInterest = money(interestPaid.add(interestOutstanding));
         BigDecimal totalManagement = money(managementPaid.add(managementOutstanding));
@@ -434,7 +435,22 @@ public final class LedgerFileParser {
         out.put("management_fee_rate", "5.00");
         out.put("duration_months", duration);
         out.put("start_date", startDate);
-        out.put("next_due_date", nextDueDate);
+        // Synchronous parser: the full layout stores the verified date/count
+        // at AE/AF; compact layout uses AC/AD. Detect the two-row header,
+        // rather than interpreting a financial column as an optional date.
+        int verifiedColumn = compact ? 28 : 30;
+        String verifiedDue = normalizeDateString(cellValue(row.getCell(verifiedColumn), formatter, evaluator));
+        String settledCount = cleanCell(cellValue(row.getCell(verifiedColumn + 1), formatter, evaluator));
+        BigDecimal unpaidReceivable = money(principalOutstanding.add(interestOutstanding)
+                .add(managementOutstanding));
+        BigDecimal historicalPayments = money(principalPaid.add(interestPaid).add(managementPaid));
+        LegacyInstallmentDueDateResolver.Result due = LegacyInstallmentDueDateResolver.resolve(
+                startDate, nextDueDate, duration, verifiedDue, settledCount,
+                historicalPayments.signum() > 0 && unpaidReceivable.signum() > 0,
+                unpaidReceivable.signum() > 0, compact ? "AC" : "AE", compact ? "AD" : "AF");
+        out.put("next_due_date", due.nextDueDate());
+        if (!due.valid())
+            out.put("__import_issue", due.error());
         out.put("status", status);
         out.put("currency", "RWF");
         out.put("loan_reference", cleanCell(cellValue(row.getCell(0), formatter, evaluator)));
@@ -457,6 +473,31 @@ public final class LedgerFileParser {
         out.put("penalties_paid", penalties.toPlainString());
         out.put("notes", "Imported from Noble Loan historical portfolio workbook");
         return out;
+    }
+
+    /**
+     * Maps full monthly financial columns into the two-column-shorter compact
+     * layout.
+     */
+    private static Cell monthlyCell(Row row, int fullColumn, boolean compact) {
+        return row.getCell(
+                compact ? (fullColumn == 23 ? 22 : (fullColumn >= 24 ? fullColumn - 2 : fullColumn)) : fullColumn);
+    }
+
+    private static boolean hasVerifiedDueHeader(Sheet sheet, int columnIndex) {
+        if (sheet == null)
+            return false;
+        for (int rowIndex = 0; rowIndex < Math.min(5, sheet.getPhysicalNumberOfRows()); rowIndex++) {
+            Row header = sheet.getRow(rowIndex);
+            if (header == null)
+                continue;
+            Cell cell = header.getCell(columnIndex);
+            if (cell != null && cell.getCellType() == CellType.STRING
+                    && cell.getStringCellValue().toLowerCase(Locale.ROOT).contains("verified oldest unpaid")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String deriveMonthlyStatus(

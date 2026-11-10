@@ -560,7 +560,7 @@ public final class StreamingLedgerFileParser {
             BigDecimal applicationFee = decimal(row.get(5));
             BigDecimal principalPaid = decimal(row.get(26));
             BigDecimal interestPaid = decimal(row.get(25));
-            BigDecimal managementPaid = decimal(row.get(23));
+            BigDecimal managementPaid = decimal(row.get(compactMonthlyColumns ? 24 : 23));
             BigDecimal managementOutstanding = decimal(row.get(21));
             // Column F is APPLICATION FEES. Historical W/Y columns are legacy
             // processing-fee balances and are not the Noble Loan application fee.
@@ -596,28 +596,26 @@ public final class StreamingLedgerFileParser {
             out.put("management_fee_rate", "5.00");
             out.put("duration_months", clean(row.get(7)));
             out.put("start_date", normalizeDate(row.get(14)));
-            // Column P is "Month 1" on this workbook, not necessarily the
-            // NEXT UNPAID installment once historical repayments exist.
-            // Optional column AE (31st column) is a verified oldest unpaid due
-            // date supplied by the user after checking the repayment schedule.
+            // P is first scheduled due, NOT the earliest unpaid installment.
+            // Alignment above maps compact AC/AD to indices 30/31; full AE/AF
+            // are already indices 30/31. Only verified settlement counts can
+            // advance the due date automatically.
             String firstDue = normalizeDate(row.get(15));
             String verifiedOldestUnpaidDue = normalizeDate(row.get(30));
-            // Paid historical penalties are not an unpaid installment.
+            String verifiedPaidInstallments = clean(row.get(31));
             BigDecimal remainingDue = money(principalOutstanding.add(interestOutstanding)
                     .add(managementOutstanding));
-            boolean partiallyPaid = totalPaid.signum() > 0 && remainingDue.signum() > 0;
-            if (partiallyPaid && verifiedOldestUnpaidDue.isBlank()) {
-                out.put("next_due_date", "");
-                out.put("__import_issue", "Partial historical payments exist but column P holds the FIRST "
-                        + "scheduled due date, not necessarily the oldest UNPAID installment. "
-                        + "Enter the verified oldest unpaid due date in column "
-                        + (compactMonthlyColumns ? "AC " : "AE ")
-                        + "(VERIFIED OLDEST UNPAID DUE DATE) before import. "
-                        + "Do not calculate days overdue from disbursement or assume earlier installments remain unpaid.");
-            } else {
-                out.put("next_due_date", verifiedOldestUnpaidDue.isBlank()
-                        ? firstDue
-                        : verifiedOldestUnpaidDue);
+            BigDecimal financialPayments = money(principalPaid.add(interestPaid).add(managementPaid));
+            LegacyInstallmentDueDateResolver.Result due = LegacyInstallmentDueDateResolver.resolve(
+                    out.get("start_date"), firstDue, out.get("duration_months"),
+                    verifiedOldestUnpaidDue, verifiedPaidInstallments,
+                    financialPayments.signum() > 0 && remainingDue.signum() > 0,
+                    remainingDue.signum() > 0,
+                    compactMonthlyColumns ? "AC" : "AE",
+                    compactMonthlyColumns ? "AD" : "AF");
+            out.put("next_due_date", due.nextDueDate());
+            if (!due.valid()) {
+                out.put("__import_issue", due.error());
             }
             out.put("status", monthlyStatus(row));
             out.put("currency", "RWF");
