@@ -575,12 +575,11 @@ public final class StreamingLedgerFileParser {
 
             BigDecimal totalInterest = money(interestPaid.add(interestOutstanding));
             BigDecimal totalManagement = money(managementPaid.add(managementOutstanding));
-            // The historical workbook's PENALITIES column (column AB) records
-            // assessed repayment penalties. Include them in total_repayable so the
-            // aggregate balance reconciles with the imported penalty component.
+            // Historical PENALITIES are assessed AND already paid.
+            // Include them in contractual and paid totals, never as arrears.
             BigDecimal totalRepayable = money(
                     amount.add(totalInterest).add(totalManagement).add(penalties));
-            BigDecimal totalPaid = money(principalPaid.add(interestPaid).add(managementPaid));
+            BigDecimal totalPaid = money(principalPaid.add(interestPaid).add(managementPaid).add(penalties));
 
             Map<String, String> out = new LinkedHashMap<>();
             out.put("national_id", clean(row.get(2)).replaceAll("\\s+", ""));
@@ -603,8 +602,9 @@ public final class StreamingLedgerFileParser {
             // date supplied by the user after checking the repayment schedule.
             String firstDue = normalizeDate(row.get(15));
             String verifiedOldestUnpaidDue = normalizeDate(row.get(30));
+            // Paid historical penalties are not an unpaid installment.
             BigDecimal remainingDue = money(principalOutstanding.add(interestOutstanding)
-                    .add(managementOutstanding).add(penalties));
+                    .add(managementOutstanding));
             boolean partiallyPaid = totalPaid.signum() > 0 && remainingDue.signum() > 0;
             if (partiallyPaid && verifiedOldestUnpaidDue.isBlank()) {
                 out.put("next_due_date", "");
@@ -636,7 +636,7 @@ public final class StreamingLedgerFileParser {
             out.put("application_fee_paid", applicationPaid.toPlainString());
             out.put("application_fee_outstanding", applicationOutstanding.toPlainString());
             out.put("penalties_assessed", penalties.toPlainString());
-            out.put("penalties_paid", "0.00");
+            out.put("penalties_paid", penalties.toPlainString());
             out.put("notes", "Imported from Noble Loan historical portfolio workbook");
             return out;
         }
@@ -704,8 +704,7 @@ public final class StreamingLedgerFileParser {
             }
             if (decimal(row.get(29)).compareTo(BigDecimal.ZERO) == 0
                     && decimal(row.get(28)).compareTo(BigDecimal.ZERO) == 0
-                    && decimal(row.get(21)).compareTo(BigDecimal.ZERO) == 0
-                    && decimal(row.get(27)).compareTo(BigDecimal.ZERO) == 0) {
+                    && decimal(row.get(21)).compareTo(BigDecimal.ZERO) == 0) {
                 return "PAID";
             }
             return "ACTIVE";

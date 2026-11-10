@@ -397,9 +397,8 @@ public final class LedgerFileParser {
 
         BigDecimal totalInterest = money(interestPaid.add(interestOutstanding));
         BigDecimal totalManagement = money(managementPaid.add(managementOutstanding));
-        // The historical workbook's PENALITIES column (column AB) records
-        // assessed repayment penalties. Include them in total_repayable so the
-        // aggregate balance reconciles with the imported penalty component.
+        // Historical PENALITIES are assessed AND already paid.
+        // Include them in contractual and paid totals, never as arrears.
         BigDecimal totalRepayable = money(
                 decimalOrZero(amount)
                         .add(totalInterest)
@@ -408,7 +407,8 @@ public final class LedgerFileParser {
         BigDecimal totalPaid = money(
                 principalPaid
                         .add(interestPaid)
-                        .add(managementPaid));
+                        .add(managementPaid)
+                        .add(penalties));
 
         String status = deriveMonthlyStatus(
                 row,
@@ -454,7 +454,7 @@ public final class LedgerFileParser {
         out.put("application_fee_paid", applicationPaid.toPlainString());
         out.put("application_fee_outstanding", applicationOutstanding.toPlainString());
         out.put("penalties_assessed", penalties.toPlainString());
-        out.put("penalties_paid", "0.00");
+        out.put("penalties_paid", penalties.toPlainString());
         out.put("notes", "Imported from Noble Loan historical portfolio workbook");
         return out;
     }
@@ -478,8 +478,7 @@ public final class LedgerFileParser {
 
         if (principalOutstanding.compareTo(BigDecimal.ZERO) == 0
                 && interestOutstanding.compareTo(BigDecimal.ZERO) == 0
-                && managementOutstanding.compareTo(BigDecimal.ZERO) == 0
-                && penalties.compareTo(BigDecimal.ZERO) == 0) {
+                && managementOutstanding.compareTo(BigDecimal.ZERO) == 0) {
             return "PAID";
         }
 
