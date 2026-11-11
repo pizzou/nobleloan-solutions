@@ -172,6 +172,7 @@ public class SecurityConfig {
                 // ========================================================
                 .requestMatchers(
                     "/api/public/contact",
+                    "/api/public/contact/email/start",
                     "/api/public/borrower/**",
                     "/api/public/applications/**",
                     "/api/public/tenant/**",
