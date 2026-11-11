@@ -70,8 +70,8 @@ public final class LegacyInstallmentDueDateResolver {
         }
         if (hasOutstanding && partiallyPaid) {
             return problem("Historical payments and outstanding balances exist, but they do not prove which "
-                    + "installments were settled. Enter the verified oldest unpaid due date in " + dateColumn
-                    + " OR the verified number of fully settled installments in " + countColumn
+                    + "installments were settled. Enter the verified oldest unpaid due date in column " + dateColumn
+                    + " OR the verified number of fully settled installments in column " + countColumn
                     + ". Column P is only the first scheduled due date. Never infer installments from principal paid alone.");
         }
         if (hasOutstanding && start != null && first != null && !first.isAfter(start)) {
