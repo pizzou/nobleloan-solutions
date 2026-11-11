@@ -44,9 +44,9 @@ public class ContactEmailVerificationService {
     /** A Rwanda phone number, entered as ten digits without a country prefix. */
     public static String phone(String raw) {
         String normalized = raw == null ? "" : raw.trim();
-        if (!normalized.matches("07[2389][0-9]{7}"))
+        if (!normalized.matches("[0-9]{10}"))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Enter a valid 10-digit Rwanda mobile number (07XXXXXXXX).");
+                    "Enter a phone number containing exactly 10 digits.");
         return normalized;
     }
 
