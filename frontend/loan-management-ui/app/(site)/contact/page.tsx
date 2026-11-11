@@ -80,7 +80,7 @@ export default function ContactPage() {
     setError("");
     setVerificationMessage("");
     const address = form.email.trim().toLowerCase();
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(address)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
       setError("Enter a valid email address first.");
       return;
     }
@@ -469,7 +469,7 @@ export default function ContactPage() {
                   <label className="block">
                     <span className="text-xs font-bold text-slate-700">Six-digit email code</span>
                     <input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
-                      value={emailVerificationCode} onChange={(e) => setEmailVerificationCode(e.target.value.replace(/\\D/g, ""))}
+                      value={emailVerificationCode} onChange={(e) => setEmailVerificationCode(e.target.value.replace(/\D/g, ""))}
                       placeholder="000000"
                       className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm" />
                   </label>
