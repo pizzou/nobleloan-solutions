@@ -37,6 +37,15 @@ public record ContactVisitorMetadata(
             device = "Desktop or laptop";
         }
 
+        // Browser client hints can expose a device *model*, never the person's device name.
+        // Treat this as an unverified hint and keep within the existing DB column size.
+        String hintedModel = clean(request.getHeader("Sec-CH-UA-Model"), 30);
+        if (hintedModel != null) {
+            hintedModel = hintedModel.replace("\\\"", "").replaceAll("[^A-Za-z0-9 ._/-]", "").trim();
+            if (!hintedModel.isBlank() && !hintedModel.equalsIgnoreCase("Unknown"))
+                device = clean(device + " (" + hintedModel + ")", 40);
+        }
+
         String os;
         if (ua.contains("windows")) os = "Windows";
         else if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ios")) os = "iOS / iPadOS";
