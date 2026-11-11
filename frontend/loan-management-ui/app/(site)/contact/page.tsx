@@ -70,6 +70,39 @@ export default function ContactPage() {
     "idle" | "sending" | "success" | "error"
   >("idle");
   const [error, setError] = useState("");
+  const [challengeId, setChallengeId] = useState("");
+  const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [requestingCode, setRequestingCode] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState("");
+
+  async function requestEmailCode() {
+    setError("");
+    setVerificationMessage("");
+    const address = form.email.trim().toLowerCase();
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(address)) {
+      setError("Enter a valid email address first.");
+      return;
+    }
+    setRequestingCode(true);
+    try {
+      const result = await publicApi.startContactEmailVerification({
+        tenantSlug: tenant.slug,
+        email: address,
+      });
+      if (!result?.challengeId) throw new Error("Verification service returned no challenge.");
+      setChallengeId(result.challengeId);
+      setVerificationEmail(address);
+      setEmailVerificationCode("");
+      setVerificationMessage("We sent a 6-digit code to your email. Enter it below within 10 minutes.");
+    } catch (cause) {
+      setChallengeId("");
+      setVerificationEmail("");
+      setError(cause instanceof Error ? cause.message : "Could not send verification email.");
+    } finally {
+      setRequestingCode(false);
+    }
+  }
   const [shareLocation, setShareLocation] = useState(false);
   const [location, setLocation] = useState<{
     latitude: number;
@@ -85,12 +118,31 @@ export default function ContactPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus("sending");
     setError("");
+    if (!/^07[2389][0-9]{7}$/.test(form.phone.trim())) {
+      setStatus("error");
+      setError("Enter a valid 10-digit Rwanda mobile number (07XXXXXXXX).");
+      return;
+    }
+    if (!challengeId || verificationEmail !== form.email.trim().toLowerCase()) {
+      setStatus("error");
+      setError("Verify your current email address before sending the message.");
+      return;
+    }
+    if (!/^[0-9]{6}$/.test(emailVerificationCode)) {
+      setStatus("error");
+      setError("Enter the 6-digit email verification code.");
+      return;
+    }
+    setStatus("sending");
     try {
       const payload = {
         tenantSlug: tenant.slug,
         ...form,
+        email: form.email.trim().toLowerCase(),
+        phone: form.phone.trim(),
+        emailChallengeId: challengeId,
+        emailVerificationCode,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
         shareLocation: shareLocation && location !== null,
         ...(shareLocation && location ? location : {}),
@@ -104,6 +156,10 @@ export default function ContactPage() {
         message: "",
       });
       setStatus("success");
+      setChallengeId("");
+      setVerificationEmail("");
+      setEmailVerificationCode("");
+      setVerificationMessage("");
       setShareLocation(false);
       setLocation(null);
       setLocationMessage("");
@@ -343,18 +399,21 @@ export default function ContactPage() {
                 </label>
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
-                    Email address{" "}
-                    <span className="font-normal text-slate-400">
-                      (optional)
-                    </span>
+                    Email address *
                   </span>
                   <input
                     type="email"
+                    required
                     maxLength={180}
                     autoComplete="email"
                     value={form.email}
                     onChange={(e) =>
-                      setForm({ ...form, email: e.target.value })
+                      {
+                        setForm({ ...form, email: e.target.value });
+                        setChallengeId("");
+                        setVerificationEmail("");
+                        setEmailVerificationCode("");
+                      }
                     }
                     placeholder="you@example.com"
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
@@ -364,16 +423,20 @@ export default function ContactPage() {
               <div className="grid gap-5 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
-                    Phone number
+                    Phone number (10 digits) *
                   </span>
                   <input
-                    maxLength={40}
+                    required
+                    inputMode="numeric"
+                    pattern="07[2389][0-9]{7}"
+                    minLength={10}
+                    maxLength={10}
                     autoComplete="tel"
                     value={form.phone}
                     onChange={(e) =>
                       setForm({ ...form, phone: e.target.value })
                     }
-                    placeholder="Your phone number"
+                    placeholder="0781234567"
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                   />
                 </label>
@@ -393,6 +456,24 @@ export default function ContactPage() {
                     ))}
                   </select>
                 </label>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                <p className="text-xs font-black text-slate-700">Email ownership verification *</p>
+                <button type="button" disabled={requestingCode || status === "sending" || !form.email.trim()}
+                  onClick={() => void requestEmailCode()}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-800 disabled:opacity-50">
+                  {requestingCode ? "Sending code..." : challengeId ? "Resend verification code" : "Send verification code"}
+                </button>
+                {verificationMessage && <p role="status" className="text-xs text-slate-600">{verificationMessage}</p>}
+                {challengeId && (
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-700">Six-digit email code</span>
+                    <input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
+                      value={emailVerificationCode} onChange={(e) => setEmailVerificationCode(e.target.value.replace(/\\D/g, ""))}
+                      placeholder="000000"
+                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm" />
+                  </label>
+                )}
               </div>
               <label className="block">
                 <span className="text-xs font-black text-slate-700">
@@ -418,10 +499,11 @@ export default function ContactPage() {
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
                 <p>
-                  To help us handle your enquiry, we record your IP address,
-                  browser and operating system, device category and time zone.
-                  We do not collect your computer's name or precise location
-                  automatically.
+                  For security and enquiry handling, we automatically record your
+                  network IP, browser, operating system, device category, and an
+                  approximate location where an IP location service is available.
+                  IP-based location is not an exact physical address. Browsers do
+                  not expose your personal computer or phone name.
                 </p>
                 <label className="mt-3 flex items-start gap-2">
                   <input
@@ -501,7 +583,7 @@ export default function ContactPage() {
                   message inbox.
                 </p>
                 <button
-                  disabled={status === "sending"}
+                  disabled={status === "sending" || requestingCode}
                   type="submit"
                   className="rounded-2xl px-7 py-4 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
                   style={{ backgroundColor: primary }}
