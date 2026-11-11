@@ -1,18 +1,24 @@
 package com.patrick.fintech.loan_backend.model;
 
-import jakarta.persistence.*;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.patrick.fintech.loan_backend.util.UtcLocalDateTimeSerializer;
+import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
-@JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
+@JsonIgnoreProperties({ "hibernateLazyInitializer", "handler" })
 @Entity
 @Table(name = "notifications")
-@Data @NoArgsConstructor @AllArgsConstructor @Builder
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Notification {
-
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @JsonIgnore
@@ -34,12 +40,18 @@ public class Notification {
     private String type;
     private String link;
     private boolean read;
+
+    /** Existing database values are treated as UTC; API responses include Z. */
+    @JsonSerialize(using = UtcLocalDateTimeSerializer.class)
     private LocalDateTime createdAt;
+
+    @JsonSerialize(using = UtcLocalDateTimeSerializer.class)
     private LocalDateTime readAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        if (createdAt == null)
+            createdAt = LocalDateTime.now(ZoneOffset.UTC);
         read = false;
     }
 }
