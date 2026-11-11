@@ -107,6 +107,7 @@ public class PublicController {
         private final NotificationService notificationService;
         private final MailService mailService;
         private final com.patrick.fintech.loan_backend.service.ContactEmailVerificationService contactEmailVerificationService;
+        private final com.patrick.fintech.loan_backend.service.ContactIpLocationService contactIpLocationService;
         private final AuditService auditService;
 
         private final ObjectMapper objectMapper;
@@ -223,7 +224,9 @@ public class PublicController {
                                                 .browserName(details.browserName())
                                                 .timeZone(details.timeZone())
                                                 .userAgent(details.userAgent())
-                                                .approximateLocation(details.approximateLocation())
+                                                .approximateLocation(details.approximateLocation() != null
+                                                                ? details.approximateLocation()
+                                                                : contactIpLocationService.lookup(details.ipAddress()))
                                                 .locationConsent(details.locationConsent())
                                                 .build());
 
