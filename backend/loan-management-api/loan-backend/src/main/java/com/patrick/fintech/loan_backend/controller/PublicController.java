@@ -106,6 +106,7 @@ public class PublicController {
         private final SmsService smsService;
         private final NotificationService notificationService;
         private final MailService mailService;
+        private final com.patrick.fintech.loan_backend.service.ContactEmailVerificationService contactEmailVerificationService;
         private final AuditService auditService;
 
         private final ObjectMapper objectMapper;
@@ -147,6 +148,21 @@ public class PublicController {
         // CONTACT
         // ============================================================
 
+        @PostMapping("/contact/email/start")
+        public ResponseEntity<ApiResponse<Map<String, String>>> startContactEmailVerification(
+                        @RequestBody Map<String, Object> body,
+                        jakarta.servlet.http.HttpServletRequest httpRequest) {
+                String email = com.patrick.fintech.loan_backend.service.ContactEmailVerificationService.email(
+                                str(body.get("email")));
+                // Validate tenant before sending email, to avoid use as a general email relay.
+                if (resolveOrg(str(body.get("tenantSlug"))) == null)
+                        throw new IllegalArgumentException("Unknown organization.");
+                java.util.UUID challengeId = contactEmailVerificationService.start(email, httpRequest);
+                return ResponseEntity.ok(ApiResponse.ok("Verification email requested.",
+                                Map.of("challengeId", challengeId.toString())));
+        }
+
+        @jakarta.transaction.Transactional
         @PostMapping("/contact")
         public ResponseEntity<ApiResponse<String>> submitContact(
                         @RequestBody Map<String, Object> body,
@@ -171,7 +187,9 @@ public class PublicController {
 
                 String email = str(body.get("email"));
 
-                String phone = str(body.get("phone"));
+                String phone = com.patrick.fintech.loan_backend.service.ContactEmailVerificationService.phone(
+                                str(body.get("phone")));
+                email = com.patrick.fintech.loan_backend.service.ContactEmailVerificationService.email(email);
 
                 if (name == null || name.isBlank() || message == null || message.isBlank()) {
                         throw new IllegalArgumentException("Full name and message are required");
@@ -184,6 +202,9 @@ public class PublicController {
                 if (message.length() > 3000) {
                         throw new IllegalArgumentException("Message must not exceed 3000 characters.");
                 }
+
+                contactEmailVerificationService.consume(str(body.get("emailChallengeId")), email,
+                                str(body.get("emailVerificationCode")));
 
                 com.patrick.fintech.loan_backend.util.ContactVisitorMetadata details = com.patrick.fintech.loan_backend.util.ContactVisitorMetadata
                                 .from(httpRequest, body);
