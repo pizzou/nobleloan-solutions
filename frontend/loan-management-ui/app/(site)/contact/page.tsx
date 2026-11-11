@@ -119,9 +119,9 @@ export default function ContactPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!/^07[2389][0-9]{7}$/.test(form.phone.trim())) {
+    if (!/^[0-9]{10}$/.test(form.phone.trim())) {
       setStatus("error");
-      setError("Enter a valid 10-digit Rwanda mobile number (07XXXXXXXX).");
+      setError("Enter a phone number containing exactly 10 digits.");
       return;
     }
     if (!challengeId || verificationEmail !== form.email.trim().toLowerCase()) {
@@ -428,7 +428,7 @@ export default function ContactPage() {
                   <input
                     required
                     inputMode="numeric"
-                    pattern="07[2389][0-9]{7}"
+                    pattern="[0-9]{10}"
                     minLength={10}
                     maxLength={10}
                     autoComplete="tel"
