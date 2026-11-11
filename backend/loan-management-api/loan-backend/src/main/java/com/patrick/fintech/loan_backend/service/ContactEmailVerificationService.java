@@ -29,6 +29,7 @@ public class ContactEmailVerificationService {
             "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$");
     private final JdbcTemplate jdbc;
     private final MailService mailService;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
     private final SecureRandom random = new SecureRandom();
 
     @Value("${app.jwt.secret:${JWT_SECRET:}}")
@@ -97,8 +98,14 @@ public class ContactEmailVerificationService {
                 "AND consumed_at IS NULL AND attempts<5",
                 id, address, hash(id, code));
         if (updated != 1) {
-            jdbc.update("UPDATE contact_email_challenges SET attempts=attempts+1 " +
-                    "WHERE id=? AND email=? AND consumed_at IS NULL AND attempts<5", id, address);
+            // Record failed attempts in a separate transaction so a rejected request
+            // cannot roll back the rate-limiting counter.
+            org.springframework.transaction.support.TransactionTemplate tx =
+                    new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+            tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            tx.executeWithoutResult(status -> jdbc.update(
+                    "UPDATE contact_email_challenges SET attempts=attempts+1 " +
+                    "WHERE id=? AND email=? AND consumed_at IS NULL AND attempts<5", id, address));
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Email verification code is invalid, expired or already used.");
         }
