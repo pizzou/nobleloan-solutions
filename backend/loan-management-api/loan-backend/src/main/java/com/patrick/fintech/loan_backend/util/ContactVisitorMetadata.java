@@ -37,20 +37,39 @@ public record ContactVisitorMetadata(
             device = "Desktop or laptop";
         }
 
+        // Browser hints may expose a model, but not the user's private device hostname.
+        String model = clean(request.getHeader("Sec-CH-UA-Model"), 30);
+        if (model != null) {
+            model = model.replace("\"", "").replaceAll("[^A-Za-z0-9 ._/-]", "").trim();
+            if (!model.isBlank() && !model.equalsIgnoreCase("Unknown"))
+                device = clean(device + " (" + model + ")", 40);
+        }
+
         String os;
-        if (ua.contains("windows")) os = "Windows";
-        else if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ios")) os = "iOS / iPadOS";
-        else if (ua.contains("android")) os = "Android";
-        else if (ua.contains("mac os") || ua.contains("macintosh")) os = "macOS";
-        else if (ua.contains("linux")) os = "Linux";
-        else os = "Unknown";
+        if (ua.contains("windows"))
+            os = "Windows";
+        else if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ios"))
+            os = "iOS / iPadOS";
+        else if (ua.contains("android"))
+            os = "Android";
+        else if (ua.contains("mac os") || ua.contains("macintosh"))
+            os = "macOS";
+        else if (ua.contains("linux"))
+            os = "Linux";
+        else
+            os = "Unknown";
 
         String browser;
-        if (ua.contains("edg/") || ua.contains("edga/")) browser = "Microsoft Edge";
-        else if (ua.contains("firefox") || ua.contains("fxios")) browser = "Firefox";
-        else if (ua.contains("chrome") || ua.contains("crios")) browser = "Chrome";
-        else if (ua.contains("safari")) browser = "Safari";
-        else browser = "Unknown";
+        if (ua.contains("edg/") || ua.contains("edga/"))
+            browser = "Microsoft Edge";
+        else if (ua.contains("firefox") || ua.contains("fxios"))
+            browser = "Firefox";
+        else if (ua.contains("chrome") || ua.contains("crios"))
+            browser = "Chrome";
+        else if (ua.contains("safari"))
+            browser = "Safari";
+        else
+            browser = "Unknown";
 
         String zone = clean(body.get("timeZone"), 100);
         boolean permission = Boolean.TRUE.equals(body.get("shareLocation"));
@@ -83,7 +102,8 @@ public record ContactVisitorMetadata(
     }
 
     private static boolean isPrivateProxy(String ip) {
-        if (ip == null) return false;
+        if (ip == null)
+            return false;
         try {
             InetAddress a = InetAddress.getByName(ip);
             return a.isLoopbackAddress() || a.isSiteLocalAddress();
@@ -109,7 +129,8 @@ public record ContactVisitorMetadata(
     }
 
     private static String clean(Object value, int max) {
-        if (value == null) return null;
+        if (value == null)
+            return null;
         String text = value.toString().replaceAll("[\\p{Cntrl}]", "").trim();
         return text.isBlank() ? null : text.substring(0, Math.min(text.length(), max));
     }

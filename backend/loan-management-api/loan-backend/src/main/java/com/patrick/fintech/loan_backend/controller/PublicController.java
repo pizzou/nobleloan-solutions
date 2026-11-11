@@ -40,6 +40,8 @@ import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.service.LoanContractService;
 import com.patrick.fintech.loan_backend.service.LoanApplicationSnapshotWriter;
 import com.patrick.fintech.loan_backend.service.MailService;
+import com.patrick.fintech.loan_backend.service.ContactEmailVerificationService;
+import com.patrick.fintech.loan_backend.service.ContactIpLocationService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.NotificationService;
 import com.patrick.fintech.loan_backend.service.PaymentService;
@@ -106,6 +108,8 @@ public class PublicController {
         private final SmsService smsService;
         private final NotificationService notificationService;
         private final MailService mailService;
+        private final ContactEmailVerificationService contactEmailVerificationService;
+        private final ContactIpLocationService contactIpLocationService;
         private final AuditService auditService;
 
         private final ObjectMapper objectMapper;
@@ -148,7 +152,8 @@ public class PublicController {
         // ============================================================
 
         @PostMapping("/contact")
-        public ResponseEntity<ApiResponse<String>> submitContact(
+        @org.springframework.transaction.annotation.Transactional
+        public ResponseEntity<ApiResponse<Object>> submitContact(
                         @RequestBody Map<String, Object> body,
                         jakarta.servlet.http.HttpServletRequest httpRequest) {
 
@@ -163,6 +168,13 @@ public class PublicController {
                                         "We couldn't identify this lender. Please refresh and try again.");
                 }
 
+                if ("REQUEST_EMAIL_CODE".equals(str(body.get("action")))) {
+                        String address = ContactEmailVerificationService.email(str(body.get("email")));
+                        java.util.UUID id = contactEmailVerificationService.start(address, httpRequest);
+                        return ResponseEntity.ok(ApiResponse.<Object>ok("Verification code requested",
+                                        Map.<String, Object>of("challengeId", id.toString())));
+                }
+
                 String name = str(body.get("name"));
 
                 String subject = str(body.get("subject"));
@@ -171,7 +183,10 @@ public class PublicController {
 
                 String email = str(body.get("email"));
 
-                String phone = str(body.get("phone"));
+                email = ContactEmailVerificationService.email(email);
+                String phone = ContactEmailVerificationService.phone(str(body.get("phone")));
+                contactEmailVerificationService.consume(str(body.get("emailChallengeId")), email,
+                                str(body.get("emailVerificationCode")));
 
                 if (name == null || name.isBlank() || message == null || message.isBlank()) {
                         throw new IllegalArgumentException("Full name and message are required");
@@ -202,7 +217,9 @@ public class PublicController {
                                                 .browserName(details.browserName())
                                                 .timeZone(details.timeZone())
                                                 .userAgent(details.userAgent())
-                                                .approximateLocation(details.approximateLocation())
+                                                .approximateLocation(details.approximateLocation() != null
+                                                                ? details.approximateLocation()
+                                                                : contactIpLocationService.lookup(details.ipAddress()))
                                                 .locationConsent(details.locationConsent())
                                                 .build());
 
@@ -242,9 +259,8 @@ public class PublicController {
                                 org.getId().toString(),
                                 "Contact form submitted by " + name);
 
-                return ResponseEntity.ok(
-                                ApiResponse.ok(
-                                                "Message received — we'll get back to you within 24 hours"));
+                return ResponseEntity.ok(ApiResponse.ok(
+                                "Message received — we'll get back to you within 24 hours", (Object) null));
         }
 
         // Public reuse challenge: no borrower details or documents are returned.
