@@ -254,6 +254,19 @@ public class MailService {
                                                 + "<p>It expires in 5 minutes. If you did not request this, ignore this message.</p>");
         }
 
+        /** Synchronous delivery: returning true means the provider accepted the request, not that it reached the inbox. */
+        public boolean sendContactVerificationCode(String to, String code) {
+                if (!mailEnabled || to == null || to.isBlank() || code == null || !code.matches("[0-9]{6}")) {
+                        return false;
+                }
+                return send(to, "Verify your Noble Loan Solutions enquiry",
+                                "<h2>Verify your email address</h2>" +
+                                "<p>Enter this code in the Noble Loan Solutions contact form:</p>" +
+                                "<p style=\"font-size:28px;font-weight:bold;letter-spacing:5px\">" +
+                                safe(code) + "</p>" +
+                                "<p>This code expires in 10 minutes. If you did not request it, ignore this message.</p>");
+        }
+
         public boolean sendLoginOtp(User user, String code) {
                 if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
                         log.warn("Login OTP delivery skipped because the user email is missing");
