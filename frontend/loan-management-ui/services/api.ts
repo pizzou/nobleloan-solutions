@@ -1105,11 +1105,17 @@ export const publicApi = {
   contact: (data: {
     tenantSlug: string;
     name: string;
-    email?: string;
-    phone?: string;
+    email: string;
+    phone: string;
     subject?: string;
     message: string;
+    emailChallengeId: string;
+    emailVerificationCode: string;
+    timeZone?: string | null;
   }) => post("/public/contact", data),
+
+  startContactEmailVerification: (data: {tenantSlug: string; email: string}): Promise<{challengeId: string}> =>
+    post("/public/contact/email/start", data),
 
   getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
