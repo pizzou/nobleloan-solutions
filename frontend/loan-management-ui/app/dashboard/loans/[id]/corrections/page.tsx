@@ -241,7 +241,7 @@ export default function LegacyCorrectionPage() {
       </button>
       <header className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
-          Controlled historical data correction
+          Controlled loan correction request
         </p>
         <h1 className="mt-1 text-2xl font-extrabold text-slate-900">
           {loan?.referenceNumber ?? "Loan"}
@@ -291,19 +291,19 @@ export default function LegacyCorrectionPage() {
           </h2>
           <p className="mt-1 text-sm text-slate-500">
             Enter verified corrected TOTALS, not differences. Keep unchanged
-            values as they are. Correctly recorded original principal, borrower
+            values as they are. Protect recorded principal, borrower
             identity and NLS reference are protected. A duration correction is
             an Excel transcription repair, not a new restructuring.
           </p>
           <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-            For imported application fees, enter the exact amount shown in the
+            For imported loans only: use the exact application fee shown in the
             original Excel workbook. The collected amount plus unpaid amount
             must equal that fee. These changes are historical corrections, not
             new fee income or repayments for the current month.
           </p>
           <label className="mt-4 flex items-start gap-3 rounded-lg border bg-slate-50 p-4 text-sm">
             <input type="checkbox" checked={dateOnly} onChange={(e) => { setDateOnly(e.target.checked); setPreview(null); }} />
-            <span>Correct overdue / oldest unpaid due date only (no monetary changes). For example, Excel says 11 September but the system says 9 November.</span>
+            <span>Use a simple correction (overdue date or loan purpose) without changing monetary values. For example, an original record says 11 September but the system says 9 November.</span>
           </label>
           {!dateOnly && (
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
