@@ -174,17 +174,30 @@ public class LegacyLoanCorrectionService {
         if (approve && !hash(json(snapshot(loan))).equals(item.getSnapshotHash()))
             throw new IllegalStateException(
                     "Loan balances, status or due date have changed since proposal. Reject this stale request and submit a fresh review");
+        Map<String, Object> approvedBefore = approve ? parse(item.getBeforeSnapshot()) : null;
+        Map<String, Object> approvedAfter = approve ? parse(item.getAfterSnapshot()) : null;
+        boolean dueDateOnly = approve && isDueDateOnly(approvedBefore, approvedAfter);
         if (approve) {
-            // Authorization does not apply monetary changes.
-            assertNoSubsequentFinancialActivity(loan);
+            if (dueDateOnly) {
+                // Date-only amendments do not post cash or receivable journals.
+                // Historical opening/reclassification journals are not subsequent activity.
+                assertSafeDueDateOnlyCorrection(loan);
+                applyDueDateOnly(loan, approvedAfter);
+                loans.saveAndFlush(loan);
+            } else {
+                // Financial and contractual-term corrections retain the two-step
+                // approval/execution process and its full activity safeguards.
+                assertNoSubsequentFinancialActivity(loan);
+            }
         }
-        item.setStatus(approve ? "AUTHORIZED" : "REJECTED");
+        item.setStatus(approve ? (dueDateOnly ? "APPROVED" : "AUTHORIZED") : "REJECTED");
         item.setCheckerId(actor.getId());
         item.setReviewedAt(LocalDateTime.now());
         item.setReviewReason(justification);
         corrections.saveAndFlush(item);
         audit.log(loan.getOrganization(), actor,
-                approve ? "LEGACY_CORRECTION_AUTHORIZED" : "LEGACY_CORRECTION_REJECTED", "Loan",
+                approve ? (dueDateOnly ? "LEGACY_DUE_DATE_CORRECTION_APPROVED_APPLIED"
+                        : "LEGACY_CORRECTION_AUTHORIZED") : "LEGACY_CORRECTION_REJECTED", "Loan",
                 String.valueOf(loanId), justification + "; correctionId=" + correctionId,
                 item.getBeforeSnapshot(), approve ? item.getAfterSnapshot() : item.getBeforeSnapshot(), "Loans");
         return item;
@@ -206,9 +219,14 @@ public class LegacyLoanCorrectionService {
             throw new AccessDeniedException("Independent owner authorization required");
         if (!hash(json(snapshot(loan))).equals(item.getSnapshotHash()))
             throw new IllegalStateException("Loan changed after approval; resubmit correction");
-        assertNoSubsequentFinancialActivity(loan);
         Map<String, Object> before = parse(item.getBeforeSnapshot());
         Map<String, Object> after = parse(item.getAfterSnapshot());
+        if (isDueDateOnly(before, after)) {
+            // Date-only requests are atomically applied by the Business Owner
+            // upon approval; they cannot be executed again here.
+            throw new IllegalStateException("A due-date-only request is applied during owner approval");
+        }
+        assertNoSubsequentFinancialActivity(loan);
         Map<String, BigDecimal> changes = deltas(before, after);
         if (!changes.isEmpty()) {
             JournalEntry entry = accounting.postApprovedLegacyCorrection(loan, item.getId(), changes);
@@ -223,6 +241,75 @@ public class LegacyLoanCorrectionService {
                 String.valueOf(loanId), "Executed owner-authorized correction #" + correctionId,
                 item.getBeforeSnapshot(), item.getAfterSnapshot(), "Loans");
         return item;
+    }
+
+    /**
+     * A date-only correction changes no financial fields, contractual duration,
+     * maturity, loan principal, payment history or accounting journals.
+     */
+    private boolean isDueDateOnly(Map<String, Object> before, Map<String, Object> after) {
+        if (before == null || after == null
+                || Objects.equals(before.get("oldestUnpaidDueDate"), after.get("oldestUnpaidDueDate")))
+            return false;
+        for (String key : before.keySet()) {
+            if (!"oldestUnpaidDueDate".equals(key)
+                    && !Objects.equals(before.get(key), after.get(key)))
+                return false;
+        }
+        return before.keySet().equals(after.keySet());
+    }
+
+    private void applyDueDateOnly(Loan loan, Map<String, Object> proposed) {
+        LocalDate correctedDueDate = date(proposed.get("oldestUnpaidDueDate"));
+        if (correctedDueDate == null)
+            throw new IllegalArgumentException("Verified oldest unpaid due date is required");
+        if (loan.getStartDate() != null && correctedDueDate.isBefore(loan.getStartDate()))
+            throw new IllegalArgumentException("Due date cannot be earlier than loan start date");
+        loan.setNextDueDate(correctedDueDate);
+        loan.setNextPaymentDate(correctedDueDate);
+        BigDecimal owed = money(loan.getTotalRepayableDecimal())
+                .subtract(money(loan.getTotalPaidDecimal()));
+        int days = owed.signum() > 0
+                ? (int) Math.max(0, ChronoUnit.DAYS.between(correctedDueDate, LocalDate.now()))
+                : 0;
+        loan.setDaysOverdue(days);
+        loan.setArrearsStatus(days > 0
+                ? Loan.ArrearsStatus.PAST_DUE : Loan.ArrearsStatus.NOT_DUE);
+        if (loan.getStatus() == LoanStatus.ACTIVE || loan.getStatus() == LoanStatus.OVERDUE) {
+            loan.setStatus(owed.signum() <= 0 ? LoanStatus.PAID
+                    : days > 0 ? LoanStatus.OVERDUE : LoanStatus.ACTIVE);
+        }
+    }
+
+    private void assertSafeDueDateOnlyCorrection(Loan loan) {
+        // Allow untouched historical opening and application-fee reclassification
+        // journals, while blocking cash movements, amortization schedules and
+        // later events that would need individual reconciled rescheduling.
+        for (String table : List.of("payment_transactions", "payments", "payment_schedules")) {
+            Number count = (Number) em.createNativeQuery(
+                    "SELECT count(*) FROM " + table + " WHERE loan_id=:id")
+                    .setParameter("id", loan.getId()).getSingleResult();
+            if (count.longValue() > 0)
+                throw new IllegalStateException("Loan has payments or a payment schedule. "
+                        + "A specialist must reconcile the due-date correction without rewriting history");
+        }
+        Number otherJournals = (Number) em.createNativeQuery("""
+                SELECT count(*) FROM journal_entries WHERE organization_id=:org
+                AND (reference=:ref OR source_id LIKE :sourcePrefix
+                     OR source_id=:feeSource)
+                AND COALESCE(reversed, false)=false
+                AND source_type NOT IN ('HISTORICAL_LOAN_OPENING',
+                    'LEGACY_LOAN_OPENING', 'LEGACY_LOAN_RECONCILIATION',
+                    'LEGACY_LOAN_OPENING_DATE_REPAIR', 'LEGACY_IMPORT_DATA_CORRECTION',
+                    'APPLICATION_FEE_INCOME_RECLASSIFICATION')
+                """)
+                .setParameter("org", loan.getOrganization().getId())
+                .setParameter("ref", loan.getReferenceNumber())
+                .setParameter("sourcePrefix", "LOAN:" + loan.getId() + ":%")
+                .setParameter("feeSource", loan.getId() + ":APPLICATION_FEE_INCOME")
+                .getSingleResult();
+        if (otherJournals.longValue() > 0)
+            throw new IllegalStateException("Loan has later accounting activity; use specialist reconciliation");
     }
 
     private void apply(Loan l, Map<String, Object> v) {
