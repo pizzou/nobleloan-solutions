@@ -46,7 +46,7 @@ public class ContactMessageController {
         ContactMessage msg = contactMessageRepo.findByIdAndOrganization_Id(id, orgId)
                 .orElseThrow(() -> new RuntimeException("Message not found: " + id));
         msg.setRead(true);
-        msg.setReadAt(LocalDateTime.now());
+        msg.setReadAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
         return ResponseEntity.ok(ApiResponse.safe(contactMessageRepo.save(msg)));
     }
 
