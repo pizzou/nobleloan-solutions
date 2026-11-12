@@ -11,6 +11,26 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
 
         List<JournalLine> findByJournalEntry_Id(Long journalEntryId);
 
+        /** Posted penalty receivable since this loan was imported.
+         * Historical opening journals are intentionally excluded. */
+        @Query("""
+                SELECT COALESCE(SUM(l.debit), 0)
+                FROM JournalLine l
+                JOIN l.journalEntry j
+                WHERE j.organization.id = :organizationId
+                  AND j.sourceType = 'PENALTY_ACCRUAL'
+                  AND j.sourceId LIKE :sourcePrefix
+                  AND j.entryDate >= :importDate
+                  AND j.reversed = false
+                  AND j.recycleLoanId IS NULL
+                  AND l.account.code = '1175'
+                """)
+        java.math.BigDecimal sumPostedPenaltyAccrualSinceImport(
+                @Param("organizationId") Long organizationId,
+                @Param("sourcePrefix") String sourcePrefix,
+                @Param("importDate") java.time.LocalDate importDate);
+
+
         /*
          * ============================================================
          * ORGANIZATION-SCOPED JOURNAL LINES
