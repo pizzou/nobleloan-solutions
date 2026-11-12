@@ -147,7 +147,7 @@ public class LegacyLoanAccountingReconciliationJobRunner {
     }
 
     private FinancialReconciliationJob load(Long jobId) {
-        return jobRepository.findById(jobId)
+        return jobRepository.findForExecution(jobId)
                 .orElseThrow(() -> new IllegalStateException(
                         "Financial reconciliation job not found: " + jobId));
     }
