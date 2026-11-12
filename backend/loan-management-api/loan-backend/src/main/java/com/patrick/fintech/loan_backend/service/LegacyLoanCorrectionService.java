@@ -69,7 +69,8 @@ public class LegacyLoanCorrectionService {
         Map<String, Object> after = requested(before, request, loan);
         if (before.equals(after))
             throw new IllegalArgumentException("No actual change was proposed");
-        if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING"))
+        if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING")
+                || corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "AUTHORIZED"))
             throw new IllegalStateException("An unreviewed correction already exists for this loan");
         // Repairing the imported contractual term must not silently rewrite an existing
         // schedule.
@@ -111,7 +112,8 @@ public class LegacyLoanCorrectionService {
         requireConfirmed(loan, request.confirmReference());
         String reason = explanation(request.reason(), 30, 2000, "Owner correction justification");
         String evidence = explanation(request.evidenceReference(), 8, 250, "Supporting evidence reference");
-        if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING"))
+        if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING")
+                || corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "AUTHORIZED"))
             throw new IllegalStateException(
                     "Resolve the pending independent correction request before applying another correction");
         Map<String, Object> before = snapshot(loan);
@@ -173,29 +175,52 @@ public class LegacyLoanCorrectionService {
             throw new IllegalStateException(
                     "Loan balances, status or due date have changed since proposal. Reject this stale request and submit a fresh review");
         if (approve) {
-            Map<String, Object> before = parse(item.getBeforeSnapshot());
-            Map<String, Object> after = parse(item.getAfterSnapshot());
-            Map<String, BigDecimal> changes = deltas(before, after);
-            // No payment or cash record is created. Only an opening-position adjustment
-            // may be posted, and only when subsequent financial activity is absent.
+            // Authorization does not apply monetary changes.
             assertNoSubsequentFinancialActivity(loan);
-            if (!changes.isEmpty()) {
-                JournalEntry entry = accounting.postApprovedLegacyCorrection(loan, item.getId(), changes);
-                if (entry != null)
-                    item.setJournalEntryId(entry.getId());
-            }
-            apply(loan, after);
-            loans.saveAndFlush(loan);
         }
-        item.setStatus(approve ? "APPROVED" : "REJECTED");
+        item.setStatus(approve ? "AUTHORIZED" : "REJECTED");
         item.setCheckerId(actor.getId());
         item.setReviewedAt(LocalDateTime.now());
         item.setReviewReason(justification);
         corrections.saveAndFlush(item);
         audit.log(loan.getOrganization(), actor,
-                approve ? "LEGACY_CORRECTION_APPROVED" : "LEGACY_CORRECTION_REJECTED", "Loan",
+                approve ? "LEGACY_CORRECTION_AUTHORIZED" : "LEGACY_CORRECTION_REJECTED", "Loan",
                 String.valueOf(loanId), justification + "; correctionId=" + correctionId,
                 item.getBeforeSnapshot(), approve ? item.getAfterSnapshot() : item.getBeforeSnapshot(), "Loans");
+        return item;
+    }
+
+    /** Apply an unchanged, owner-authorized proposal as the original requester. */
+    @Transactional
+    public LegacyLoanCorrection applyAuthorized(Long loanId, Long correctionId, User actor) {
+        Loan loan = lockedLoan(loanId, actor);
+        requireEligible(loan);
+        LegacyLoanCorrection item = corrections.lock(org(actor), loanId, correctionId)
+                .orElseThrow(() -> new IllegalArgumentException("Correction not found"));
+        if (!"AUTHORIZED".equals(item.getStatus()))
+            throw new IllegalStateException("Correction must be authorized and not already executed");
+        if (!item.getMakerId().equals(actor.getId()))
+            throw new AccessDeniedException("Only the original requester may execute this correction");
+        if (item.getCheckerId() == null || item.getCheckerId().equals(actor.getId()))
+            throw new AccessDeniedException("Independent owner authorization required");
+        if (!hash(json(snapshot(loan))).equals(item.getSnapshotHash()))
+            throw new IllegalStateException("Loan changed after approval; resubmit correction");
+        assertNoSubsequentFinancialActivity(loan);
+        Map<String, Object> before = parse(item.getBeforeSnapshot());
+        Map<String, Object> after = parse(item.getAfterSnapshot());
+        Map<String, BigDecimal> changes = deltas(before, after);
+        if (!changes.isEmpty()) {
+            JournalEntry entry = accounting.postApprovedLegacyCorrection(loan, item.getId(), changes);
+            if (entry != null)
+                item.setJournalEntryId(entry.getId());
+        }
+        apply(loan, after);
+        loans.saveAndFlush(loan);
+        item.setStatus("APPROVED");
+        corrections.saveAndFlush(item);
+        audit.log(loan.getOrganization(), actor, "LEGACY_CORRECTION_APPLIED", "Loan",
+                String.valueOf(loanId), "Executed owner-authorized correction #" + correctionId,
+                item.getBeforeSnapshot(), item.getAfterSnapshot(), "Loans");
         return item;
     }
 
