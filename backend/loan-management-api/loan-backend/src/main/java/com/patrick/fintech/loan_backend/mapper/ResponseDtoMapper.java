@@ -516,6 +516,24 @@ public final class ResponseDtoMapper {
                 // Explicit mappings
                 // --------------------------------------------------------
 
+                // Notifications use UTC-backed LocalDateTime values. The generic
+                // entity fallback returns a map and discards @JsonSerialize
+                // annotations, so send explicit offset-aware timestamps.
+                if (value instanceof Notification n) {
+                        Map<String, Object> result = new LinkedHashMap<>();
+                        result.put("id", n.getId());
+                        result.put("title", n.getTitle());
+                        result.put("message", n.getMessage());
+                        result.put("type", n.getType());
+                        result.put("link", n.getLink());
+                        result.put("read", n.isRead());
+                        result.put("createdAt", n.getCreatedAt() == null ? null
+                                        : n.getCreatedAt().atOffset(java.time.ZoneOffset.UTC).toString());
+                        result.put("readAt", n.getReadAt() == null ? null
+                                        : n.getReadAt().atOffset(java.time.ZoneOffset.UTC).toString());
+                        return result;
+                }
+
                 if (value instanceof Loan l) {
                         return loan(l);
                 }
