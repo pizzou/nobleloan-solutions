@@ -50,9 +50,18 @@ public class LegacyLoanCorrectionController {
     @PreAuthorize("hasRole('BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<LegacyLoanCorrection>> approve(
             @PathVariable Long loanId,@PathVariable Long correctionId,@RequestBody LegacyLoanCorrectionDecision decision){
-        return ResponseEntity.ok(ApiResponse.ok("Correction approved and reconciled",
+        return ResponseEntity.ok(ApiResponse.ok("Correction authorized; original requester must apply unchanged approved values",
             service.decide(loanId,correctionId,true,decision,currentUser.getCurrentUser())));
     }
+    @PostMapping("/{correctionId}/apply")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','LOAN_OFFICER','CREDIT_ANALYST','BUSINESS_OWNER')")
+    public ResponseEntity<ApiResponse<LegacyLoanCorrection>> applyAuthorized(
+            @PathVariable Long loanId, @PathVariable Long correctionId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Authorized historical correction applied and audited",
+                service.applyAuthorized(loanId, correctionId, currentUser.getCurrentUser())));
+    }
+
     @PostMapping("/{correctionId}/reject")
     @PreAuthorize("hasRole('BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<LegacyLoanCorrection>> reject(
