@@ -847,7 +847,7 @@ public class AccountingService {
                 if (receivableDeltas == null || receivableDeltas.isEmpty()) {
                         throw new IllegalArgumentException("No receivable change to post");
                 }
-                java.util.Set<String> allowed = Set.of("1100", "1150", "1160", "1175");
+                java.util.Set<String> allowed = Set.of("1100", "1150", "1160", "1170", "1175", "1180");
                 Organization org = loan.getOrganization();
                 List<JournalLine> lines = new ArrayList<>();
                 BigDecimal totalChange = ZERO;
