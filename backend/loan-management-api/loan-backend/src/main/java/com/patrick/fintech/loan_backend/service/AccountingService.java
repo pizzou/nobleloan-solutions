@@ -4434,6 +4434,14 @@ public class AccountingService {
                 result.put("expenses", expenses);
                 result.put("expense", expenses); // backward compatibility
                 result.put("totalIncome", totalIncome);
+                // Source-of-truth income categories are derived from the same GL
+                // journal lines as totalIncome, not from cumulative loan amounts.
+                BigDecimal interestIncome = totals.containsKey("4000")
+                                ? normalize(totals.get("4000").amount) : ZERO;
+                BigDecimal feeAndPenaltyIncome = totals.containsKey("4100")
+                                ? normalize(totals.get("4100").amount) : ZERO;
+                result.put("interestIncome", interestIncome);
+                result.put("feeAndPenaltyIncome", feeAndPenaltyIncome);
                 result.put("applicationFeeIncome", normalize(feeTotals.get("applicationFeeIncome")));
                 result.put("historicalApplicationFeeIncome", normalize(feeTotals.get("historicalApplicationFeeIncome")));
                 result.put("penaltyIncome", normalize(feeTotals.get("penaltyIncome")));
@@ -4485,6 +4493,8 @@ public class AccountingService {
                 BigDecimal interestOutstanding = ZERO;
                 BigDecimal managementOutstanding = ZERO;
                 BigDecimal penaltyOutstanding = ZERO;
+                BigDecimal extensionOutstanding = ZERO;
+                BigDecimal applicationOutstanding = ZERO;
                 int count = 0;
                 int penaltyLoans = 0;
                 for (Loan loan : imports) {
@@ -4510,6 +4520,10 @@ public class AccountingService {
                                 principalOutstanding = principalOutstanding.add(money(loan.getOutstandingBalanceDecimal()));
                                 interestOutstanding = interestOutstanding.add(money(loan.getInterestOutstandingDecimal()));
                                 managementOutstanding = managementOutstanding.add(money(loan.getManagementFeeOutstandingDecimal()));
+                                extensionOutstanding = extensionOutstanding.add(money(loan.getExtensionFeeOutstandingDecimal()));
+                                applicationOutstanding = applicationOutstanding.add(
+                                                money(loan.getApplicationFeeDecimal())
+                                                                .subtract(money(loan.getApplicationFeePaidDecimal())).max(ZERO));
                                 penaltyOutstanding = penaltyOutstanding.add(money(loan.getPenaltiesAssessedDecimal())
                                                 .subtract(money(loan.getPenaltiesPaidDecimal())).max(ZERO));
                         }
@@ -4530,7 +4544,13 @@ public class AccountingService {
                 result.put("principalOutstanding", normalize(principalOutstanding));
                 result.put("interestOutstanding", normalize(interestOutstanding));
                 result.put("managementFeeOutstanding", normalize(managementOutstanding));
+                result.put("extensionFeeOutstanding", normalize(extensionOutstanding));
+                result.put("applicationFeeOutstanding", normalize(applicationOutstanding));
                 result.put("penaltiesOutstanding", normalize(penaltyOutstanding));
+                result.put("totalOutstandingReceivables", normalize(principalOutstanding
+                                .add(interestOutstanding).add(managementOutstanding)
+                                .add(extensionOutstanding).add(applicationOutstanding)
+                                .add(penaltyOutstanding)));
                 result.put("recordedHistoricCollections", normalize(principalPaid.add(interestPaid)
                                 .add(managementPaid).add(extensionPaid).add(penaltyRecordedPaid).add(applicationPaid)));
                 return result;
