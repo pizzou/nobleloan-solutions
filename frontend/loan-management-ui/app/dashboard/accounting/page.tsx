@@ -1050,43 +1050,86 @@ export default function AccountingPage() {
       =================================================== */}
 
       {tab === "Cash Flow" && cashFlow && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
-          <div className="mb-3">
-            <div className="font-bold text-gray-900">Cash Flow</div>
-
-            <p className="text-xs text-gray-500 mt-1">
-              Cash movements for the selected reporting period.
-            </p>
-            <p className="text-xs text-amber-800 mt-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-              Only GL-posted cash movements appear here. Historical imported-loan paid totals are not bank transactions.
-              Check the cumulative imported-loan summary in Profit &amp; Loss before comparing lifetime collections.
-            </p>
-          </div>
-
-          {[
-            [
-              "Cash Used for Lending (disbursements)",
-              cashFlow.cashUsedForLending,
-            ],
-            ["Cash From Collections", cashFlow.cashFromCollections],
-            ["Cash From Fees", cashFlow.cashFromFees],
-            ["Other Cash Movement", cashFlow.otherCashMovement],
-          ].map(([label, value]) => (
-            <div
-              key={label as string}
-              className="flex justify-between px-4 py-2 text-sm border-b border-gray-100"
-            >
-              <span className="text-gray-600">{label as string}</span>
-
-              <span className="font-mono">{fmt(value as number)}</span>
+        <div className="space-y-5">
+          <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+            <div>
+              <h2 className="font-bold text-gray-900">Cash Flow — General Ledger</h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Posted cash movements for the selected reporting period. These figures reconcile to GL Cash and Bank (1000).
+              </p>
             </div>
-          ))}
+            {[
+              ["Gross loan disbursements", cashFlow.cashUsedForLending],
+              ["Total GL cash collections, including fees", cashFlow.cashFromCollections],
+              ["Of which: application fees deducted at disbursement", cashFlow.cashFromFees],
+              ["Other cash movement", cashFlow.otherCashMovement],
+            ].map(([label, value], index) => (
+              <div key={String(label)} className={`flex items-center justify-between gap-3 px-4 py-2 text-sm border-b border-gray-100 ${index === 2 ? "pl-7 bg-gray-50/70" : ""}`}>
+                <span className={index === 2 ? "text-gray-500" : "text-gray-700"}>{label as string}</span>
+                <span className="font-mono text-gray-900">{fmt(Number(value ?? 0))}</span>
+              </div>
+            ))}
+            <p className="text-xs text-gray-500">
+              The application-fee line is a breakdown of cash collections, not an additional inflow. Gross disbursements include fees deducted from the amount delivered to borrowers.
+            </p>
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg font-bold text-sm bg-gray-50">
+              <span>Net Change in GL Cash</span>
+              <span className={`font-mono ${cashFlow.netChangeInCash < 0 ? "text-red-700" : "text-gray-900"}`}>
+                {fmt(cashFlow.netChangeInCash)}
+              </span>
+            </div>
+          </section>
 
-          <div className="flex justify-between px-4 py-3 rounded-lg font-bold text-sm bg-gray-50 mt-2">
-            <span>Net Change in Cash</span>
-
-            <span className="font-mono">{fmt(cashFlow.netChangeInCash)}</span>
-          </div>
+          <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <div className="flex flex-wrap justify-between items-start gap-3">
+              <div>
+                <h2 className="font-bold text-gray-900">Imported loans — recorded historical collections</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Cumulative pre-system loan records, shown for business performance. Not included in GL cash movement above.
+                </p>
+              </div>
+              <span className="text-xs font-medium px-3 py-1 rounded-full bg-gray-100 text-gray-600">
+                {historical ? `${historical.loanCount} imported loans` : "Unavailable"}
+              </span>
+            </div>
+            {historical ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {[
+                    ["Principal repayments recorded", historical.principalPaid],
+                    ["Interest recorded paid", historical.interestPaid],
+                    ["Management fees recorded paid", historical.managementFeePaid],
+                    ["Penalties marked paid", historical.penaltiesRecordedPaid],
+                    ["Application fees recorded paid", historical.applicationFeePaid],
+                    ["Extension fees recorded paid", historical.extensionFeePaid],
+                  ].map(([label, amount]) => (
+                    <div key={String(label)} className="rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3">
+                      <p className="text-xs text-gray-600">{label}</p>
+                      <p className="mt-1 text-lg font-semibold font-mono text-gray-900">{fmt(Number(amount ?? 0))}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+                  <span className="text-sm font-medium text-gray-700">Total historical collections recorded (including principal)</span>
+                  <span className="font-mono font-bold text-gray-900">{fmt(historical.recordedHistoricCollections)}</span>
+                </div>
+                {historical.penaltyAllocationRequiresVerification && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                    Historical penalty payments for {historical.penaltyLoanCount} loans need verification against receipts.
+                    The old importer could have marked assessed penalties as fully paid.
+                  </p>
+                )}
+                <p className="text-xs leading-relaxed text-gray-600">
+                  Historical totals are not dated bank transactions. They cannot be assigned to the selected reporting period
+                  or added to GL cash without validated bank statements and opening balances.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">
+                The historical portfolio summary is temporarily unavailable. The General Ledger cash flow remains authoritative.
+              </p>
+            )}
+          </section>
         </div>
       )}
 
