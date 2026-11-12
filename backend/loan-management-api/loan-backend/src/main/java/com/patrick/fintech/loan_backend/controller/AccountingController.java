@@ -361,7 +361,7 @@ public class AccountingController {
         // ============================================================
 
         @PostMapping("/legacy-loans/reconcile")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<Object>> startLegacyLoanAccountingReconciliation() {
 
                 Organization organization = orgRepo.findById(requireOrganizationId())
@@ -395,7 +395,7 @@ public class AccountingController {
         }
 
         @GetMapping("/legacy-loans/reconcile/{jobId}")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<Object>> getLegacyLoanAccountingReconciliation(
                         @PathVariable Long jobId) {
 
@@ -406,7 +406,7 @@ public class AccountingController {
         }
 
         @GetMapping("/legacy-loans/reconcile/jobs")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<Object>> listLegacyLoanAccountingReconciliations() {
                 Long organizationId = requireOrganizationId();
                 return ResponseEntity.ok(ApiResponse.safe(
