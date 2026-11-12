@@ -225,48 +225,6 @@ public class BnrFinancialStatementService {
 
                 BigDecimal totalIncome = ZERO;
                 BigDecimal applicationFeeIncome = ZERO;
-                BigDecimal interestIncome = ZERO;
-                BigDecimal managementFeeIncome = ZERO;
-                BigDecimal penaltyIncome = ZERO;
-                BigDecimal otherFeeIncome = ZERO;
-
-                // Classify period income by the actual journal source rather than
-                // treating all of shared account 4100 as application fees.
-                for (JournalEntry entry : periodEntries) {
-                        if (entry == null || entry.getLines() == null) {
-                                continue;
-                        }
-                        String source = entry.getSourceType() == null
-                                        ? "" : entry.getSourceType().trim().toUpperCase(java.util.Locale.ROOT);
-                        for (JournalLine line : entry.getLines()) {
-                                if (line == null || line.getAccount() == null) {
-                                        continue;
-                                }
-                                String code = line.getAccount().getCode();
-                                BigDecimal amount = subtract(value(line.getCredit()), value(line.getDebit()));
-                                if ("4000".equals(code)) {
-                                        interestIncome = add(interestIncome, amount);
-                                } else if ("4100".equals(code)) {
-                                        String description = line.getDescription() == null ? ""
-                                                        : line.getDescription().toLowerCase(java.util.Locale.ROOT);
-                                        if ("APPLICATION_FEE_INCOME_RECLASSIFICATION".equals(source)
-                                                        || (description.contains("application fee")
-                                                                        && description.contains("income"))) {
-                                                applicationFeeIncome = add(applicationFeeIncome, amount);
-                                        } else if ("PENALTY_ACCRUAL".equals(source)
-                                                        || (description.contains("penalty")
-                                                                        && description.contains("income"))) {
-                                                penaltyIncome = add(penaltyIncome, amount);
-                                        } else if ("CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL".equals(source)
-                                                        || (description.contains("management fee")
-                                                                        && description.contains("income"))) {
-                                                managementFeeIncome = add(managementFeeIncome, amount);
-                                        } else {
-                                                otherFeeIncome = add(otherFeeIncome, amount);
-                                        }
-                                }
-                        }
-                }
 
                 BigDecimal totalExpenses = ZERO;
 
@@ -466,6 +424,12 @@ public class BnrFinancialStatementService {
                                         totalIncome = add(
                                                         totalIncome,
                                                         periodIncome);
+
+                                        if ("4100".equals(account.getCode())) {
+                                                applicationFeeIncome = add(
+                                                                applicationFeeIncome,
+                                                                periodIncome);
+                                        }
 
                                         income.add(row);
                                 }
@@ -682,11 +646,6 @@ public class BnrFinancialStatementService {
                 incomeStatement.put(
                                 "applicationFeeIncome",
                                 applicationFeeIncome);
-
-                incomeStatement.put("interestIncome", interestIncome);
-                incomeStatement.put("managementFeeIncome", managementFeeIncome);
-                incomeStatement.put("penaltyIncome", penaltyIncome);
-                incomeStatement.put("otherFeeIncome", otherFeeIncome);
 
                 incomeStatement.put(
                                 "totalExpenses",
