@@ -184,12 +184,14 @@ public class LegacyLoanCorrectionService {
                 loan.setPurpose(String.valueOf(approvedAfter.get("purpose")));
                 loans.saveAndFlush(loan);
             } else {
-                // Do not mutate live financials as part of approval. Requesters
-                // must apply approved amendments; unsupported native-loan
-                // monetary changes require a specialist journal workflow.
-                if (Boolean.TRUE.equals(loan.getImported())) {
-                    assertNoSubsequentFinancialActivity(loan);
-                }
+                // Approval of a system-originated loan's financial or contractual
+                // terms requires purpose-built reconciliation, not reuse of
+                // imported opening-balance repair accounting.
+                if (!Boolean.TRUE.equals(loan.getImported()))
+                    throw new IllegalStateException("System-created loan financial and contractual changes "
+                        + "require specialist amendment and reconciliation; this request cannot be approved "
+                        + "through the imported-opening correction workflow.");
+                assertNoSubsequentFinancialActivity(loan);
             }
         }
         boolean appliedNow = dueDateOnly || purposeOnly;
@@ -338,6 +340,8 @@ public class LegacyLoanCorrectionService {
         BigDecimal managementDue = n(v, "managementFeeOutstanding");
         BigDecimal penaltyAssessed = n(v, "penaltiesAssessed");
         BigDecimal penaltyPaid = n(v, "penaltiesPaid");
+        if (v.get("purpose") != null)
+            l.setPurpose(String.valueOf(v.get("purpose")));
         l.setPrincipalPaid(principalPaid);
         l.setOutstandingBalance(n(v, "principalOutstanding"));
         l.setInterestPaid(interestPaid);
