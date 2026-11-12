@@ -57,6 +57,11 @@ interface ProfitAndLossReport {
   expense?: AccountingAccountRow[];
   totalIncome?: Numeric;
   applicationFeeIncome?: Numeric;
+  interestIncome?: Numeric;
+  managementFeeIncome?: Numeric;
+  penaltyIncome?: Numeric;
+  feeAndPenaltyIncome?: Numeric;
+  otherFeeIncome?: Numeric;
   importedLoanCount?: Numeric;
   historicalApplicationFees?: Numeric;
   historicalApplicationFeesPaid?: Numeric;
@@ -1730,6 +1735,27 @@ export default function ReportsPage() {
               </p>
             </section>
           )}
+
+          <section className="mb-5 rounded-xl border border-slate-200 bg-white p-5" aria-label="Recognized income by category">
+            <h3 className="text-sm font-bold text-slate-900">Recognized income by category</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              These are journal-based income amounts for the selected period, not imported lifetime collections.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+              {([
+                ["Interest", profitAndLoss?.interestIncome],
+                ["Management fees", profitAndLoss?.managementFeeIncome],
+                ["Penalties", profitAndLoss?.penaltyIncome],
+                ["Application fees", profitAndLoss?.applicationFeeIncome],
+                ["Other fees", profitAndLoss?.otherFeeIncome],
+              ] as const).map(([label, amount]) => (
+                <div key={label}>
+                  <p className="text-xs font-medium text-slate-500">{label}</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">{fmt(amount)}</p>
+                </div>
+              ))}
+            </div>
+          </section>
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="grid divide-y divide-slate-200 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
