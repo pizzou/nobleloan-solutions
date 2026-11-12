@@ -235,10 +235,13 @@ class LegacyLoanCorrectionServiceTest {
         }
 
         @Test
-        void normalLoanCannotUseHistoricalCorrection() {
+        void systemCreatedLoanCanPreviewDateOnlyCorrectionButCannotRequestUnreconciledFinancialEdit() {
                 loan.setImported(false);
-                assertThrows(IllegalStateException.class,
-                                () -> service.preview(77L, request(LocalDate.of(2026, 8, 31), null), admin));
+                var preview = service.preview(77L, request(LocalDate.of(2026, 8, 31), null), admin);
+                assertEquals("2026-08-31", preview.proposed().get("oldestUnpaidDueDate"));
+                assertDoesNotThrow(() -> service.submit(77L, request(LocalDate.of(2026, 8, 31), null), admin));
+                assertThrows(IllegalStateException.class, () -> service.submit(77L,
+                                request(LocalDate.of(2026, 8, 31), new BigDecimal("7000000.00")), admin));
         }
 
         @Test
@@ -270,14 +273,17 @@ class LegacyLoanCorrectionServiceTest {
          * ordinary maker/checker request reserved for staff on normal loans.
          */
         @Test
-        void ownerMayPreviewButCannotSubmitNormalScopeCorrection() {
+        void ownerMaySubmitButCannotReviewOwnRequest() {
                 var request = request(LocalDate.of(2026, 8, 31), null);
                 var preview = assertDoesNotThrow(() -> service.preview(77L, request, owner));
                 assertEquals("2026-08-31", preview.proposed().get("oldestUnpaidDueDate"));
-
+                var pending = service.submit(77L, request, owner);
+                pending.setId(437L);
+                when(corrections.lock(1L, 77L, 437L)).thenReturn(Optional.of(pending));
                 assertThrows(org.springframework.security.access.AccessDeniedException.class,
-                                () -> service.submit(77L, request, owner));
-                verify(corrections, never()).saveAndFlush(any());
+                                () -> service.decide(77L, 437L, true,
+                                        new LegacyLoanCorrectionDecision("NLS-000077",
+                                                "Verified contract with supporting evidence"), owner));
         }
 
         @Test
