@@ -604,7 +604,7 @@ public final class StreamingLedgerFileParser {
             String verifiedOldestUnpaidDue = normalizeDate(row.get(30));
             String verifiedPaidInstallments = clean(row.get(31));
             BigDecimal remainingDue = money(principalOutstanding.add(interestOutstanding)
-                    .add(managementOutstanding));
+                    .add(managementOutstanding).add(penalties));
             BigDecimal financialPayments = money(principalPaid.add(interestPaid).add(managementPaid));
             LegacyInstallmentDueDateResolver.Result due = LegacyInstallmentDueDateResolver.resolve(
                     out.get("start_date"), firstDue, out.get("duration_months"),
