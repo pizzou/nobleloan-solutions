@@ -71,17 +71,19 @@ public class LegacyLoanCorrectionService {
         if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING")
                 || corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "AUTHORIZED"))
             throw new IllegalStateException("A pending or authorized correction already exists for this loan");
-        // Monetary or duration changes remain blocked if a real transaction
-        // exists. Descriptive/date-only requests never change balances when
-        // submitted, and are independently reviewed.
-        if (!deltas(before, after).isEmpty()
-                || !Objects.equals(before.get("durationMonths"), after.get("durationMonths")))
-            assertNoSubsequentFinancialActivity(loan);
+        // Reject unsupported system-created financial/contractual changes
+        // before querying transactional ledgers. These requests require a
+        // distinct reconciled amendment workflow, not the import repair path.
         if (!Boolean.TRUE.equals(loan.getImported())
                 && !isDueDateOnly(before, after) && !isPurposeOnly(before, after))
             throw new IllegalStateException(
                     "Financial and contractual corrections to system-created loans require "
                     + "a reconciled amendment workflow; no loan data was changed.");
+        // Monetary or duration changes to imported loans remain blocked when
+        // subsequent payments, schedules or financial journals exist.
+        if (!deltas(before, after).isEmpty()
+                || !Objects.equals(before.get("durationMonths"), after.get("durationMonths")))
+            assertNoSubsequentFinancialActivity(loan);
         LegacyLoanCorrection item = new LegacyLoanCorrection();
         item.setOrganizationId(org(actor));
         item.setLoanId(loanId);
