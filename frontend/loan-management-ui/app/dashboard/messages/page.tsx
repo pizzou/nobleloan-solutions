@@ -617,7 +617,7 @@ export default function MessagesPage() {
                                 ["Browser", message.browserName],
                                 ["Time zone", message.timeZone],
                                 [
-                                  "Approximate location (visitor shared)",
+                                  "Approximate location (IP-based or visitor-shared)",
                                   message.approximateLocation,
                                 ],
                               ].map(([label, value]) => (
