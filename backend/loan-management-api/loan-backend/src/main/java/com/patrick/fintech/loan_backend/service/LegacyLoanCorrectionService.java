@@ -71,7 +71,7 @@ public class LegacyLoanCorrectionService {
             throw new IllegalArgumentException("No actual change was proposed");
         if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING")
                 || corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "AUTHORIZED"))
-            throw new IllegalStateException("An unreviewed correction already exists for this loan");
+            throw new IllegalStateException("A pending or authorized correction already exists for this loan");
         // Repairing the imported contractual term must not silently rewrite an existing
         // schedule.
         // For monetary changes, any later transactions require a separate reconciled
@@ -115,7 +115,7 @@ public class LegacyLoanCorrectionService {
         if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING")
                 || corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "AUTHORIZED"))
             throw new IllegalStateException(
-                    "Resolve the pending independent correction request before applying another correction");
+                    "Resolve the pending or authorized independent correction before applying another correction");
         Map<String, Object> before = snapshot(loan);
         Map<String, Object> after = requested(before, request, loan);
         if (before.equals(after))
