@@ -71,9 +71,17 @@ public class LegacyLoanCorrectionService {
         if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING")
                 || corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "AUTHORIZED"))
             throw new IllegalStateException("A pending or authorized correction already exists for this loan");
-        // Any loan may request a correction. Proposal creation never updates
-        // payments, schedules, GL journals or the loan itself. The Business
-        // Owner evaluates operational safety before authorizing application.
+        // Monetary or duration changes remain blocked if a real transaction
+        // exists. Descriptive/date-only requests never change balances when
+        // submitted, and are independently reviewed.
+        if (!deltas(before, after).isEmpty()
+                || !Objects.equals(before.get("durationMonths"), after.get("durationMonths")))
+            assertNoSubsequentFinancialActivity(loan);
+        if (!Boolean.TRUE.equals(loan.getImported())
+                && !isDueDateOnly(before, after) && !isPurposeOnly(before, after))
+            throw new IllegalStateException(
+                    "Financial and contractual corrections to system-created loans require "
+                    + "a reconciled amendment workflow; no loan data was changed.");
         LegacyLoanCorrection item = new LegacyLoanCorrection();
         item.setOrganizationId(org(actor));
         item.setLoanId(loanId);
@@ -175,26 +183,20 @@ public class LegacyLoanCorrectionService {
         boolean purposeOnly = approve && isPurposeOnly(approvedBefore, approvedAfter);
         if (approve) {
             if (dueDateOnly) {
-                // Date-only amendments do not post cash or receivable journals.
-                // Historical opening/reclassification journals are not subsequent activity.
+                // Approval does not alter the loan. Requester applies the
+                // verified value in a second controlled, audited transaction.
                 assertSafeDueDateOnlyCorrection(loan);
-                applyDueDateOnly(loan, approvedAfter);
-                loans.saveAndFlush(loan);
             } else if (purposeOnly) {
                 loan.setPurpose(String.valueOf(approvedAfter.get("purpose")));
                 loans.saveAndFlush(loan);
             } else {
-                // Approval of a system-originated loan's financial or contractual
-                // terms requires purpose-built reconciliation, not reuse of
-                // imported opening-balance repair accounting.
                 if (!Boolean.TRUE.equals(loan.getImported()))
                     throw new IllegalStateException("System-created loan financial and contractual changes "
-                        + "require specialist amendment and reconciliation; this request cannot be approved "
-                        + "through the imported-opening correction workflow.");
+                            + "require specialist reconciliation and cannot be approved here.");
                 assertNoSubsequentFinancialActivity(loan);
             }
         }
-        boolean appliedNow = dueDateOnly || purposeOnly;
+        boolean appliedNow = purposeOnly;
         item.setStatus(approve ? (appliedNow ? "APPROVED" : "AUTHORIZED") : "REJECTED");
         item.setCheckerId(actor.getId());
         item.setReviewedAt(LocalDateTime.now());
@@ -226,10 +228,19 @@ public class LegacyLoanCorrectionService {
             throw new IllegalStateException("Loan changed after approval; resubmit correction");
         Map<String, Object> before = parse(item.getBeforeSnapshot());
         Map<String, Object> after = parse(item.getAfterSnapshot());
-        if (isDueDateOnly(before, after) || isPurposeOnly(before, after)) {
-            // Date-only requests are atomically applied by the Business Owner
-            // upon approval; they cannot be executed again here.
-            throw new IllegalStateException("A due-date-only request is applied during owner approval");
+        if (isPurposeOnly(before, after)) {
+            throw new IllegalStateException("Purpose-only corrections are already applied during owner approval");
+        }
+        if (isDueDateOnly(before, after)) {
+            assertSafeDueDateOnlyCorrection(loan);
+            applyDueDateOnly(loan, after);
+            loans.saveAndFlush(loan);
+            item.setStatus("APPROVED");
+            corrections.saveAndFlush(item);
+            audit.log(loan.getOrganization(), actor, "LOAN_DUE_DATE_CORRECTION_APPLIED", "Loan",
+                    String.valueOf(loanId), "Executed approved due date correction #" + correctionId,
+                    item.getBeforeSnapshot(), item.getAfterSnapshot(), "Loans");
+            return item;
         }
         if (!Boolean.TRUE.equals(loan.getImported())) {
             throw new IllegalStateException("This system-created loan requires a reconciled contractual/financial "
