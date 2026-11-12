@@ -4352,6 +4352,12 @@ public class AccountingService {
 
                 List<JournalEntry> entries = loadEntries(orgId, from, to);
                 Map<String, AccountReportTotal> totals = new LinkedHashMap<>();
+                Map<String, BigDecimal> feeTotals = new LinkedHashMap<>();
+                feeTotals.put("applicationFeeIncome", ZERO);
+                feeTotals.put("historicalApplicationFeeIncome", ZERO);
+                feeTotals.put("penaltyIncome", ZERO);
+                feeTotals.put("managementFeeIncome", ZERO);
+                feeTotals.put("otherFeeIncome", ZERO);
 
                 for (JournalEntry entry : entries) {
                         if (entry == null || entry.getLines() == null)
@@ -4375,13 +4381,19 @@ public class AccountingService {
                                                 k -> new AccountReportTotal(acc.getCode(), acc.getName(),
                                                                 acc.getType()));
                                 total.amount = normalize(total.amount.add(amount));
+                                if (acc.getType() == ChartOfAccount.AccountType.INCOME && "4100".equals(acc.getCode())) {
+                                        String type = feeIncomeType(entry, line);
+                                        feeTotals.merge(type, amount, BigDecimal::add);
+                                        if ("APPLICATION_FEE_INCOME_RECLASSIFICATION".equals(entry.getSourceType())) {
+                                                feeTotals.merge("historicalApplicationFeeIncome", amount, BigDecimal::add);
+                                        }
+                                }
                         }
                 }
 
                 List<Map<String, Object>> income = new ArrayList<>();
                 List<Map<String, Object>> expenses = new ArrayList<>();
                 BigDecimal totalIncome = ZERO;
-                BigDecimal applicationFeeIncome = ZERO;
                 BigDecimal totalExpense = ZERO;
 
                 for (AccountReportTotal total : totals.values()) {
@@ -4397,9 +4409,7 @@ public class AccountingService {
                         if (total.type == ChartOfAccount.AccountType.INCOME) {
                                 income.add(row);
                                 totalIncome = totalIncome.add(amount);
-                                if ("4100".equals(total.code)) {
-                                        applicationFeeIncome = normalize(applicationFeeIncome.add(amount));
-                                }
+
                         } else {
                                 expenses.add(row);
                                 totalExpense = totalExpense.add(amount);
@@ -4424,13 +4434,34 @@ public class AccountingService {
                 result.put("expenses", expenses);
                 result.put("expense", expenses); // backward compatibility
                 result.put("totalIncome", totalIncome);
-                result.put("applicationFeeIncome", normalize(applicationFeeIncome));
+                result.put("applicationFeeIncome", normalize(feeTotals.get("applicationFeeIncome")));
+                result.put("historicalApplicationFeeIncome", normalize(feeTotals.get("historicalApplicationFeeIncome")));
+                result.put("penaltyIncome", normalize(feeTotals.get("penaltyIncome")));
+                result.put("managementFeeIncome", normalize(feeTotals.get("managementFeeIncome")));
+                result.put("otherFeeIncome", normalize(feeTotals.get("otherFeeIncome")));
                 result.put("totalExpense", totalExpense);
                 result.put("netIncome", netProfit); // backward compatibility
                 result.put("netProfit", netProfit);
                 result.put("profitMarginPercent", margin);
                 result.put("profitable", netProfit.compareTo(ZERO) >= 0);
                 return result;
+        }
+
+        /** Identify the actual income stream behind the shared GL 4100 account. */
+        private String feeIncomeType(JournalEntry entry, JournalLine line) {
+                String source = entry.getSourceType() == null ? "" : entry.getSourceType();
+                String description = line.getDescription() == null ? ""
+                                : line.getDescription().toLowerCase(java.util.Locale.ROOT);
+                if ("APPLICATION_FEE_INCOME_RECLASSIFICATION".equals(source)
+                                || (description.contains("application fee") && description.contains("income")))
+                        return "applicationFeeIncome";
+                if ("PENALTY_ACCRUAL".equals(source)
+                                || (description.contains("penalty") && description.contains("income")))
+                        return "penaltyIncome";
+                if ("CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL".equals(source)
+                                || (description.contains("management fee") && description.contains("income")))
+                        return "managementFeeIncome";
+                return "otherFeeIncome";
         }
 
         /** Monthly P&L plus year-to-date comparison. */
