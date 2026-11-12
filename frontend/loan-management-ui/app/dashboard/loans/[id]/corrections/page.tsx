@@ -83,6 +83,7 @@ export default function LegacyCorrectionPage() {
     penaltiesPaid: "",
   });
   const [due, setDue] = useState("");
+  const [purpose, setPurpose] = useState("");
   const [dateOnly, setDateOnly] = useState(true);
   const [duration, setDuration] = useState("");
   const [reference, setReference] = useState("");
@@ -113,6 +114,7 @@ export default function LegacyCorrectionPage() {
       );
     setForm(next);
     setDue(l.nextDueDate ?? "");
+    setPurpose(l.purpose ?? "");
     setDuration(l.durationMonths == null ? "" : String(l.durationMonths));
   };
   useEffect(() => {
@@ -139,6 +141,7 @@ export default function LegacyCorrectionPage() {
     reason,
     evidenceReference: evidence,
     oldestUnpaidDueDate: due || null,
+    purpose: purpose.trim() || null,
     durationMonths: dateOnly ? null : (duration.trim() === "" ? null : Number(duration)),
     ...(dateOnly ? {} : Object.fromEntries(
       MONEY_FIELDS.map(({ key }) => [
@@ -322,6 +325,17 @@ export default function LegacyCorrectionPage() {
             ))}
           </div>
           )}
+          <label className="mt-4 block max-w-2xl text-sm font-medium text-slate-700">
+            Verified loan purpose / description
+            <textarea
+              className={inputClass}
+              rows={2}
+              maxLength={500}
+              value={purpose}
+              onChange={(e) => { setPurpose(e.target.value); setPreview(null); }}
+              placeholder="Correct purpose recorded in the loan agreement"
+            />
+          </label>
           <div className="mt-4 grid max-w-2xl gap-4 sm:grid-cols-2">
             {!dateOnly && <label className="block text-sm font-medium text-slate-700">
               Correct contractual duration (months, 1–6)
