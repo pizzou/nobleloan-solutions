@@ -78,9 +78,12 @@ export default function ContactPage() {
 
   async function requestEmailCode() {
     setError("");
+    setStatus("idle");
+    setVerificationMessage("");
     const email = form.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setError("Enter a valid email address first.");
+      setStatus("error");
       return;
     }
     setRequestingCode(true);
@@ -100,6 +103,9 @@ export default function ContactPage() {
     } catch (cause) {
       setChallengeId("");
       setVerificationEmail("");
+      setEmailVerificationCode("");
+      setVerificationMessage("");
+      setStatus("error");
       setError(
         cause instanceof Error ? cause.message : "Could not send email code.",
       );
@@ -401,6 +407,9 @@ export default function ContactPage() {
                       setChallengeId("");
                       setVerificationEmail("");
                       setEmailVerificationCode("");
+                      setVerificationMessage("");
+                      setError("");
+                      setStatus("idle");
                     }}
                     placeholder="you@example.com"
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
@@ -467,27 +476,29 @@ export default function ContactPage() {
                     {verificationMessage}
                   </p>
                 )}
-                {challengeId && (
-                  <label className="block">
-                    <span className="text-xs font-bold text-slate-700">
-                      Six-digit code received by email
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-700">
+                    Six-digit code received by email *
+                  </span>
+                  <input
+                    required
+                    disabled={!challengeId || requestingCode}
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={emailVerificationCode}
+                    onChange={(e) =>
+                      setEmailVerificationCode(e.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder={challengeId ? "000000" : "Request a code first"}
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                  {!challengeId && (
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Enter your email address and select Send verification code to enable this field.
                     </span>
-                    <input
-                      required
-                      inputMode="numeric"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
-                      value={emailVerificationCode}
-                      onChange={(e) =>
-                        setEmailVerificationCode(
-                          e.target.value.replace(/\D/g, ""),
-                        )
-                      }
-                      placeholder="000000"
-                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                    />
-                  </label>
-                )}
+                  )}
+                </label>
               </div>
               <label className="block">
                 <span className="text-xs font-black text-slate-700">
@@ -520,7 +531,7 @@ export default function ContactPage() {
                   enquiry.
                 </div>
               )}
-              {status === "error" && (
+              {error && (
                 <div
                   role="alert"
                   className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700"
