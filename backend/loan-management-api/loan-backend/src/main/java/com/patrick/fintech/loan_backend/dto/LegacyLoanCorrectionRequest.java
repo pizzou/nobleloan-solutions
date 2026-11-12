@@ -22,7 +22,8 @@ public record LegacyLoanCorrectionRequest(
                 Integer durationMonths,
                 BigDecimal applicationFee,
                 BigDecimal applicationFeePaid,
-                BigDecimal applicationFeeOutstanding) {
+                BigDecimal applicationFeeOutstanding,
+                String purpose) {
         /**
          * Backwards-compatible source constructor for existing correction
          * clients/tests.
@@ -35,6 +36,20 @@ public record LegacyLoanCorrectionRequest(
                 this(confirmReference, reason, evidenceReference, oldestUnpaidDueDate,
                                 principalPaid, interestPaid, interestOutstanding, managementFeePaid,
                                 managementFeeOutstanding, penaltiesAssessed, penaltiesPaid, durationMonths,
-                                null, null, null);
+                                null, null, null, null);
+        }
+
+        /** Compatibility for callers providing all former monetary fields. */
+        public LegacyLoanCorrectionRequest(String confirmReference, String reason,
+                        String evidenceReference, LocalDate oldestUnpaidDueDate,
+                        BigDecimal principalPaid, BigDecimal interestPaid, BigDecimal interestOutstanding,
+                        BigDecimal managementFeePaid, BigDecimal managementFeeOutstanding,
+                        BigDecimal penaltiesAssessed, BigDecimal penaltiesPaid, Integer durationMonths,
+                        BigDecimal applicationFee, BigDecimal applicationFeePaid,
+                        BigDecimal applicationFeeOutstanding) {
+                this(confirmReference, reason, evidenceReference, oldestUnpaidDueDate,
+                        principalPaid, interestPaid, interestOutstanding, managementFeePaid,
+                        managementFeeOutstanding, penaltiesAssessed, penaltiesPaid, durationMonths,
+                        applicationFee, applicationFeePaid, applicationFeeOutstanding, null);
         }
 }
