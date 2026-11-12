@@ -1554,6 +1554,11 @@ public class RegulatoryReportingService {
                 BigDecimal applicationFeeIncome = decimalValue(
                                 incomeStatement.get("applicationFeeIncome"));
 
+                BigDecimal interestIncome = decimalValue(incomeStatement.get("interestIncome"));
+                BigDecimal managementFeeIncome = decimalValue(incomeStatement.get("managementFeeIncome"));
+                BigDecimal penaltyIncome = decimalValue(incomeStatement.get("penaltyIncome"));
+                BigDecimal otherFeeIncome = decimalValue(incomeStatement.get("otherFeeIncome"));
+
                 BigDecimal netIncome = decimalValue(
                                 incomeStatement.get(
                                                 "netIncome"));
@@ -1685,6 +1690,11 @@ public class RegulatoryReportingService {
 
                                 .applicationFeeIncome(
                                                 applicationFeeIncome)
+
+                                .interestIncome(interestIncome)
+                                .managementFeeIncome(managementFeeIncome)
+                                .penaltyIncome(penaltyIncome)
+                                .otherFeeIncome(otherFeeIncome)
 
                                 .totalExpenses(
                                                 totalExpenses)
