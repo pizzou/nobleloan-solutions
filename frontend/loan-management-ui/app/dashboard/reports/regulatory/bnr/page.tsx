@@ -564,6 +564,13 @@ function FinancialStatement({
     return null;
   }
 
+  const incomeBreakdown = report as BnrFinancialStatementReport & {
+    interestIncome?: number | string;
+    managementFeeIncome?: number | string;
+    penaltyIncome?: number | string;
+    otherFeeIncome?: number | string;
+  };
+
   const renderRows = (rows?: FinancialStatementRow[]) => {
     if (!rows?.length) {
       return (
@@ -678,6 +685,26 @@ function FinancialStatement({
           label="Application Fee Income"
           value={formatMoney(report.applicationFeeIncome, currency)}
           secondary="One-time application fees recognized in GL 4100."
+        />
+        <Metric
+          label="Interest Income"
+          value={formatMoney(incomeBreakdown.interestIncome, currency)}
+          secondary="Recognized interest from general ledger 4000."
+        />
+        <Metric
+          label="Management Fee Income"
+          value={formatMoney(incomeBreakdown.managementFeeIncome, currency)}
+          secondary="Management fees recognized in the reporting period."
+        />
+        <Metric
+          label="Penalty Income"
+          value={formatMoney(incomeBreakdown.penaltyIncome, currency)}
+          secondary="Penalties recognized in the reporting period."
+        />
+        <Metric
+          label="Other Fee Income"
+          value={formatMoney(incomeBreakdown.otherFeeIncome, currency)}
+          secondary="Remaining fee income, including extension fees."
         />
       </div>
 
