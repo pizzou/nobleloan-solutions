@@ -1398,6 +1398,11 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
             @Param("organizationId") Long organizationId,
             @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
+    /** Imported loans without operational schedules still must not accrue
+     * fixed-principal catch-up penalties after a real payment transaction. */
+    @Query(value = "SELECT COUNT(*) FROM payment_transactions WHERE loan_id = :loanId", nativeQuery = true)
+    long countRecordedPaymentTransactions(@Param("loanId") Long loanId);
+
     // ============================================================
     // EXISTS
     // ============================================================
