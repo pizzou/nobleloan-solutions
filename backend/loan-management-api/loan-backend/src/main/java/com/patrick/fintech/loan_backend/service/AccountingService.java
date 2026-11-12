@@ -2381,8 +2381,12 @@ public class AccountingService {
                         return null;
                 LocalDate importDate = loan.getCreatedAt().toLocalDate();
                 LocalDate firstChargeable = due.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
-                if (firstChargeable.isBefore(importDate))
-                        firstChargeable = importDate;
+                // The opening position is recognized at import; begin new
+                // accrual on the following day to avoid overlapping opening
+                // balances with the import date.
+                LocalDate firstPostImportDay = importDate.plusDays(1);
+                if (firstChargeable.isBefore(firstPostImportDay))
+                        firstChargeable = firstPostImportDay;
                 if (firstChargeable.isAfter(asOf))
                         return null;
 
