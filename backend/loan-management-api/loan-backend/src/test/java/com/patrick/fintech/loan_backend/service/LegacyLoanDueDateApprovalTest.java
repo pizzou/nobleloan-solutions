@@ -60,6 +60,26 @@ class LegacyLoanDueDateApprovalTest {
     }
 
     @Test
+    void purposeOnlyChangeIsRecognized() {
+        Map<String, Object> before = original();
+        before.put("purpose", "Working capital");
+        Map<String, Object> after = new LinkedHashMap<>(before);
+        after.put("purpose", "School fees");
+        assertTrue(LegacyLoanCorrectionService.isPurposeOnly(before, after));
+        assertFalse(LegacyLoanCorrectionService.isDueDateOnly(before, after));
+    }
+
+    @Test
+    void purposeChangePlusFinancialChangeNeedsReconciliation() {
+        Map<String, Object> before = original();
+        before.put("purpose", "Working capital");
+        Map<String, Object> after = new LinkedHashMap<>(before);
+        after.put("purpose", "School fees");
+        after.put("principalOutstanding", 500000);
+        assertFalse(LegacyLoanCorrectionService.isPurposeOnly(before, after));
+    }
+
+    @Test
     void missingFieldsCannotBeTreatedAsDateOnly() {
         Map<String, Object> before = original();
         Map<String, Object> after = new LinkedHashMap<>(before);
