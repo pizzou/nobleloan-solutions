@@ -92,6 +92,31 @@ interface ProfitAndLoss {
   totalIncome: number;
   totalExpense: number;
   netIncome: number;
+  applicationFeeIncome?: number;
+  historicalApplicationFeeIncome?: number;
+  penaltyIncome?: number;
+  managementFeeIncome?: number;
+  otherFeeIncome?: number;
+}
+
+interface HistoricalPortfolioPerformance {
+  basis: string;
+  note: string;
+  loanCount: number;
+  principalPaid: number;
+  interestPaid: number;
+  managementFeePaid: number;
+  extensionFeePaid: number;
+  penaltiesAssessed: number;
+  penaltiesRecordedPaid: number;
+  penaltyLoanCount: number;
+  penaltyAllocationRequiresVerification: boolean;
+  applicationFeePaid: number;
+  principalOutstanding: number;
+  interestOutstanding: number;
+  managementFeeOutstanding: number;
+  penaltiesOutstanding: number;
+  recordedHistoricCollections: number;
 }
 
 interface CashFlow {
@@ -168,6 +193,7 @@ export default function AccountingPage() {
   const [trial, setTrial] = useState<TrialBalance | null>(null);
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
   const [pnl, setPnl] = useState<ProfitAndLoss | null>(null);
+  const [historical, setHistorical] = useState<HistoricalPortfolioPerformance | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlow | null>(null);
   const [financialPeriod, setFinancialPeriod] = useState<FinancialPeriod>(() =>
     financialPeriodPreset("this-month"),
@@ -227,6 +253,7 @@ export default function AccountingPage() {
         trialResponse,
         balanceSheetResponse,
         pnlResponse,
+        historicalResponse,
         cashFlowResponse,
         branchSummaryResponse,
         bankAccountsResponse,
@@ -240,6 +267,7 @@ export default function AccountingPage() {
         accountingApi
           .profitAndLoss(financialPeriod.from, financialPeriod.to)
           .catch(() => null),
+        accountingApi.historicalPortfolioPerformance().catch(() => null),
         accountingApi
           .cashFlow(financialPeriod.from, financialPeriod.to)
           .catch(() => null),
@@ -258,6 +286,7 @@ export default function AccountingPage() {
       setBalanceSheet(balanceSheetResponse as BalanceSheet | null);
 
       setPnl(pnlResponse as ProfitAndLoss | null);
+      setHistorical(historicalResponse as HistoricalPortfolioPerformance | null);
 
       setCashFlow(cashFlowResponse as CashFlow | null);
 
@@ -724,7 +753,7 @@ export default function AccountingPage() {
               <div className="font-bold text-gray-900">Trial Balance</div>
 
               <p className="text-xs text-gray-500 mt-1">
-                Verification that total debits equal total credits.
+                Verification that total debits equal total credits. Balanced does not guarantee completeness.
               </p>
             </div>
 
@@ -887,6 +916,7 @@ export default function AccountingPage() {
       =================================================== */}
 
       {tab === "Profit & Loss" && pnl && (
+        <div className="space-y-5">
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-6">
           <div>
             <div className="font-bold text-gray-900">Profit &amp; Loss</div>
@@ -942,9 +972,76 @@ export default function AccountingPage() {
             }`}
           >
             <span>Net Income</span>
-
             <span className="font-mono">{fmt(pnl.netIncome)}</span>
           </div>
+          <div className="border-t border-gray-100 pt-4">
+            <h3 className="text-sm font-semibold text-gray-900">Recognized fee income — GL 4100 breakdown</h3>
+            <p className="text-xs text-gray-500 mt-1">Posted journal income for the selected period; not extra amounts added to P&amp;L.</p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+              {[
+                ["Application fees", pnl.applicationFeeIncome],
+                ["Penalty income", pnl.penaltyIncome],
+                ["Management fees", pnl.managementFeeIncome],
+                ["Other fee income", pnl.otherFeeIncome],
+              ].map(([label, amount]) => (
+                <div key={String(label)} className="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
+                  <p className="text-xs text-gray-600">{label}</p>
+                  <p className="text-base font-semibold text-gray-900 mt-1 font-mono">{fmt(Number(amount ?? 0))}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              Historical application fee adjustments included above: {fmt(Number(pnl.historicalApplicationFeeIncome ?? 0))}. GL 4100 totals remain unchanged.
+            </p>
+          </div>
+        </div>
+        <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex flex-wrap gap-3 justify-between items-start">
+            <div>
+              <h3 className="font-bold text-gray-900">Imported historical portfolio — operational record</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Cumulative imported loan totals, not restricted to the selected P&amp;L period and not added to current-period income.
+              </p>
+            </div>
+            <span className="rounded-full border border-gray-200 bg-gray-50 text-gray-600 px-3 py-1 text-xs font-medium">
+              {historical ? `${historical.loanCount} imported loans` : "Unavailable"}
+            </span>
+          </div>
+          {historical ? (
+            <>
+              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                {[
+                  ["Interest recorded paid", historical.interestPaid],
+                  ["Management fees recorded paid", historical.managementFeePaid],
+                  ["Penalties marked paid", historical.penaltiesRecordedPaid],
+                  ["Application fees recorded paid", historical.applicationFeePaid],
+                  ["Principal repayments recorded", historical.principalPaid],
+                  ["Extension fees recorded paid", historical.extensionFeePaid],
+                  ["Interest still receivable", historical.interestOutstanding],
+                  ["Management still receivable", historical.managementFeeOutstanding],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="border border-gray-100 bg-gray-50/60 rounded-lg p-3">
+                    <p className="text-xs text-gray-600">{label}</p>
+                    <p className="font-mono text-base font-semibold text-gray-900 mt-1">{fmt(Number(value ?? 0))}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+                <span className="text-sm font-medium text-gray-700">Total collections recorded on imported loans (including principal)</span>
+                <span className="font-mono font-bold text-gray-900">{fmt(historical.recordedHistoricCollections)}</span>
+              </div>
+              {historical.penaltyAllocationRequiresVerification && (
+                <p className="text-xs text-amber-800 border border-amber-200 bg-amber-50 rounded-lg px-4 py-3">
+                  Penalty amounts for {historical.penaltyLoanCount} imported loans require verification against original receipts.
+                  Recorded paid amounts may reflect earlier Excel-import allocation errors.
+                </p>
+              )}
+              <p className="text-xs text-gray-500 leading-relaxed">{historical.note}</p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">Historical portfolio figures could not be loaded. GL Profit &amp; Loss above is still available.</p>
+          )}
+        </section>
         </div>
       )}
 
@@ -959,6 +1056,10 @@ export default function AccountingPage() {
 
             <p className="text-xs text-gray-500 mt-1">
               Cash movements for the selected reporting period.
+            </p>
+            <p className="text-xs text-amber-800 mt-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              Only GL-posted cash movements appear here. Historical imported-loan paid totals are not bank transactions.
+              Check the cumulative imported-loan summary in Profit &amp; Loss before comparing lifetime collections.
             </p>
           </div>
 

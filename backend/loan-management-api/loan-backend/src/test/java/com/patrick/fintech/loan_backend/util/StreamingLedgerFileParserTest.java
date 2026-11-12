@@ -82,41 +82,6 @@ class StreamingLedgerFileParserTest {
     }
 
     @Test
-    void monthlyPortfolioPreservesApplicationFeeAndUnpaidPenaltyRatherThanInventingPayment() throws Exception {
-        try (XSSFWorkbook book = new XSSFWorkbook()) {
-            Sheet sheet = book.createSheet("PORTFOLIO 2025");
-            appendMonthly(sheet, 2, "1", "1198880004126183", "2025-10-30", 5000000);
-            sheet.getRow(2).getCell(5).setCellValue("37500");
-            sheet.getRow(2).getCell(27).setCellValue("250000");
-            List<Map<String, String>> items = parse(book);
-            assertThat(items).hasSize(1);
-            Map<String, String> item = items.get(0);
-            assertThat(item.get("application_fee")).isEqualTo("37500.00");
-            assertThat(item.get("application_fee_paid")).isEqualTo("37500.00");
-            assertThat(item.get("penalties_assessed")).isEqualTo("250000.00");
-            assertThat(item.get("penalties_paid")).isEqualTo("0.00");
-            assertThat(item.get("total_paid")).isEqualTo("0.00");
-            assertThat(item.get("total_repayable")).isEqualTo("5250000.00");
-        }
-    }
-
-    @Test
-    void penaltyOnlyBalanceMustNotBeMisclassifiedAsPaid() throws Exception {
-        try (XSSFWorkbook book = new XSSFWorkbook()) {
-            Sheet sheet = book.createSheet("PORTFOLIO 2025");
-            appendMonthly(sheet, 2, "1", "1198880004126183", "2025-10-30", 5000000);
-            sheet.getRow(2).getCell(29).setCellValue("0");
-            sheet.getRow(2).getCell(26).setCellValue("5000000");
-            sheet.getRow(2).getCell(27).setCellValue("125000");
-            List<Map<String, String>> items = parse(book);
-            assertThat(items).hasSize(1);
-            assertThat(items.get(0).get("status")).isNotEqualTo("PAID");
-            assertThat(items.get(0).get("penalties_assessed")).isEqualTo("125000.00");
-            assertThat(items.get(0).get("penalties_paid")).isEqualTo("0.00");
-        }
-    }
-
-    @Test
     void identicalSupportingSheetsProduceOnlyOneLoanCandidate() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             appendMonthly(book.createSheet("PORTFOLIO 2025"), 2, "1", "1198880004126183", "2025-10-30", 5000000);

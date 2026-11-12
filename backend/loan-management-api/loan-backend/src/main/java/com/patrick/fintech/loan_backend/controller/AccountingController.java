@@ -575,6 +575,14 @@ public class AccountingController {
                                                                 : Map.of()));
         }
 
+        // Read-only operational history, intentionally separate from dated GL P&L.
+        @GetMapping("/historical-portfolio-performance")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> historicalPortfolioPerformance() {
+                Long orgId = requireOrganizationId();
+                return ResponseEntity.ok(ApiResponse.safe(
+                                accountingService.getHistoricalPortfolioPerformance(orgId)));
+        }
+
         // ============================================================
         // MONTHLY PROFIT AND LOSS
         // ============================================================

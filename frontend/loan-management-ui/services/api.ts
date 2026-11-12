@@ -1000,6 +1000,8 @@ export const accountingApi = {
       `/accounting/balance-sheet${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`,
     ),
 
+  historicalPortfolioPerformance: () => get("/accounting/historical-portfolio-performance"),
+
   profitAndLoss: (from?: string, to?: string) =>
     get(
       `/accounting/profit-and-loss${

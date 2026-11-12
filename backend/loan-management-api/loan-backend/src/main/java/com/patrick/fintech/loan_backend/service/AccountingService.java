@@ -4464,6 +4464,78 @@ public class AccountingService {
                 return "otherFeeIncome";
         }
 
+        /**
+         * Cumulative imported-loan operational history, shown separately from the
+         * general ledger P&L. Historic payment dates are usually unavailable.
+         * This read-only summary MUST NOT be added to period GL income or cash.
+         */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getHistoricalPortfolioPerformance(Long orgId) {
+                requireOrganizationId(orgId);
+                List<Loan> imports = loanRepo.findVisibleHistoricalImportedLoans(
+                                orgId, ReportingScopeService.includeBusinessOwnerOnly());
+                BigDecimal principalPaid = ZERO;
+                BigDecimal interestPaid = ZERO;
+                BigDecimal managementPaid = ZERO;
+                BigDecimal extensionPaid = ZERO;
+                BigDecimal penaltyRecordedPaid = ZERO;
+                BigDecimal penaltyAssessed = ZERO;
+                BigDecimal applicationPaid = ZERO;
+                BigDecimal principalOutstanding = ZERO;
+                BigDecimal interestOutstanding = ZERO;
+                BigDecimal managementOutstanding = ZERO;
+                BigDecimal penaltyOutstanding = ZERO;
+                int count = 0;
+                int penaltyLoans = 0;
+                for (Loan loan : imports) {
+                        if (loan == null || loan.getDeletedAt() != null) {
+                                continue;
+                        }
+                        count++;
+                        principalPaid = principalPaid.add(money(loan.getPrincipalPaidDecimal()));
+                        interestPaid = interestPaid.add(money(loan.getInterestPaidDecimal()));
+                        managementPaid = managementPaid.add(money(loan.getManagementFeePaidDecimal()));
+                        extensionPaid = extensionPaid.add(money(loan.getExtensionFeePaidDecimal()));
+                        penaltyRecordedPaid = penaltyRecordedPaid.add(money(loan.getPenaltiesPaidDecimal()));
+                        penaltyAssessed = penaltyAssessed.add(money(loan.getPenaltiesAssessedDecimal()));
+                        applicationPaid = applicationPaid.add(money(loan.getApplicationFeePaidDecimal()));
+                        if (money(loan.getPenaltiesAssessedDecimal()).signum() > 0) {
+                                penaltyLoans++;
+                        }
+                        if (loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.DISBURSED
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.DEFAULTED
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.RESTRUCTURED) {
+                                principalOutstanding = principalOutstanding.add(money(loan.getOutstandingBalanceDecimal()));
+                                interestOutstanding = interestOutstanding.add(money(loan.getInterestOutstandingDecimal()));
+                                managementOutstanding = managementOutstanding.add(money(loan.getManagementFeeOutstandingDecimal()));
+                                penaltyOutstanding = penaltyOutstanding.add(money(loan.getPenaltiesAssessedDecimal())
+                                                .subtract(money(loan.getPenaltiesPaidDecimal())).max(ZERO));
+                        }
+                }
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("basis", "CUMULATIVE_IMPORTED_LOAN_RECORDS");
+                result.put("note", "Historical amounts are imported operational records without verified individual payment dates. They are not automatically GL income or current-period cash flow.");
+                result.put("loanCount", count);
+                result.put("principalPaid", normalize(principalPaid));
+                result.put("interestPaid", normalize(interestPaid));
+                result.put("managementFeePaid", normalize(managementPaid));
+                result.put("extensionFeePaid", normalize(extensionPaid));
+                result.put("penaltiesAssessed", normalize(penaltyAssessed));
+                result.put("penaltiesRecordedPaid", normalize(penaltyRecordedPaid));
+                result.put("penaltyLoanCount", penaltyLoans);
+                result.put("penaltyAllocationRequiresVerification", penaltyLoans > 0);
+                result.put("applicationFeePaid", normalize(applicationPaid));
+                result.put("principalOutstanding", normalize(principalOutstanding));
+                result.put("interestOutstanding", normalize(interestOutstanding));
+                result.put("managementFeeOutstanding", normalize(managementOutstanding));
+                result.put("penaltiesOutstanding", normalize(penaltyOutstanding));
+                result.put("recordedHistoricCollections", normalize(principalPaid.add(interestPaid)
+                                .add(managementPaid).add(extensionPaid).add(penaltyRecordedPaid).add(applicationPaid)));
+                return result;
+        }
+
         /** Monthly P&L plus year-to-date comparison. */
         @Transactional(readOnly = true)
         public Map<String, Object> getMonthlyProfitAndLoss(Long orgId, int year, int month) {
