@@ -146,32 +146,13 @@ export default function LegacyCorrectionPage() {
       ]),
     ),
   });
-  const run = async (action: "preview" | "submit" | "ownerApply") => {
+  const run = async (action: "preview" | "submit") => {
     setBusy(true);
     setError("");
     setMessage("");
     try {
       if (action === "preview") {
         setPreview(await loanApi.previewLegacyCorrection(loanId, payload()));
-      } else if (action === "ownerApply") {
-        if (!owner)
-          throw new Error(
-            "Only the Business Owner can apply a direct correction",
-          );
-        if (!preview)
-          throw new Error("Preview the correction before applying it");
-        if (
-          !window.confirm(
-            `APPLY CORRECTION NOW to ${loan.referenceNumber}? This is an audited Business Owner exception. It may post a current-period receivable adjustment. Historical payments are never overwritten.`,
-          )
-        )
-          return;
-        await loanApi.applyOwnerLegacyCorrection(loanId, payload());
-        setPreview(null);
-        setMessage(
-          "Verified import data corrected and audited. Check the loan balances and general ledger.",
-        );
-        await load();
       } else {
         if (!preview)
           throw new Error("Preview the correction before submitting it");
@@ -262,20 +243,15 @@ export default function LegacyCorrectionPage() {
           {loan?.referenceNumber ?? "Loan"}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Correct mistaken Excel values after import, without deleting or
-          reimporting loans. Staff may request correction of a normal imported
-          loan for independent Business Owner approval. A Business Owner can
-          also preview and directly apply a verified import correction using the
-          audited one-owner exception. Owner-only loan data stays confidential.
-          A correction does not invent payment receipts or reverse a real
-          payment.
+          Correct inaccurate imported Excel amounts without deleting or reimporting a loan.
+          Staff submit changes with supporting evidence. A different Business Owner
+          approves or rejects the request. Only the original requester applies
+          the authorized values after approval.
         </p>
         <p className="mt-2 text-sm text-rose-700">
-          A Business Owner direct correction is allowed only before subsequent
-          payment, schedule or accounting activity. Otherwise, use a specialist
-          reconciled adjustment. Existing payment and journal history is never
-          erased. The ordinary request/approval workflow still requires
-          different users.
+          Approval does not change balances or post journals. Corrections with
+          subsequent payments, schedules, or accounting activity require specialist
+          reconciliation. Owner-only loan data remains confidential.
         </p>
       </header>
       {error && (
@@ -413,32 +389,13 @@ export default function LegacyCorrectionPage() {
             >
               Preview changes
             </button>
-            {!owner && (
-              <button
-                disabled={
-                  busy || !preview || reference !== loan?.referenceNumber
-                }
-                onClick={() => void run("submit")}
-                className="rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-40"
-              >
-                Submit to Business Owner
-              </button>
-            )}
-            {owner && (
-              <button
-                disabled={
-                  busy ||
-                  !preview ||
-                  reference !== loan?.referenceNumber ||
-                  reason.trim().length < 30 ||
-                  evidence.trim().length < 8
-                }
-                onClick={() => void run("ownerApply")}
-                className="rounded-lg bg-emerald-700 px-5 py-2 text-sm font-bold text-white disabled:opacity-40"
-              >
-                Business Owner: Apply verified correction
-              </button>
-            )}
+            <button
+              disabled={busy || !preview || reference !== loan?.referenceNumber}
+              onClick={() => void run("submit")}
+              className="rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-40"
+            >
+              Submit to Business Owner for approval
+            </button>
           </div>
           {preview && (
             <div className="mt-5 overflow-auto rounded-lg border border-slate-200 p-3">
