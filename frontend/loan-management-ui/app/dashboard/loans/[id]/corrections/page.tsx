@@ -177,7 +177,7 @@ export default function LegacyCorrectionPage() {
           throw new Error("Preview the correction before submitting it");
         if (
           !window.confirm(
-            `Submit correction request for ${loan.referenceNumber}? Only the Business Owner can approve and apply it. No amounts change now.`,
+            `Submit correction request for ${loan.referenceNumber}? Only the Business Owner can authorize it; the requester then applies the approved values. No amounts change now.`,
           )
         )
           return;
@@ -211,12 +211,29 @@ export default function LegacyCorrectionPage() {
       });
       setMessage(
         approve
-          ? "Correction approved and posted. Inspect the loan and reconciliation report."
+          ? "Correction authorized. The original requester must now apply the exact approved changes."
           : "Correction rejected; no loan data was changed.",
       );
       await load();
     } catch (e: any) {
       setError(e?.message ?? "Review failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const applyAuthorized = async (item: Proposal) => {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if (!window.confirm(
+        `Execute the exact owner-authorized correction #${item.id} for ${loan.referenceNumber}? This posts any necessary accounting adjustment and cannot be undone.`
+      )) return;
+      await loanApi.applyAuthorizedLegacyCorrection(loanId, item.id);
+      setMessage("Authorized correction applied and audited. Review the loan and accounting balances.");
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Authorized correction could not be applied");
     } finally {
       setBusy(false);
     }
@@ -528,6 +545,16 @@ export default function LegacyCorrectionPage() {
                     </pre>
                   </div>
                 </details>
+                {item.status === "AUTHORIZED" &&
+                  Number(item.makerId) === Number(user?.userId) && (
+                    <button
+                      disabled={busy}
+                      onClick={() => void applyAuthorized(item)}
+                      className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
+                    >
+                      Apply Business Owner-authorized correction
+                    </button>
+                  )}
                 {reviewer &&
                   item.status === "PENDING" &&
                   Number(item.makerId) !== Number(user?.userId) && (
@@ -541,7 +568,7 @@ export default function LegacyCorrectionPage() {
                         onClick={() => void decide(item, true)}
                         className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
                       >
-                        Business Owner: approve and apply
+                        Business Owner: authorize correction
                       </button>
                       <button
                         disabled={
