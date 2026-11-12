@@ -210,10 +210,18 @@ class LegacyLoanCorrectionServiceTest {
                                 new LegacyLoanCorrectionDecision("NLS-000077",
                                                 "Compared against signed original agreement"),
                                 owner);
-                assertEquals("APPROVED", outcome.getStatus());
+                assertEquals("AUTHORIZED", outcome.getStatus());
+                assertEquals(6, loan.getDurationMonths(), "Authorization must not change the loan");
+                assertEquals(LocalDate.of(2026, 9, 26), loan.getMaturityDate());
+                assertNull(outcome.getJournalEntryId());
+                assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                                () -> service.applyAuthorized(77L, 123L, manager));
+                var applied = service.applyAuthorized(77L, 123L, admin);
+                assertEquals("APPROVED", applied.getStatus());
                 assertEquals(5, loan.getDurationMonths());
                 assertEquals(LocalDate.of(2026, 8, 26), loan.getMaturityDate());
-                assertNull(outcome.getJournalEntryId());
+                assertThrows(IllegalStateException.class,
+                                () -> service.applyAuthorized(77L, 123L, admin));
                 verify(accounting, never()).postApprovedLegacyCorrection(any(), any(), any());
         }
 
@@ -363,11 +371,43 @@ class LegacyLoanCorrectionServiceTest {
                                 new LegacyLoanCorrectionDecision("NLS-000077",
                                                 "Bank statement and amortization dates independently verified"),
                                 owner);
-                assertEquals("APPROVED", result.getStatus());
+                assertEquals("AUTHORIZED", result.getStatus());
+                assertEquals(LocalDate.of(2026, 4, 26), loan.getNextDueDate(),
+                                "Owner authorization must not apply the date change");
+                var applied = service.applyAuthorized(77L, 334L, admin);
+                assertEquals("APPROVED", applied.getStatus());
+                assertEquals(actualDue, loan.getNextDueDate());
                 assertEquals(21, loan.getDaysOverdue());
                 assertEquals(new BigDecimal("6000000.00"), loan.getTotalPaid());
                 assertEquals(new BigDecimal("8000000.00"), loan.getTotalRepayable());
                 verify(accounting, never()).postApprovedLegacyCorrection(any(), any(), any());
+        }
+
+        @Test
+        void unauthorizedRequestCannotBeAppliedByMaker() {
+                var pending = service.submit(77L, request(LocalDate.of(2026, 8, 31), null), admin);
+                pending.setId(335L);
+                when(corrections.lock(1L, 77L, 335L)).thenReturn(Optional.of(pending));
+                assertThrows(IllegalStateException.class,
+                                () -> service.applyAuthorized(77L, 335L, admin));
+                verify(loans, never()).saveAndFlush(any());
+                verify(accounting, never()).postApprovedLegacyCorrection(any(), any(), any());
+        }
+
+        @Test
+        void approvedRequestCannotBeAppliedAfterLoanChanged() {
+                var pending = service.submit(77L, request(LocalDate.of(2026, 8, 31), null), admin);
+                pending.setId(336L);
+                when(corrections.lock(1L, 77L, 336L)).thenReturn(Optional.of(pending));
+                stubNoSubsequentFinancialActivity();
+                service.decide(77L, 336L, true,
+                                new LegacyLoanCorrectionDecision("NLS-000077",
+                                                "Verified approved correction documents"),
+                                owner);
+                loan.setNextDueDate(LocalDate.of(2026, 9, 30));
+                assertThrows(IllegalStateException.class,
+                                () -> service.applyAuthorized(77L, 336L, admin));
+                verify(loans, never()).saveAndFlush(any());
         }
 
         @Test
