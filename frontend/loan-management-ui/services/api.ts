@@ -481,6 +481,9 @@ export const loanApi = {
       decision,
     ),
 
+  applyAuthorizedLegacyCorrection: (loanId: number, correctionId: number) =>
+    post(`/loans/${loanId}/legacy-corrections/${correctionId}/apply`, {}),
+
   pendingLegacyCorrections: () => get("/legacy-corrections/pending"),
 
   changeReportingVisibility: (id: number, businessOwnerOnly: boolean) =>
