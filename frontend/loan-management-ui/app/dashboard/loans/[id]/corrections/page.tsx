@@ -59,8 +59,10 @@ export default function LegacyCorrectionPage() {
   const reviewer = owner;
   // Owner-only proposals must never be exposed to non-owners.
   const [loan, setLoan] = useState<any>(null);
+  // Normal imported loans require a staff maker and independent owner checker.
+  // Owner-only loans require two distinct Business Owners.
   const canPropose =
-    owner ||
+    (owner && Boolean(loan?.businessOwnerOnly)) ||
     ([
       "ADMIN",
       "MANAGER",
