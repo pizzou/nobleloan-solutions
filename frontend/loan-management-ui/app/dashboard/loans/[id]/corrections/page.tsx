@@ -83,6 +83,7 @@ export default function LegacyCorrectionPage() {
     penaltiesPaid: "",
   });
   const [due, setDue] = useState("");
+  const [dateOnly, setDateOnly] = useState(true);
   const [duration, setDuration] = useState("");
   const [reference, setReference] = useState("");
   const [reason, setReason] = useState("");
@@ -138,46 +139,27 @@ export default function LegacyCorrectionPage() {
     reason,
     evidenceReference: evidence,
     oldestUnpaidDueDate: due || null,
-    durationMonths: duration.trim() === "" ? null : Number(duration),
-    ...Object.fromEntries(
+    durationMonths: dateOnly ? null : (duration.trim() === "" ? null : Number(duration)),
+    ...(dateOnly ? {} : Object.fromEntries(
       MONEY_FIELDS.map(({ key }) => [
         key,
         form[key] === "" ? null : Number(form[key]),
       ]),
-    ),
+    )),
   });
-  const run = async (action: "preview" | "submit" | "ownerApply") => {
+  const run = async (action: "preview" | "submit") => {
     setBusy(true);
     setError("");
     setMessage("");
     try {
       if (action === "preview") {
         setPreview(await loanApi.previewLegacyCorrection(loanId, payload()));
-      } else if (action === "ownerApply") {
-        if (!owner)
-          throw new Error(
-            "Only the Business Owner can apply a direct correction",
-          );
-        if (!preview)
-          throw new Error("Preview the correction before applying it");
-        if (
-          !window.confirm(
-            `APPLY CORRECTION NOW to ${loan.referenceNumber}? This is an audited Business Owner exception. It may post a current-period receivable adjustment. Historical payments are never overwritten.`,
-          )
-        )
-          return;
-        await loanApi.applyOwnerLegacyCorrection(loanId, payload());
-        setPreview(null);
-        setMessage(
-          "Verified import data corrected and audited. Check the loan balances and general ledger.",
-        );
-        await load();
       } else {
         if (!preview)
           throw new Error("Preview the correction before submitting it");
         if (
           !window.confirm(
-            `Submit correction request for ${loan.referenceNumber}? Only the Business Owner can authorize it; the requester then applies the approved values. No amounts change now.`,
+            `Submit correction request for ${loan.referenceNumber}? A different Business Owner must approve. A safe date-only correction applies at approval; no values change when submitting.`,
           )
         )
           return;
@@ -211,7 +193,7 @@ export default function LegacyCorrectionPage() {
       });
       setMessage(
         approve
-          ? "Correction authorized. The original requester must now apply the exact approved changes."
+          ? "Decision recorded. A safe date-only correction is now applied; other approved corrections await requester execution."
           : "Correction rejected; no loan data was changed.",
       );
       await load();
@@ -262,20 +244,10 @@ export default function LegacyCorrectionPage() {
           {loan?.referenceNumber ?? "Loan"}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Correct mistaken Excel values after import, without deleting or
-          reimporting loans. Staff may request correction of a normal imported
-          loan for independent Business Owner approval. A Business Owner can
-          also preview and directly apply a verified import correction using the
-          audited one-owner exception. Owner-only loan data stays confidential.
-          A correction does not invent payment receipts or reverse a real
-          payment.
+          Staff can request an audited correction to imported Excel values, with a reason and supporting evidence. An independent Business Owner approves or rejects it. Safe date-only corrections apply at approval; financial corrections require requester execution after approval. Original payments and accounting journals are retained.
         </p>
         <p className="mt-2 text-sm text-rose-700">
-          A Business Owner direct correction is allowed only before subsequent
-          payment, schedule or accounting activity. Otherwise, use a specialist
-          reconciled adjustment. Existing payment and journal history is never
-          erased. The ordinary request/approval workflow still requires
-          different users.
+          Date-only corrections involving later payments, schedules or financial activity require specialist reconciliation and are blocked from automatic application. The requester and approver must be different users.
         </p>
       </header>
       {error && (
@@ -312,7 +284,7 @@ export default function LegacyCorrectionPage() {
       {canPropose && (
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-bold text-slate-900">
-            1. Correct a verified imported record
+            1. Request correction to an imported record
           </h2>
           <p className="mt-1 text-sm text-slate-500">
             Enter verified corrected TOTALS, not differences. Keep unchanged
@@ -326,6 +298,11 @@ export default function LegacyCorrectionPage() {
             must equal that fee. These changes are historical corrections, not
             new fee income or repayments for the current month.
           </p>
+          <label className="mt-4 flex items-start gap-3 rounded-lg border bg-slate-50 p-4 text-sm">
+            <input type="checkbox" checked={dateOnly} onChange={(e) => { setDateOnly(e.target.checked); setPreview(null); }} />
+            <span>Correct overdue / oldest unpaid due date only (no monetary changes). For example, Excel says 11 September but the system says 9 November.</span>
+          </label>
+          {!dateOnly && (
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {MONEY_FIELDS.map((f) => (
               <label key={f.key} className="text-sm font-medium text-slate-700">
@@ -344,8 +321,9 @@ export default function LegacyCorrectionPage() {
               </label>
             ))}
           </div>
+          )}
           <div className="mt-4 grid max-w-2xl gap-4 sm:grid-cols-2">
-            <label className="block text-sm font-medium text-slate-700">
+            {!dateOnly && <label className="block text-sm font-medium text-slate-700">
               Correct contractual duration (months, 1–6)
               <input
                 type="number"
@@ -359,9 +337,9 @@ export default function LegacyCorrectionPage() {
                   setPreview(null);
                 }}
               />
-            </label>
+            </label>}
             <label className="block text-sm font-medium text-slate-700">
-              Oldest installment still unpaid
+              Verified oldest installment still unpaid
               <input
                 type="date"
                 className={inputClass}
@@ -413,7 +391,7 @@ export default function LegacyCorrectionPage() {
             >
               Preview changes
             </button>
-            {!owner && (
+            {canPropose && (
               <button
                 disabled={
                   busy || !preview || reference !== loan?.referenceNumber
@@ -422,21 +400,6 @@ export default function LegacyCorrectionPage() {
                 className="rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-40"
               >
                 Submit to Business Owner
-              </button>
-            )}
-            {owner && (
-              <button
-                disabled={
-                  busy ||
-                  !preview ||
-                  reference !== loan?.referenceNumber ||
-                  reason.trim().length < 30 ||
-                  evidence.trim().length < 8
-                }
-                onClick={() => void run("ownerApply")}
-                className="rounded-lg bg-emerald-700 px-5 py-2 text-sm font-bold text-white disabled:opacity-40"
-              >
-                Business Owner: Apply verified correction
               </button>
             )}
           </div>
