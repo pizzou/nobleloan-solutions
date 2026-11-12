@@ -160,6 +160,10 @@ services:
       BOOTSTRAP_ORG_ADDRESS: ${BOOTSTRAP_ORG_ADDRESS:?BOOTSTRAP_ORG_ADDRESS is required}
       BOOTSTRAP_ORG_REGISTRATION_NUMBER: ${BOOTSTRAP_ORG_REGISTRATION_NUMBER:?BOOTSTRAP_ORG_REGISTRATION_NUMBER is required}
 
+      # Optional approximate visitor location from a configured HTTPS IP geolocation provider.
+      # The provider URL must include the literal {ip} placeholder.
+      CONTACT_IP_GEOLOCATION_URL: ${CONTACT_IP_GEOLOCATION_URL:-}
+
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
 
       # ------------------------------------------------------
