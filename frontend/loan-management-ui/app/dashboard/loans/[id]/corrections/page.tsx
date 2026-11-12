@@ -162,7 +162,7 @@ export default function LegacyCorrectionPage() {
           throw new Error("Preview the correction before submitting it");
         if (
           !window.confirm(
-            `Submit correction request for ${loan.referenceNumber}? A different Business Owner must approve. A safe date-only correction applies at approval; no values change when submitting.`,
+            `Submit correction request for ${loan.referenceNumber}? A different Business Owner must approve. Date-only corrections require owner authorization, then the original requester applies them. No values change at submission.`,
           )
         )
           return;
@@ -196,7 +196,7 @@ export default function LegacyCorrectionPage() {
       });
       setMessage(
         approve
-          ? "Decision recorded. A safe date-only correction is now applied; other approved corrections await requester execution."
+          ? "Decision recorded. An approved date correction awaits requester execution; an approved purpose-only correction is applied immediately."
           : "Correction rejected; no loan data was changed.",
       );
       await load();
@@ -247,7 +247,7 @@ export default function LegacyCorrectionPage() {
           {loan?.referenceNumber ?? "Loan"}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Staff can request an audited correction to imported Excel values, with a reason and supporting evidence. An independent Business Owner approves or rejects it. Safe date-only corrections apply at approval; financial corrections require requester execution after approval. Original payments and accounting journals are retained.
+          Staff can request an audited correction to imported Excel values, with a reason and supporting evidence. An independent Business Owner approves or rejects it. Approved date-only corrections are applied by the original requester; approved purpose-only corrections apply at owner review. Imported financial corrections require separate execution. Original payments and accounting journals are retained.
         </p>
         <p className="mt-2 text-sm text-rose-700">
           Date-only corrections involving later payments, schedules or financial activity require specialist reconciliation and are blocked from automatic application. The requester and approver must be different users.
@@ -303,7 +303,7 @@ export default function LegacyCorrectionPage() {
           </p>
           <label className="mt-4 flex items-start gap-3 rounded-lg border bg-slate-50 p-4 text-sm">
             <input type="checkbox" checked={dateOnly} onChange={(e) => { setDateOnly(e.target.checked); setPreview(null); }} />
-            <span>Use a simple correction (overdue date or loan purpose) without changing monetary values. For example, an original record says 11 September but the system says 9 November.</span>
+            <span>Use simple edits for overdue date or loan purpose without monetary changes. For example, original records show 11 September but the system shows 9 November.</span>
           </label>
           {!dateOnly && (
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
