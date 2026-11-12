@@ -1025,6 +1025,11 @@ public class AccountingService {
         @Transactional
         public JournalEntry postHistoricalLoanOpening(
                         Loan loan) {
+                return postHistoricalLoanOpening(loan, null);
+        }
+
+        /** Current-dated posting for reconciliation repairs; null retains original import behavior. */
+        private JournalEntry postHistoricalLoanOpening(Loan loan, LocalDate repairPostingDate) {
 
                 if (loan == null) {
                         throw new IllegalArgumentException("Loan is required");
@@ -1179,11 +1184,10 @@ public class AccountingService {
                                 reference,
                                 "Opening financial position for migrated historical loan "
                                                 + reference,
-                                loan.getDisbursedAt() != null
-                                                ? loan.getDisbursedAt().toLocalDate()
-                                                : (loan.getStartDate() != null
-                                                                ? loan.getStartDate()
-                                                                : LocalDate.now()),
+                                repairPostingDate != null ? repairPostingDate
+                                                : (loan.getDisbursedAt() != null
+                                                                ? loan.getDisbursedAt().toLocalDate()
+                                                                : (loan.getStartDate() != null ? loan.getStartDate() : LocalDate.now())),
                                 lines);
         }
 
@@ -1197,6 +1201,11 @@ public class AccountingService {
          */
         @Transactional
         public JournalEntry postHistoricalApplicationFeeIncome(Loan loan) {
+                return postHistoricalApplicationFeeIncome(loan, null);
+        }
+
+        /** Current-dated posting for reconciliation repairs only. */
+        private JournalEntry postHistoricalApplicationFeeIncome(Loan loan, LocalDate repairPostingDate) {
                 if (loan == null || loan.getId() == null) {
                         throw new IllegalArgumentException("Persisted legacy loan is required");
                 }
@@ -1237,9 +1246,9 @@ public class AccountingService {
                                 ? loan.getReferenceNumber().trim()
                                 : "LOAN-" + loan.getId();
                 String sourceId = loan.getId() + ":APPLICATION_FEE_INCOME";
-                LocalDate entryDate = loan.getDisbursedAt() != null
-                                ? loan.getDisbursedAt().toLocalDate()
-                                : (loan.getStartDate() != null ? loan.getStartDate() : LocalDate.now());
+                LocalDate entryDate = repairPostingDate != null ? repairPostingDate
+                                : (loan.getDisbursedAt() != null ? loan.getDisbursedAt().toLocalDate()
+                                : (loan.getStartDate() != null ? loan.getStartDate() : LocalDate.now()));
 
                 List<JournalLine> lines = new ArrayList<>();
                 lines.add(JournalLine.builder()
@@ -1290,11 +1299,11 @@ public class AccountingService {
                          * postAtDate() is source-idempotent, so an existing
                          * correct opening journal is never duplicated.
                          */
-                        JournalEntry opening = postHistoricalLoanOpening(loan);
+                        JournalEntry opening = postHistoricalLoanOpening(loan, LocalDate.now());
                         if (opening != null) {
                                 repaired++;
                         }
-                        JournalEntry applicationFeeIncome = postHistoricalApplicationFeeIncome(loan);
+                        JournalEntry applicationFeeIncome = postHistoricalApplicationFeeIncome(loan, LocalDate.now());
                         if (applicationFeeIncome != null) {
                                 repaired++;
                         }
