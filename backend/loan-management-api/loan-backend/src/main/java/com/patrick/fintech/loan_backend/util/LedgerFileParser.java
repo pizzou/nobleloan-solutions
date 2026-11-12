@@ -441,7 +441,7 @@ public final class LedgerFileParser {
         String verifiedDue = normalizeDateString(cellValue(row.getCell(verifiedColumn), formatter, evaluator));
         String settledCount = cleanCell(cellValue(row.getCell(verifiedColumn + 1), formatter, evaluator));
         BigDecimal unpaidReceivable = money(principalOutstanding.add(interestOutstanding)
-                .add(managementOutstanding));
+                .add(managementOutstanding).add(penalties));
         BigDecimal historicalPayments = money(principalPaid.add(interestPaid).add(managementPaid));
         LegacyInstallmentDueDateResolver.Result due = LegacyInstallmentDueDateResolver.resolve(
                 startDate, nextDueDate, duration, verifiedDue, settledCount,
