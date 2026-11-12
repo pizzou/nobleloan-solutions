@@ -247,7 +247,7 @@ public class LegacyLoanCorrectionService {
      * A date-only correction changes no financial fields, contractual duration,
      * maturity, loan principal, payment history or accounting journals.
      */
-    private boolean isDueDateOnly(Map<String, Object> before, Map<String, Object> after) {
+    static boolean isDueDateOnly(Map<String, Object> before, Map<String, Object> after) {
         if (before == null || after == null
                 || Objects.equals(before.get("oldestUnpaidDueDate"), after.get("oldestUnpaidDueDate")))
             return false;
@@ -572,7 +572,7 @@ public class LegacyLoanCorrectionService {
             // A second, distinct Business Owner is required to review this exception.
             requireRole(actor, "BUSINESS_OWNER");
         } else {
-            requireRole(actor, "ADMIN", "MANAGER", "ACCOUNTANT", "LOAN_OFFICER", "CREDIT_ANALYST");
+            requireRole(actor, "BUSINESS_OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "LOAN_OFFICER", "CREDIT_ANALYST");
         }
     }
 
