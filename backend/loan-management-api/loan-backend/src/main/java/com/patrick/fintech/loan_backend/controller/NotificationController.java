@@ -43,7 +43,7 @@ public class NotificationController {
         if (n.getUser() == null || !n.getUser().getId().equals(user.getId()))
             throw new RuntimeException("Access denied");
         n.setRead(true);
-        n.setReadAt(LocalDateTime.now());
+        n.setReadAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
         return ResponseEntity.ok(ApiResponse.safe(notificationRepo.save(n)));
     }
 
@@ -51,7 +51,7 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<String>> markAllRead() {
         User user = currentUserUtil.getCurrentUser();
         List<Notification> unread = notificationRepo.findByUserAndReadFalseOrderByCreatedAtDesc(user);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
         unread.forEach(n -> {
             n.setRead(true);
             n.setReadAt(now);
