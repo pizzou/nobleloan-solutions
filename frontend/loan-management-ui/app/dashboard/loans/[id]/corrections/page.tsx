@@ -201,7 +201,7 @@ export default function LegacyCorrectionPage() {
     try {
       if (
         !window.confirm(
-          `${approve ? "APPROVE AND POST" : "REJECT"} correction #${item.id} for ${loan.referenceNumber}? This action is recorded in the audit trail.`,
+          `${approve ? "AUTHORIZE (DO NOT APPLY)" : "REJECT"} correction #${item.id} for ${loan.referenceNumber}? Authorization does not change the loan or post a journal. The original requester must apply it afterward.`,
         )
       )
         return;
