@@ -519,6 +519,32 @@ public final class ResponseDtoMapper {
                 // Notifications use UTC-backed LocalDateTime values. The generic
                 // entity fallback returns a map and discards @JsonSerialize
                 // annotations, so send explicit offset-aware timestamps.
+                // Contact-message timestamps also lose their field-level
+                // serializer in the generic safe-entity fallback.
+                if (value instanceof ContactMessage m) {
+                        Map<String, Object> result = new LinkedHashMap<>();
+                        result.put("id", m.getId());
+                        result.put("name", m.getName());
+                        result.put("email", m.getEmail());
+                        result.put("phone", m.getPhone());
+                        result.put("subject", m.getSubject());
+                        result.put("message", m.getMessage());
+                        result.put("read", m.isRead());
+                        result.put("ipAddress", m.getIpAddress());
+                        result.put("deviceType", m.getDeviceType());
+                        result.put("operatingSystem", m.getOperatingSystem());
+                        result.put("browserName", m.getBrowserName());
+                        result.put("timeZone", m.getTimeZone());
+                        result.put("userAgent", m.getUserAgent());
+                        result.put("approximateLocation", m.getApproximateLocation());
+                        result.put("locationConsent", m.isLocationConsent());
+                        result.put("createdAt", m.getCreatedAt() == null ? null
+                                        : m.getCreatedAt().atOffset(java.time.ZoneOffset.UTC).toString());
+                        result.put("readAt", m.getReadAt() == null ? null
+                                        : m.getReadAt().atOffset(java.time.ZoneOffset.UTC).toString());
+                        return result;
+                }
+
                 if (value instanceof Notification n) {
                         Map<String, Object> result = new LinkedHashMap<>();
                         result.put("id", n.getId());
