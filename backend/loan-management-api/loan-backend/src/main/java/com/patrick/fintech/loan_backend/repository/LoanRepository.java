@@ -254,7 +254,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     List<Loan> findHistoricalImportedLoans(
             @Param("organizationId") Long organizationId);
 
-    @EntityGraph(attributePaths = { "borrower", "organization" })
+    @EntityGraph(attributePaths = { "borrower", "organization", "branch" })
     @Query("""
             SELECT l
             FROM Loan l
