@@ -194,6 +194,7 @@ public class LegacyLoanCorrectionService {
     @Transactional
     public LegacyLoanCorrection applyAuthorized(Long loanId, Long correctionId, User actor) {
         Loan loan = lockedLoan(loanId, actor);
+        requireProposer(loan, actor);
         requireEligible(loan);
         LegacyLoanCorrection item = corrections.lock(org(actor), loanId, correctionId)
                 .orElseThrow(() -> new IllegalArgumentException("Correction not found"));
