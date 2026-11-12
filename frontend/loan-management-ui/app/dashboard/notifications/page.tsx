@@ -102,6 +102,8 @@ function formatDate(value?: string): string {
   return new Intl.DateTimeFormat("en-RW", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Africa/Kigali",
+    hour12: false,
   }).format(date);
 }
 
@@ -1561,9 +1563,16 @@ export default function Page() {
                     </div>
 
                     <div className="notification-time">
-                      {relativeTime(
-                        notification.createdAt || notification.paymentTimestamp,
-                      )}
+                      <div>
+                        {relativeTime(
+                          notification.createdAt || notification.paymentTimestamp,
+                        )}
+                      </div>
+                      <div className="text-[11px] font-normal opacity-70" title="Rwanda local time (Africa/Kigali)">
+                        {formatDate(
+                          notification.createdAt || notification.paymentTimestamp,
+                        )}{" "}CAT
+                      </div>
                     </div>
                   </div>
 
