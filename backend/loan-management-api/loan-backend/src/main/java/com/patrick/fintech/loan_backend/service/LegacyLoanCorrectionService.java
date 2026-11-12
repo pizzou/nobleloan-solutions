@@ -46,8 +46,7 @@ public class LegacyLoanCorrectionService {
     @Transactional(readOnly = true)
     public Preview preview(Long loanId, LegacyLoanCorrectionRequest request, User actor) {
         Loan loan = ownedLoan(loanId, actor);
-        // Preview is shared by staff requesters and Business Owners who use
-        // the direct owner correction route. Submission privileges remain separate.
+        // Preview does not edit loan records; approvals remain independent.
         requireRole(actor, "BUSINESS_OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "LOAN_OFFICER", "CREDIT_ANALYST");
         requireEligible(loan);
         requireConfirmed(loan, request.confirmReference());
@@ -72,13 +71,9 @@ public class LegacyLoanCorrectionService {
         if (corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "PENDING")
                 || corrections.existsByOrganizationIdAndLoanIdAndStatus(org(actor), loanId, "AUTHORIZED"))
             throw new IllegalStateException("A pending or authorized correction already exists for this loan");
-        // Repairing the imported contractual term must not silently rewrite an existing
-        // schedule.
-        // For monetary changes, any later transactions require a separate reconciled
-        // case.
-        if (!deltas(before, after).isEmpty()
-                || !Objects.equals(before.get("durationMonths"), after.get("durationMonths")))
-            assertNoSubsequentFinancialActivity(loan);
+        // Any loan may request a correction. Proposal creation never updates
+        // payments, schedules, GL journals or the loan itself. The Business
+        // Owner evaluates operational safety before authorizing application.
         LegacyLoanCorrection item = new LegacyLoanCorrection();
         item.setOrganizationId(org(actor));
         item.setLoanId(loanId);
@@ -177,6 +172,7 @@ public class LegacyLoanCorrectionService {
         Map<String, Object> approvedBefore = approve ? parse(item.getBeforeSnapshot()) : null;
         Map<String, Object> approvedAfter = approve ? parse(item.getAfterSnapshot()) : null;
         boolean dueDateOnly = approve && isDueDateOnly(approvedBefore, approvedAfter);
+        boolean purposeOnly = approve && isPurposeOnly(approvedBefore, approvedAfter);
         if (approve) {
             if (dueDateOnly) {
                 // Date-only amendments do not post cash or receivable journals.
@@ -184,20 +180,27 @@ public class LegacyLoanCorrectionService {
                 assertSafeDueDateOnlyCorrection(loan);
                 applyDueDateOnly(loan, approvedAfter);
                 loans.saveAndFlush(loan);
+            } else if (purposeOnly) {
+                loan.setPurpose(String.valueOf(approvedAfter.get("purpose")));
+                loans.saveAndFlush(loan);
             } else {
-                // Financial and contractual-term corrections retain the two-step
-                // approval/execution process and its full activity safeguards.
-                assertNoSubsequentFinancialActivity(loan);
+                // Do not mutate live financials as part of approval. Requesters
+                // must apply approved amendments; unsupported native-loan
+                // monetary changes require a specialist journal workflow.
+                if (Boolean.TRUE.equals(loan.getImported())) {
+                    assertNoSubsequentFinancialActivity(loan);
+                }
             }
         }
-        item.setStatus(approve ? (dueDateOnly ? "APPROVED" : "AUTHORIZED") : "REJECTED");
+        boolean appliedNow = dueDateOnly || purposeOnly;
+        item.setStatus(approve ? (appliedNow ? "APPROVED" : "AUTHORIZED") : "REJECTED");
         item.setCheckerId(actor.getId());
         item.setReviewedAt(LocalDateTime.now());
         item.setReviewReason(justification);
         corrections.saveAndFlush(item);
         audit.log(loan.getOrganization(), actor,
-                approve ? (dueDateOnly ? "LEGACY_DUE_DATE_CORRECTION_APPROVED_APPLIED"
-                        : "LEGACY_CORRECTION_AUTHORIZED") : "LEGACY_CORRECTION_REJECTED", "Loan",
+                approve ? (appliedNow ? "LOAN_CORRECTION_APPROVED_APPLIED"
+                        : "LOAN_CORRECTION_AUTHORIZED") : "LOAN_CORRECTION_REJECTED", "Loan",
                 String.valueOf(loanId), justification + "; correctionId=" + correctionId,
                 item.getBeforeSnapshot(), approve ? item.getAfterSnapshot() : item.getBeforeSnapshot(), "Loans");
         return item;
@@ -221,10 +224,14 @@ public class LegacyLoanCorrectionService {
             throw new IllegalStateException("Loan changed after approval; resubmit correction");
         Map<String, Object> before = parse(item.getBeforeSnapshot());
         Map<String, Object> after = parse(item.getAfterSnapshot());
-        if (isDueDateOnly(before, after)) {
+        if (isDueDateOnly(before, after) || isPurposeOnly(before, after)) {
             // Date-only requests are atomically applied by the Business Owner
             // upon approval; they cannot be executed again here.
             throw new IllegalStateException("A due-date-only request is applied during owner approval");
+        }
+        if (!Boolean.TRUE.equals(loan.getImported())) {
+            throw new IllegalStateException("This system-created loan requires a reconciled contractual/financial "
+                    + "amendment before approved financial values can be applied. No data was changed.");
         }
         assertNoSubsequentFinancialActivity(loan);
         Map<String, BigDecimal> changes = deltas(before, after);
@@ -257,6 +264,17 @@ public class LegacyLoanCorrectionService {
                 return false;
         }
         return before.keySet().equals(after.keySet());
+    }
+
+    static boolean isPurposeOnly(Map<String, Object> before, Map<String, Object> after) {
+        if (before == null || after == null
+                || Objects.equals(before.get("purpose"), after.get("purpose"))
+                || !before.keySet().equals(after.keySet())) return false;
+        for (String field : before.keySet()) {
+            if (!"purpose".equals(field) && !Objects.equals(before.get(field), after.get(field)))
+                return false;
+        }
+        return true;
     }
 
     private void applyDueDateOnly(Loan loan, Map<String, Object> proposed) {
@@ -405,6 +423,12 @@ public class LegacyLoanCorrectionService {
         }
         if (r.oldestUnpaidDueDate() != null)
             v.put("oldestUnpaidDueDate", r.oldestUnpaidDueDate().toString());
+        if (r.purpose() != null) {
+            String purpose = r.purpose().trim();
+            if (purpose.isBlank() || purpose.length() > 500)
+                throw new IllegalArgumentException("Loan purpose must be 1–500 characters");
+            v.put("purpose", purpose);
+        }
         boolean changedCoreFinancial = false;
         for (String f : List.of("principalPaid", "interestPaid", "interestOutstanding", "managementFeePaid",
                 "managementFeeOutstanding", "penaltiesAssessed", "penaltiesPaid")) {
@@ -454,6 +478,7 @@ public class LegacyLoanCorrectionService {
     private Map<String, Object> snapshot(Loan l) {
         Map<String, Object> v = new LinkedHashMap<>();
         v.put("amount", money(l.getAmount()));
+        v.put("purpose", l.getPurpose());
         v.put("principalPaid", money(l.getPrincipalPaidDecimal()));
         v.put("principalOutstanding", money(l.getOutstandingBalanceDecimal()));
         v.put("interestPaid", money(l.getInterestPaidDecimal()));
@@ -589,9 +614,8 @@ public class LegacyLoanCorrectionService {
     }
 
     private void requireEligible(Loan l) {
-        if (!Boolean.TRUE.equals(l.getImported()))
-            throw new IllegalStateException(
-                    "Use the contractual amendment workflow for loans created within the system");
+        // Applies to imported and system-created loans. Sensitive financial
+        // execution remains limited to the audited, reconciled workflow.
         if (l.getDeletedAt() != null || l.getStatus() == LoanStatus.WRITTEN_OFF
                 || l.getStatus() == LoanStatus.CANCELLED)
             throw new IllegalStateException(
