@@ -109,6 +109,12 @@ private BigDecimal totalIncome;
     @JsonProperty("applicationFeeIncome")
 private BigDecimal applicationFeeIncome;
 
+    /** Journal-based income categories in the selected regulatory period. */
+    private BigDecimal interestIncome;
+    private BigDecimal managementFeeIncome;
+    private BigDecimal penaltyIncome;
+    private BigDecimal otherFeeIncome;
+
     
 
     @JsonProperty("totalExpenses")
@@ -460,6 +466,10 @@ private BigDecimal netChangeInCash;
         private BigDecimal totalExpenses;
         private BigDecimal totalIncome;
         private BigDecimal applicationFeeIncome;
+        private BigDecimal interestIncome;
+        private BigDecimal managementFeeIncome;
+        private BigDecimal penaltyIncome;
+        private BigDecimal otherFeeIncome;
         private BigDecimal totalLiabilities;
         private BigDecimal trialBalanceCredit;
         private BigDecimal trialBalanceDebit;
