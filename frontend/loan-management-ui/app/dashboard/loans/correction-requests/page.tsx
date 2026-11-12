@@ -52,7 +52,7 @@ export default function BusinessOwnerCorrectionInbox() {
   if (!authLoading && !isOwner) {
     return (
       <main className="p-8" role="alert">
-        Only a Business Owner may review and approve imported-loan corrections.
+        Only a Business Owner may review and approve loan corrections.
       </main>
     );
   }
@@ -63,11 +63,11 @@ export default function BusinessOwnerCorrectionInbox() {
           Business Owner · Independent approval
         </p>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">
-          Pending legacy-loan corrections
+          Pending loan correction requests
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          These are staff-proposed corrections to previously imported Excel
-          data. A request does not change any loan or ledger balance. Open the
+          These are staff-proposed changes to loan records, including imported
+          and system-created loans. A request does not change loan or ledger balances. Open the
           loan to inspect the full before/after comparison, verify the
           supporting evidence, and enter its exact NLS reference before making a
           decision.

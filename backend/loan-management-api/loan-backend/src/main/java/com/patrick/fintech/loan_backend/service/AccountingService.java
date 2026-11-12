@@ -2352,6 +2352,90 @@ public class AccountingService {
         // ============================================================
         // PENALTY ACCRUAL
         // ============================================================
+        /**
+         * Imported loans have no synthetic installment rows. Accrue only the
+         * days after the record entered this platform; pre-import penalties
+         * belong in verified historical opening balances, not current income.
+         *
+         * No schedule and no post-import payments are prerequisites because
+         * without transaction-level history a fixed daily principal cannot
+         * be reconstructed safely. Uses posted PENALTY_ACCRUAL 1175 debits
+         * rather than all loan penalties to avoid subtracting import opening
+         * positions. postPenaltyAccrual is idempotent by loan/day.
+         */
+        @Transactional
+        public JournalEntry postImportedLoanPostImportPenaltyAccrual(
+                        Loan loan, LocalDate asOf) {
+                if (loan == null || !Boolean.TRUE.equals(loan.getImported())
+                                || loan.getId() == null
+                                || loan.getOrganization() == null
+                                || loan.getCreatedAt() == null
+                                || loan.getDeletedAt() != null
+                                || loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE
+                                || asOf == null)
+                        return null;
+
+                LocalDate due = loan.getNextDueDate() != null
+                                ? loan.getNextDueDate() : loan.getNextPaymentDate();
+                if (due == null || due.isAfter(asOf))
+                        return null;
+                LocalDate importDate = loan.getCreatedAt().toLocalDate();
+                LocalDate firstChargeable = due.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+                // The opening position is recognized at import; begin new
+                // accrual on the following day to avoid overlapping opening
+                // balances with the import date.
+                LocalDate firstPostImportDay = importDate.plusDays(1);
+                if (firstChargeable.isBefore(firstPostImportDay))
+                        firstChargeable = firstPostImportDay;
+                if (firstChargeable.isAfter(asOf))
+                        return null;
+
+                BigDecimal principal = money(loan.getOutstandingBalanceDecimal());
+                if (principal.signum() <= 0)
+                        return null;
+
+                // Never silently reconstruct changing principal from opening totals.
+                if (!paymentRepo.findByLoanId(loan.getId()).isEmpty()
+                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0) {
+                        log.warn("Skipping imported penalty catch-up for {}: later payment activity requires reconciliation",
+                                        loan.getReferenceNumber());
+                        return null;
+                }
+
+                if (loan.getPenaltyRateDecimal().compareTo(
+                                FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE) != 0) {
+                        log.warn("Skipping imported penalty catch-up for {}: unexpected saved penalty rate {}",
+                                        loan.getReferenceNumber(), loan.getPenaltyRateDecimal());
+                        return null;
+                }
+
+                BigDecimal requiredSinceImport = FinancialPolicy.historicalDailyPenalty(
+                                principal, firstChargeable, asOf,
+                                loan.getPenaltyRateDecimal(), day -> principal);
+                BigDecimal postedSinceImport = money(lineRepo.sumPostedPenaltyAccrualSinceImport(
+                                loan.getOrganization().getId(),
+                                loan.getId() + "-%", importDate));
+                BigDecimal difference = money(requiredSinceImport.subtract(postedSinceImport));
+                if (difference.signum() <= 0)
+                        return null;
+
+                String currentSourceId = loan.getId() + "-" + asOf;
+                if (journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                loan.getOrganization().getId(), "PENALTY_ACCRUAL",
+                                currentSourceId).isPresent()) {
+                        // Another run may have already posted today. Never change
+                        // an immutable journal or invent a duplicate source event.
+                        log.warn("Imported penalty accrual for {} needs review: today's journal already exists",
+                                        loan.getReferenceNumber());
+                        return null;
+                }
+                // Scheduler passes today's date; no retroactive journal dates.
+                if (!LocalDate.now().equals(asOf))
+                        throw new IllegalArgumentException("Catch-up must post on the current accounting date");
+                return postPenaltyAccrual(loan, difference);
+        }
+
+
 
         /**
          * Records the daily late-payment penalty as a receivable. The platform

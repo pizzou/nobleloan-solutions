@@ -2305,8 +2305,8 @@ export default function LoanDetailPage() {
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950">
                 {loan.referenceNumber}
               </h1>
-              {Boolean(loan.imported) &&
-                [
+              {[
+
                   "BUSINESS_OWNER",
                   "ACCOUNTANT",
                   "ADMIN",
@@ -2323,10 +2323,10 @@ export default function LoanDetailPage() {
                     className="mt-3 inline-flex rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900 hover:bg-amber-100"
                   >
                     {isBusinessOwner
-                      ? "Correct imported loan / review requests"
+                      ? "Request or review loan correction"
                       : ["AUDITOR"].includes(roleName)
                         ? "View correction history"
-                        : "Request imported loan correction"}
+                        : "Request loan correction"}
                   </button>
                 )}
               {isBusinessOwner && (

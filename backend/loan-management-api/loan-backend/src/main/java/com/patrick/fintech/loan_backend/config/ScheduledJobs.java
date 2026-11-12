@@ -171,7 +171,20 @@ public class ScheduledJobs {
                                                 }
 
                                                 if (loan.getStatus() == LoanStatus.OVERDUE
-                                                                && outstanding.compareTo(ZERO) > 0) {
+                                                                && outstanding.compareTo(ZERO) > 0
+                                                                && Boolean.TRUE.equals(loan.getImported())
+                                                                && dueInstallments.isEmpty()) {
+                                                        // No reconstructed imported Payment rows: use
+                                                        // verified loan-level date, recognizing only
+                                                        // post-import days in current-period income.
+                                                        if (accountingService.postImportedLoanPostImportPenaltyAccrual(
+                                                                        loan, accrualDate) != null)
+                                                                posted++;
+                                                }
+
+                                                if (loan.getStatus() == LoanStatus.OVERDUE
+                                                                && outstanding.compareTo(ZERO) > 0
+                                                                && !dueInstallments.isEmpty()) {
 
                                                         LocalDate penaltyStart = dueInstallments.stream()
                                                                         .map(Payment::getDueDate)
