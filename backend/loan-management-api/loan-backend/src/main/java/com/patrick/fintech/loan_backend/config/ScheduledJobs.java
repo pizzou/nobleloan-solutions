@@ -242,6 +242,46 @@ public class ScheduledJobs {
         }
 
         /**
+         * Run legacy opening-penalty catch-up soon after startup as well as
+         * during the normal EOD accrual. This prevents a deployment after 01:30
+         * from leaving previously overdue imported loans at a single day's
+         * penalty until the following night.
+         *
+         * The AccountingService journal source ID is unique per loan, so this
+         * startup pass and the nightly pass cannot charge historical days twice.
+         */
+        @Scheduled(initialDelay = 180_000, fixedDelay = 86_400_000)
+        @Transactional
+        public void catchUpImportedHistoricalPenaltiesAfterStartup() {
+                if (!lockService.tryAcquire("eod-accrual", Duration.ofHours(2))) {
+                        log.info("[Scheduler] Historical imported penalty startup pass deferred: EOD lock held");
+                        return;
+                }
+                try {
+                        LocalDate today = LocalDate.now();
+                        int posted = 0;
+                        for (Loan loan : loanRepo.findByStatusIn(List.of(LoanStatus.OVERDUE))) {
+                                if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
+                                        continue;
+                                }
+                                try {
+                                        if (accountingService.postImportedLoanHistoricalPenaltyOpeningCatchUp(
+                                                        loan, today) != null) {
+                                                posted++;
+                                        }
+                                } catch (Exception ex) {
+                                        log.error("[Scheduler] Historical penalty opening failed for loan {}: {}",
+                                                        loan.getId(), ex.getMessage(), ex);
+                                }
+                        }
+                        log.info("[Scheduler] Startup historical imported penalty catch-up complete: {} loan(s) posted",
+                                        posted);
+                } finally {
+                        lockService.release("eod-accrual");
+                }
+        }
+
+        /**
          * Daily overdue check.
          */
         @Scheduled(cron = "${app.scheduler.overdue-check-cron:0 0 7 * * *}")
