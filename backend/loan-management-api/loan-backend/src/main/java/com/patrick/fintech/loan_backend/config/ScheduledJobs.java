@@ -174,9 +174,13 @@ public class ScheduledJobs {
                                                                 && outstanding.compareTo(ZERO) > 0
                                                                 && Boolean.TRUE.equals(loan.getImported())
                                                                 && dueInstallments.isEmpty()) {
-                                                        // No reconstructed imported Payment rows: use
-                                                        // verified loan-level date, recognizing only
-                                                        // post-import days in current-period income.
+                                                        // Book pre-import overdue days as historical
+                                                        // opening receivables against migration equity;
+                                                        // post-import days remain current-period income.
+                                                        if (accountingService
+                                                                        .postImportedLoanHistoricalPenaltyOpeningCatchUp(
+                                                                                        loan, accrualDate) != null)
+                                                                posted++;
                                                         if (accountingService.postImportedLoanPostImportPenaltyAccrual(
                                                                         loan, accrualDate) != null)
                                                                 posted++;
