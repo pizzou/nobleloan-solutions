@@ -38,6 +38,7 @@ class ImportedLoanPenaltyAccrualTest {
         l.setCreatedAt(importedOn.atTime(10, 26));
         l.setNextDueDate(importedOn.minusDays(73));
         l.setOutstandingBalance(new BigDecimal("33500000.00"));
+        l.setTotalRepayable(new BigDecimal("33500000.00"));
         l.setPenaltyRate(FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE);
         l.setPenaltiesAssessed(BigDecimal.ZERO);
         return l;
@@ -126,7 +127,8 @@ class ImportedLoanPenaltyAccrualTest {
                 FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE, day -> new BigDecimal("33500000.00"));
         assertSame(entry, accounting.postImportedLoanHistoricalPenaltyOpeningCatchUp(loan, today));
         assertEquals(0, expected.compareTo(loan.getPenaltiesAssessedDecimal()));
-        assertEquals(0, expected.compareTo(loan.getTotalRepayableDecimal()));
+        assertEquals(0, new BigDecimal("33500000.00").add(expected)
+                .compareTo(loan.getTotalRepayableDecimal()));
         verify(accounting).postAtDate(any(), any(), eq("LEGACY_PENALTY_OPENING"),
                 anyString(), anyString(), anyString(), eq(today), argThat(lines -> lines.size() == 2
                         && lines.stream().anyMatch(line -> line.getDebit().compareTo(expected) == 0)
