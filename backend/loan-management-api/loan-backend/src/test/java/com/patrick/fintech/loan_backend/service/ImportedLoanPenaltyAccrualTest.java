@@ -109,6 +109,14 @@ class ImportedLoanPenaltyAccrualTest {
         when(journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
                 eq(1L), eq("LEGACY_PENALTY_OPENING"), eq("LOAN:54:HISTORICAL-PENALTY")))
                 .thenReturn(Optional.empty());
+        ChartOfAccount penaltyReceivable = new ChartOfAccount();
+        penaltyReceivable.setActive(true);
+        ChartOfAccount migrationEquity = new ChartOfAccount();
+        migrationEquity.setActive(true);
+        when(coaRepo.findByOrganization_IdAndCode(1L, "1175"))
+                .thenReturn(Optional.of(penaltyReceivable));
+        when(coaRepo.findByOrganization_IdAndCode(1L, "3010"))
+                .thenReturn(Optional.of(migrationEquity));
         JournalEntry entry = new JournalEntry();
         doReturn(entry).when(accounting).postAtDate(any(), any(), eq("LEGACY_PENALTY_OPENING"),
                 eq("LOAN:54:HISTORICAL-PENALTY"), anyString(), anyString(), eq(today), anyList());
