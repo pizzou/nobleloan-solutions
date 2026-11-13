@@ -2435,7 +2435,7 @@ public class AccountingService {
                                                                                 + loan.getReferenceNumber())
                                                                 .build()));
                 loan.setPenaltiesAssessed(money(loan.getPenaltiesAssessedDecimal().add(additionalHistorical)));
-                loan.setTotalRepayable(money(loan.getTotalRepayableDecimal().add(additionalHistorical)));
+                loan.setTotalRepayable(money(money(loan.getTotalRepayableDecimal()).add(additionalHistorical)));
                 return entry;
         }
 
