@@ -479,6 +479,12 @@ public class LegacyLoanImportRowService {
                                         row,
                                         "penalties_paid");
 
+                        // Historical penalty opening: separately supplied unpaid
+                        // penalties are not an amount paid or new-period income.
+                        BigDecimal penaltyOutstandingGiven = optMoney(
+                                        row,
+                                        "penalty_outstanding");
+
                         BigDecimal extensionFeeAssessedGiven = optMoney(
                                         row,
                                         "extension_fee_assessed");
@@ -513,6 +519,7 @@ public class LegacyLoanImportRowService {
                         validateOptionalMoney(applicationFeeOutstandingGiven, "application_fee_outstanding");
                         validateOptionalMoney(penaltiesAssessedGiven, "penalties_assessed");
                         validateOptionalMoney(penaltiesPaidGiven, "penalties_paid");
+                        validateOptionalMoney(penaltyOutstandingGiven, "penalty_outstanding");
                         validateOptionalMoney(extensionFeeAssessedGiven, "extension_fee_assessed");
                         validateOptionalMoney(extensionFeePaidGiven, "extension_fee_paid");
                         validateOptionalMoney(extensionFeeOutstandingGiven, "extension_fee_outstanding");
@@ -718,6 +725,27 @@ public class LegacyLoanImportRowService {
 
                         BigDecimal principalBalanceHistorical = money(
                                         amount.subtract(principalPaidHistorical).max(ZERO));
+
+                        // Resolve the historical penalty balance before computing
+                        // contractual totals, outstanding components, and the
+                        // immutable opening journal. A missing source field is
+                        // NOT evidence that an overdue borrower owed zero.
+                        // Historical values must be supported by the source
+                        // ledger; do not silently manufacture pre-import income.
+                        try {
+                                penaltiesAssessed = money(
+                                                LegacyPenaltyOpeningPolicy.resolveAssessed(
+                                                                penaltiesAssessedGiven,
+                                                                penaltiesPaidGiven,
+                                                                penaltyOutstandingGiven,
+                                                                status == LoanStatus.OVERDUE
+                                                                                || status == LoanStatus.DEFAULTED,
+                                                                nextDueDate,
+                                                                LocalDate.now(),
+                                                                principalBalanceHistorical));
+                        } catch (IllegalArgumentException penaltyError) {
+                                return fail(rowNumber, penaltyError.getMessage());
+                        }
 
                         if (principalBalanceGiven != null
                                         && principalBalanceGiven.subtract(principalBalanceHistorical).abs()
