@@ -807,6 +807,9 @@ public final class StreamingLedgerFileParser {
             case "application_fee", "application_fees", "applicationfee", "applicationfees" -> "application_fee";
             case "application_fee_paid", "applicationfee_paid" -> "application_fee_paid";
             case "application_fee_outstanding", "applicationfee_outstanding" -> "application_fee_outstanding";
+            case "penalty_outstanding", "penalties_outstanding", "unpaid_penalties", "penalty_balance", "outstanding_penalty" -> "penalty_outstanding";
+            case "penalty_assessed", "total_penalties_assessed", "penalty_charged", "penalties_charged" -> "penalties_assessed";
+            case "penalty_paid", "paid_penalties" -> "penalties_paid";
             default -> normalized;
         };
     }
