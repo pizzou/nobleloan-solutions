@@ -73,6 +73,46 @@
 }
 
 @layer components {
+  /* Shared finance workspace treatment: consistent contrast, focus and readable tables. */
+  .nls-finance-page > .grid > div,
+  .nls-finance-page > .bg-white {
+    border-color: var(--nl-border);
+    border-radius: 1rem;
+    box-shadow: 0 8px 28px rgba(11, 31, 58, 0.045);
+  }
+
+  .nls-finance-page table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .nls-finance-page thead th {
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 0.7rem;
+    font-weight: 750;
+    letter-spacing: 0.06em;
+  }
+
+  .nls-finance-page tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  .nls-finance-page select,
+  .nls-finance-page input:not([type="checkbox"]):not([type="radio"]),
+  .nls-finance-page textarea {
+    min-height: 2.5rem;
+    border-color: #cbd5e1;
+  }
+
+  .nls-finance-page select:focus-visible,
+  .nls-finance-page input:focus-visible,
+  .nls-finance-page textarea:focus-visible {
+    outline: 2px solid var(--nl-gold);
+    outline-offset: 1px;
+  }
+
   .nl-surface {
     background: var(--nl-surface);
     border: 1px solid var(--nl-border);

@@ -520,14 +520,14 @@ export default function AccountingPage() {
   ======================================================= */
 
   return (
-    <div className="space-y-6">
+    <div className="nls-finance-page space-y-6">
       {/* ===================================================
           PAGE HEADER
       =================================================== */}
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Accounting</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#0B1F3A]">Accounting</h1>
 
           <p className="text-gray-500 text-sm mt-1">
             General ledger, chart of accounts, cash management, and financial
