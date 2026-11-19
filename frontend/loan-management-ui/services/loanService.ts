@@ -44,11 +44,14 @@ export const approveLoan = (
   applicationFeeRate?: number,
   approvedAmount?: number,
   businessOwnerOnly?: boolean,
+  managementFeeRate?: number,
 ): Promise<Loan> =>
   post(`/loans/${id}/approval-chain/approve`, {
     interestRate: interestRate != null ? String(interestRate) : undefined,
     applicationFeeRate:
       applicationFeeRate != null ? String(applicationFeeRate) : undefined,
+    managementFeeRate:
+      managementFeeRate != null ? String(managementFeeRate) : undefined,
     approvedAmount: approvedAmount != null ? String(approvedAmount) : undefined,
     businessOwnerOnly,
     notes,

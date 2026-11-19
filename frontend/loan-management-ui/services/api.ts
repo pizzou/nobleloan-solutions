@@ -514,6 +514,7 @@ export const loanApi = {
     approvedAmount?: number,
     idempotencyKey?: string,
     businessOwnerOnly?: boolean,
+    managementFeeRate?: number,
   ) =>
     post(
       `/loans/${id}/approve`,
@@ -522,6 +523,8 @@ export const loanApi = {
         interestRate: interestRate != null ? String(interestRate) : undefined,
         applicationFeeRate:
           applicationFeeRate != null ? String(applicationFeeRate) : undefined,
+        managementFeeRate:
+          managementFeeRate != null ? String(managementFeeRate) : undefined,
         approvedAmount:
           approvedAmount != null ? String(approvedAmount) : undefined,
         businessOwnerOnly,
@@ -1000,7 +1003,8 @@ export const accountingApi = {
       `/accounting/balance-sheet${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`,
     ),
 
-  historicalPortfolioPerformance: () => get("/accounting/historical-portfolio-performance"),
+  historicalPortfolioPerformance: () =>
+    get("/accounting/historical-portfolio-performance"),
 
   profitAndLoss: (from?: string, to?: string) =>
     get(

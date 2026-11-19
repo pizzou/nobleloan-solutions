@@ -16,6 +16,7 @@ import DocumentsPanel from "../../../components/DocumentsPanel";
 type ApprovalDraft = {
   approvedAmount: string;
   interestRate: string;
+  managementFeeRate: string;
   applicationFeeRate: string;
   notes: string;
   businessOwnerOnly: boolean;
@@ -32,6 +33,7 @@ export default function ApprovalsPage() {
   const [draft, setDraft] = useState<ApprovalDraft>({
     approvedAmount: "",
     interestRate: "5",
+    managementFeeRate: "5",
     applicationFeeRate: "2",
     notes: "",
     businessOwnerOnly: false,
@@ -59,6 +61,8 @@ export default function ApprovalsPage() {
             ? String(loan.amount)
             : "",
       interestRate: loan.interestRate != null ? String(loan.interestRate) : "5",
+      managementFeeRate:
+        loan.managementFeeRate != null ? String(loan.managementFeeRate) : "5",
       applicationFeeRate:
         loan.applicationFeeRate != null ? String(loan.applicationFeeRate) : "2",
       notes: "",
@@ -76,6 +80,7 @@ export default function ApprovalsPage() {
 
     const approvedAmount = Number(draft.approvedAmount);
     const interestRate = Number(draft.interestRate);
+    const managementFeeRate = Number(draft.managementFeeRate);
     const applicationFeeRate = Number(draft.applicationFeeRate);
 
     const selectedLoan = loans.find((loan) => loan.id === approvalId);
@@ -122,6 +127,27 @@ export default function ApprovalsPage() {
       return;
     }
 
+    if (
+      !Number.isFinite(managementFeeRate) ||
+      managementFeeRate < 0 ||
+      managementFeeRate > 5
+    ) {
+      toast(
+        "error",
+        "Negotiated management fee must be between 0% and 5% monthly.",
+      );
+      return;
+    }
+
+    const negotiated = managementFeeRate < 5 || interestRate < 5;
+    if (negotiated && !draft.notes.trim()) {
+      toast(
+        "error",
+        "Please enter the reason for the negotiated interest or management fee.",
+      );
+      return;
+    }
+
     setBusy(approvalId);
 
     try {
@@ -132,6 +158,7 @@ export default function ApprovalsPage() {
         applicationFeeRate,
         approvedAmount,
         draft.businessOwnerOnly,
+        negotiated ? managementFeeRate : undefined,
       );
 
       setApprovalId(null);
@@ -391,22 +418,28 @@ export default function ApprovalsPage() {
                 <RateField
                   label="Interest rate"
                   suffix="% monthly"
-                  value="5"
-                  disabled
+                  value={draft.interestRate}
+                  onChange={(value) =>
+                    setDraft((d) => ({ ...d, interestRate: value }))
+                  }
                 />
 
                 <RateField
                   label="Management fee"
                   suffix="% monthly"
-                  value="5"
-                  disabled
+                  value={draft.managementFeeRate}
+                  onChange={(value) =>
+                    setDraft((d) => ({ ...d, managementFeeRate: value }))
+                  }
                 />
 
                 <RateField
                   label="Application fee"
                   suffix="% one-time"
-                  value="2"
-                  disabled
+                  value={draft.applicationFeeRate}
+                  onChange={(value) =>
+                    setDraft((d) => ({ ...d, applicationFeeRate: value }))
+                  }
                 />
               </div>
 
@@ -481,7 +514,7 @@ export default function ApprovalsPage() {
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, notes: e.target.value }))
                 }
-                placeholder="Optional approval notes..."
+                placeholder="Approval notes (required for negotiated rates)..."
                 rows={3}
                 className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400"
               />
