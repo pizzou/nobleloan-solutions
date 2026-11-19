@@ -2314,21 +2314,32 @@ export default function LoanDetailPage() {
                 "CREDIT_ANALYST",
                 "AUDITOR",
               ].includes(roleName) && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    router.push(
-                      `/dashboard/loans/${loan.id}/principal-amendments`,
-                    )
-                  }
-                  className="mt-3 inline-flex rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-900 hover:bg-blue-100"
-                >
-                  {isBusinessOwner
-                    ? "Review loan corrections"
-                    : roleName === "AUDITOR"
-                      ? "View loan correction history"
-                      : "Request loan correction"}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(`/dashboard/loans/${loan.id}/corrections`)
+                    }
+                    className="mt-3 inline-flex rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900 hover:bg-amber-100"
+                  >
+                    {isBusinessOwner
+                      ? "Request or review loan correction"
+                      : ["AUDITOR"].includes(roleName)
+                        ? "View correction history"
+                        : "Request loan correction"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(
+                        `/dashboard/loans/${loan.id}/principal-amendments`,
+                      )
+                    }
+                    className="mt-3 ml-2 inline-flex rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-900 hover:bg-blue-100"
+                  >
+                    Loan financial correction requests
+                  </button>
+                </>
               )}
               {isBusinessOwner && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
