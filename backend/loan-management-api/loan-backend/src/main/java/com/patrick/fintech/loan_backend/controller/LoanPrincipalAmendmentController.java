@@ -44,4 +44,11 @@ public class LoanPrincipalAmendmentController {
             @RequestBody LoanPrincipalAmendmentService.Decision decision) {
         return ResponseEntity.ok(service.decide(loanId, requestId, false, decision, currentUser.getCurrentUser()));
     }
+
+    @PostMapping("/{requestId}/apply")
+    @PreAuthorize("hasAnyRole('BUSINESS_OWNER','ACCOUNTANT')")
+    public ResponseEntity<LoanPrincipalAmendmentRequest> apply(
+            @PathVariable Long loanId, @PathVariable Long requestId) {
+        return ResponseEntity.ok(service.apply(loanId, requestId, currentUser.getCurrentUser()));
+    }
 }

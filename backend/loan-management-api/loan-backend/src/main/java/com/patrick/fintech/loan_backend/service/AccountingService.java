@@ -889,6 +889,101 @@ public class AccountingService {
         }
 
         /**
+         * Compensating entries for an independently approved loan amendment.
+         * The old journals are never rewritten. The caller supplies signed
+         * changes (positive = debit for receivables; negative = credit), and
+         * this method validates the balanced journal in the open period.
+         *
+         * Imported portfolio corrections are offset to migration equity,
+         * since pre-import cash/income must not be represented as new cash.
+         * Native loan corrections change receivables against actual principal
+         * disbursement, accrued income and refundable overpayment liabilities.
+         */
+        @Transactional
+        public JournalEntry postApprovedLoanAmendment(
+                        Loan loan, Long amendmentId,
+                        BigDecimal principalReceivableDelta,
+                        BigDecimal interestReceivableDelta,
+                        BigDecimal managementReceivableDelta,
+                        BigDecimal principalContractDelta,
+                        BigDecimal interestContractDelta,
+                        BigDecimal managementContractDelta,
+                        BigDecimal overpaymentLiabilityDelta) {
+                if (loan == null || loan.getId() == null || loan.getOrganization() == null
+                                || amendmentId == null || amendmentId <= 0) {
+                        throw new IllegalArgumentException("Valid loan and approved amendment ID are required");
+                }
+                Organization org = loan.getOrganization();
+                ensureChartOfAccounts(org);
+                // A contractual outstanding value is not necessarily an accrued
+                // GL receivable. Posting its entire delta when the old GL never
+                // recognized it would create negative receivables and premature
+                // income. Fail closed until the existing loan-specific GL agrees.
+                assertLoanReceivableEqualsGl(loan, "1100", loan.getOutstandingBalanceDecimal());
+                assertLoanReceivableEqualsGl(loan, "1150", loan.getInterestOutstandingDecimal());
+                assertLoanReceivableEqualsGl(loan, "1160", loan.getManagementFeeOutstandingDecimal());
+                List<JournalLine> lines = new ArrayList<>();
+                addSignedLine(lines, org, "1100", principalReceivableDelta,
+                                "Principal receivable amendment #" + amendmentId);
+                addSignedLine(lines, org, "1150", interestReceivableDelta,
+                                "Interest receivable amendment #" + amendmentId);
+                addSignedLine(lines, org, "1160", managementReceivableDelta,
+                                "Management receivable amendment #" + amendmentId);
+
+                BigDecimal receivableChange = money(principalReceivableDelta)
+                                .add(money(interestReceivableDelta))
+                                .add(money(managementReceivableDelta));
+                if (Boolean.TRUE.equals(loan.getImported())) {
+                        addSignedLine(lines, org, "3010", receivableChange.negate(),
+                                        "Historical migration equity offset for amendment #" + amendmentId);
+                } else {
+                        addSignedLine(lines, org, "1000", money(principalContractDelta).negate(),
+                                        "Verified disbursement recording adjustment #" + amendmentId);
+                        addSignedLine(lines, org, "4000", money(interestContractDelta).negate(),
+                                        "Contractual interest adjustment #" + amendmentId);
+                        addSignedLine(lines, org, "4100", money(managementContractDelta).negate(),
+                                        "Contractual management fee adjustment #" + amendmentId);
+                        addSignedLine(lines, org, "2100", money(overpaymentLiabilityDelta).negate(),
+                                        "Refundable overpayment reallocation #" + amendmentId);
+                }
+                if (lines.isEmpty()) return null;
+                return postAtDate(org, loan.getBranch(), "LOAN_AMENDMENT_RECONCILIATION",
+                                "LOAN:" + loan.getId() + ":AMENDMENT:" + amendmentId,
+                                loan.getReferenceNumber(), "Owner-approved loan amendment #" + amendmentId,
+                                LocalDate.now(), lines);
+        }
+
+        private void addSignedLine(List<JournalLine> lines, Organization org,
+                                   String code, BigDecimal signedDebit, String description) {
+                BigDecimal value = money(signedDebit);
+                if (value.signum() == 0) return;
+                lines.add(JournalLine.builder().account(account(org, code))
+                                .debit(value.signum() > 0 ? value : ZERO)
+                                .credit(value.signum() < 0 ? value.negate() : ZERO)
+                                .description(description).build());
+        }
+
+        private void assertLoanReceivableEqualsGl(Loan loan, String accountCode, BigDecimal expected) {
+                Organization org = loan.getOrganization();
+                ChartOfAccount receivable = account(org, accountCode);
+                BigDecimal actual = ZERO;
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoanIdentity(
+                                receivable.getId(), org.getId(), loan.getId(), loan.getReferenceNumber());
+                if (lines != null) {
+                        for (JournalLine line : lines) {
+                                actual = actual.add(money(line.getDebitDecimal()))
+                                                .subtract(money(line.getCreditDecimal()));
+                        }
+                }
+                if (actual.subtract(money(expected)).abs().compareTo(TOLERANCE) > 0) {
+                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
+                                        + " cannot be automatically amended: GL " + accountCode
+                                        + " balance " + money(actual) + " differs from loan receivable "
+                                        + money(expected) + ". Historical accrual or payment reconciliation is required.");
+                }
+        }
+
+        /**
          * Resolves the visibility classification of an accounting event from
          * its originating loan. All loan-generated journal entries therefore
          * carry the same reporting boundary without requiring every posting
@@ -917,6 +1012,7 @@ public class AccountingService {
                                 "LEGACY_PENALTY_OPENING",
                                 "LEGACY_LOAN_RECONCILIATION",
                                 "LEGACY_IMPORT_DATA_CORRECTION",
+                                "LOAN_AMENDMENT_RECONCILIATION",
                                 "WRITE_OFF");
 
                 java.util.Set<String> paymentTypes = java.util.Set.of(

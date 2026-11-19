@@ -119,7 +119,7 @@ export default function PrincipalAmendmentsPage() {
       });
       setReview("");
       setMessage(approved
-        ? "Approved for financial reconciliation. No loan balance or cash was changed."
+        ? "Correction approved and financially applied. Loan balances, remaining schedules and adjustment journals have been reconciled."
         : "Correction rejected and recorded in the audit trail.");
       await refresh();
     } catch (err) {

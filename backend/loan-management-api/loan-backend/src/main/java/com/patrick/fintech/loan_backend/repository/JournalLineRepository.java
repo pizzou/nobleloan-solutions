@@ -250,6 +250,8 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
                                 'LEGACY_LOAN_OPENING',
                                 'LEGACY_LOAN_RECONCILIATION',
                                 'LEGACY_LOAN_OPENING_DATE_REPAIR',
+                                'LEGACY_IMPORT_DATA_CORRECTION',
+                                'LOAN_AMENDMENT_RECONCILIATION',
                                 'PAYMENT_RECEIVED'
                           )
                           AND (
