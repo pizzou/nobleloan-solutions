@@ -916,23 +916,27 @@ public class LoanService {
                 if (newManagementFeeRate != null) {
                         String role = approvedBy != null && approvedBy.getRole() != null
                                         && approvedBy.getRole().getName() != null
-                                        ? approvedBy.getRole().getName().replaceFirst("^ROLE_", "")
-                                                        .toUpperCase(Locale.ROOT)
-                                        : "";
+                                                        ? approvedBy.getRole().getName().replaceFirst("^ROLE_", "")
+                                                                        .toUpperCase(Locale.ROOT)
+                                                        : "";
                         if (!"ADMIN".equals(role) && !"MANAGER".equals(role)
                                         && !"BUSINESS_OWNER".equals(role)) {
-                                throw new SecurityException("Only ADMIN, MANAGER or BUSINESS_OWNER may negotiate the management fee.");
+                                throw new SecurityException(
+                                                "Only ADMIN, MANAGER or BUSINESS_OWNER may negotiate the management fee.");
                         }
                         if (notes == null || notes.isBlank()) {
-                                throw new IllegalArgumentException("A written negotiation reason is required to reduce the management fee.");
+                                throw new IllegalArgumentException(
+                                                "A written negotiation reason is required to reduce the management fee.");
                         }
                         if (!Double.isFinite(newManagementFeeRate) || newManagementFeeRate < 0
                                         || newManagementFeeRate > 5) {
-                                throw new IllegalArgumentException("Negotiated management fee must be between 0% and 5% monthly.");
+                                throw new IllegalArgumentException(
+                                                "Negotiated management fee must be between 0% and 5% monthly.");
                         }
                         if (newInterestRate != null && (!Double.isFinite(newInterestRate)
                                         || newInterestRate < 0 || newInterestRate > 5)) {
-                                throw new IllegalArgumentException("Negotiated interest must be between 0% and 5% monthly.");
+                                throw new IllegalArgumentException(
+                                                "Negotiated interest must be between 0% and 5% monthly.");
                         }
                 }
 
@@ -1019,7 +1023,8 @@ public class LoanService {
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : ZERO;
                 BigDecimal managementFeeRate = newManagementFeeRate != null
-                                ? moneyValue(bd(newManagementFeeRate)) : MONTHLY_MANAGEMENT_FEE_RATE;
+                                ? moneyValue(bd(newManagementFeeRate))
+                                : MONTHLY_MANAGEMENT_FEE_RATE;
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null
                                 ? moneyValue(loan.getApplicationFeeRateDecimal())
                                 : ZERO;
@@ -1594,7 +1599,8 @@ public class LoanService {
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : MONTHLY_INTEREST_RATE;
                 BigDecimal managementFeeRate = loan.getManagementFeeRateDecimal() != null
-                                ? moneyValue(loan.getManagementFeeRateDecimal()) : MONTHLY_MANAGEMENT_FEE_RATE;
+                                ? moneyValue(loan.getManagementFeeRateDecimal())
+                                : MONTHLY_MANAGEMENT_FEE_RATE;
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null
                                 ? moneyValue(loan.getApplicationFeeRateDecimal())
                                 : APPLICATION_FEE_RATE;
@@ -3001,7 +3007,8 @@ public class LoanService {
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : MONTHLY_INTEREST_RATE;
                 BigDecimal managementRate = loan.getManagementFeeRateDecimal() != null
-                                ? moneyValue(loan.getManagementFeeRateDecimal()) : MONTHLY_MANAGEMENT_FEE_RATE;
+                                ? moneyValue(loan.getManagementFeeRateDecimal())
+                                : MONTHLY_MANAGEMENT_FEE_RATE;
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementRate);

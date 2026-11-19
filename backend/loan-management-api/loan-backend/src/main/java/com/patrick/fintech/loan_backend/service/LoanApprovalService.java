@@ -487,7 +487,8 @@ public class LoanApprovalService {
                                         comments != null && !comments.isBlank()
                                                         ? comments
                                                         : "Approved by same Admin under single-operator policy",
-                                        newInterestRate, newApplicationFeeRate, newApprovedAmount, newManagementFeeRate);
+                                        newInterestRate, newApplicationFeeRate, newApprovedAmount,
+                                        newManagementFeeRate);
                         return selfStep;
                 }
 
