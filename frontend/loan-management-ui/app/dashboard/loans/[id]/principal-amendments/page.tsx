@@ -47,6 +47,7 @@ export default function PrincipalAmendmentsPage() {
   const [review, setReview] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [loadError, setLoadError] = useState("");
 
   const refresh = useCallback(async () => {
     if (!Number.isInteger(loanId) || loanId <= 0) return;
@@ -59,7 +60,7 @@ export default function PrincipalAmendmentsPage() {
   }, [loanId]);
 
   useEffect(() => {
-    refresh().catch((err) => setMessage(err instanceof Error ? err.message : "Could not load amendments"));
+    refresh().catch((err) => setLoadError(err instanceof Error ? err.message : "Could not load amendments"));
   }, [refresh]);
 
   async function submit() {
@@ -119,7 +120,7 @@ export default function PrincipalAmendmentsPage() {
       });
       setReview("");
       setMessage(approved
-        ? "Correction approved and financially applied. Loan balances, remaining schedules and adjustment journals have been reconciled."
+        ? "Correction approved. Check the request status: APPLIED means the loan, schedules and accounting were updated; APPROVED FOR RECONCILIATION means application is still pending."
         : "Correction rejected and recorded in the audit trail.");
       await refresh();
     } catch (err) {
@@ -132,10 +133,13 @@ export default function PrincipalAmendmentsPage() {
       <Link className="text-sm text-blue-700 hover:underline" href={`/dashboard/loans/${loanId}`}>← Back to loan</Link>
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Loan correction requests</h1>
-        <p className="mt-2 text-sm text-slate-600">Imported and system-created loans use the same independent review process.</p>
+        <p className="mt-2 text-sm text-slate-600">For principal, disbursement-date and negotiated-rate changes on imported or system-created loans. Requesting a change does not change balances.</p>
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Business Owner approval and successful financial application are separate facts. Partially paid schedules, historical penalty restatements and additional cash disbursements may be blocked to protect the ledger. A blocked request must not be represented as an applied correction.</p>
         {loan && <p className="mt-2 font-medium">{loan.referenceNumber} · Current principal: {money(Number(loan.amount))}</p>}
       </div>
+      {loadError && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">{loadError}</div>}
       {message && <div role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{message}</div>}
+      {!canRequest && <p className="rounded-lg bg-slate-100 p-3 text-sm text-slate-700">Your role can review existing correction requests here, but only Admin, Manager, Loan Officer or Accountant can submit a new financial correction.</p>}
       {canRequest && loan && (
         <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-lg font-semibold">Request a loan correction</h2>

@@ -253,6 +253,19 @@ export default function LegacyCorrectionPage() {
           Date-only corrections involving later payments, schedules or financial activity require specialist reconciliation and are blocked from automatic application. The requester and approver must be different users.
         </p>
       </header>
+      <section className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+        <h2 className="text-lg font-bold text-blue-950">Principal, disbursement date or negotiated rates</h2>
+        <p className="mt-2 text-sm text-blue-900">
+          Use the financial amendment workflow for a correction to principal, the actual disbursement date,
+          or an agreed interest or management rate. It requires an independent Business Owner review.
+          Changes that would rewrite partially paid installments or require a new cash disbursement
+          are safely blocked until the matching payment and cash reconciliation is available.
+        </p>
+        <Link href={`/dashboard/loans/${loanId}/principal-amendments`}
+          className="mt-3 inline-flex rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+          Open financial correction requests
+        </Link>
+      </section>
       {error && (
         <div
           role="alert"

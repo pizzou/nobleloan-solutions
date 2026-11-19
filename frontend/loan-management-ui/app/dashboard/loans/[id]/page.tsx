@@ -2329,13 +2329,6 @@ export default function LoanDetailPage() {
                         ? "View correction history"
                         : "Request loan correction"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/dashboard/loans/${loan.id}/principal-amendments`)}
-                    className="mt-3 ml-2 inline-flex rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-900 hover:bg-blue-100"
-                  >
-                    Loan financial correction requests
-                  </button>
                   </>
                 )}
               {isBusinessOwner && (
