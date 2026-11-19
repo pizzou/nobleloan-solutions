@@ -696,6 +696,11 @@ export const markAllNotificationsRead = async (): Promise<unknown> => {
 
 export const markAllNotificationsAsRead = markAllNotificationsRead;
 
+/** Persistently hide the authenticated user's notifications. */
+export const dismissAllNotifications = async (): Promise<unknown> => {
+  return post("/notifications/dismiss-all");
+};
+
 /**
  * ============================================================
  * NORMALIZE REALTIME PAYMENT NOTIFICATION

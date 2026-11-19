@@ -9,6 +9,7 @@ import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,13 +27,13 @@ public class NotificationController {
     @GetMapping
     public ResponseEntity<ApiResponse<Object>> getMine() {
         User user = currentUserUtil.getCurrentUser();
-        return ResponseEntity.ok(ApiResponse.safe(notificationRepo.findTop20ByUserOrderByCreatedAtDesc(user)));
+        return ResponseEntity.ok(ApiResponse.safe(notificationRepo.findTop20ByUserAndDismissedAtIsNullOrderByCreatedAtDesc(user)));
     }
 
     @GetMapping("/unread-count")
     public ResponseEntity<ApiResponse<Map<String, Long>>> unreadCount() {
         User user = currentUserUtil.getCurrentUser();
-        return ResponseEntity.ok(ApiResponse.safe(Map.of("count", notificationRepo.countByUserAndReadFalse(user))));
+        return ResponseEntity.ok(ApiResponse.safe(Map.of("count", notificationRepo.countByUserAndReadFalseAndDismissedAtIsNull(user))));
     }
 
     @PostMapping("/{id}/read")
@@ -50,7 +51,7 @@ public class NotificationController {
     @PostMapping("/read-all")
     public ResponseEntity<ApiResponse<String>> markAllRead() {
         User user = currentUserUtil.getCurrentUser();
-        List<Notification> unread = notificationRepo.findByUserAndReadFalseOrderByCreatedAtDesc(user);
+        List<Notification> unread = notificationRepo.findByUserAndReadFalseAndDismissedAtIsNullOrderByCreatedAtDesc(user);
         LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
         unread.forEach(n -> {
             n.setRead(true);
@@ -58,5 +59,13 @@ public class NotificationController {
         });
         notificationRepo.saveAll(unread);
         return ResponseEntity.ok(ApiResponse.safe(unread.size() + " notification(s) marked as read"));
+    }
+
+    @PostMapping("/dismiss-all")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Integer>>> dismissAll() {
+        User user = currentUserUtil.getCurrentUser();
+        int count = notificationRepo.dismissVisibleForUser(user, LocalDateTime.now(java.time.ZoneOffset.UTC));
+        return ResponseEntity.ok(ApiResponse.safe(Map.of("dismissed", count)));
     }
 }

@@ -270,8 +270,11 @@ public class DashboardService {
                                 continue;
                         }
 
-                        if (!Boolean.TRUE.equals(
-                                        payment.getPaid())) {
+                        // paid is the INSTALLMENT completion flag, not proof of a
+                        // cash receipt. A partially paid installment can carry a
+                        // material amount_paid and must count in cash collections.
+                        if (payment.getPaidDate() == null
+                                        || money(payment.getAmountPaidDecimal()).compareTo(ZERO) <= 0) {
                                 continue;
                         }
 
@@ -367,10 +370,19 @@ public class DashboardService {
 
                 collectedThisMonth = money(collectedThisMonth.add(applicationFeesCollectedThisMonth));
 
-                totalCollected = money(
-                                totalCollected
-                                                .add(currentApplicationFeesCollected)
-                                                .add(legacyHistoricalCollected));
+                // Lifetime collections must come from the loan aggregate, not
+                // both payment rows and legacy paid components. Imported loans'
+                // principal/fee paid fields are updated by subsequent payments;
+                // adding them to payment rows counts the same cash twice.
+                totalCollected = ZERO;
+                for (Loan loan : loans) {
+                        if (loan == null || loan.getStatus() == LoanStatus.CANCELLED) {
+                                continue;
+                        }
+                        totalCollected = money(totalCollected
+                                        .add(money(loan.getTotalPaidDecimal()))
+                                        .add(money(loan.getApplicationFeePaidDecimal())));
+                }
 
                 // Legacy principal/interest/management/extension/penalty totals are
                 // cumulative and have no reliable payment date, so they are not

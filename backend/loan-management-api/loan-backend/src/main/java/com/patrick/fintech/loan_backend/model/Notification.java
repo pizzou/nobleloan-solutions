@@ -48,6 +48,10 @@ public class Notification {
     @JsonSerialize(using = UtcLocalDateTimeSerializer.class)
     private LocalDateTime readAt;
 
+    /** Preserved for audit, but hidden from the recipient's inbox. */
+    @JsonIgnore
+    private LocalDateTime dismissedAt;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null)
