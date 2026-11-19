@@ -340,6 +340,21 @@ public class LoanApprovalService {
                         Double newApplicationFeeRate,
                         BigDecimal newApprovedAmount,
                         Boolean businessOwnerOnly) {
+                return decide(loanId, decider, decision, comments, newInterestRate,
+                                newApplicationFeeRate, newApprovedAmount, businessOwnerOnly, null);
+        }
+
+        @Transactional
+        public LoanApproval decide(
+                        Long loanId,
+                        User decider,
+                        String decision,
+                        String comments,
+                        Double newInterestRate,
+                        Double newApplicationFeeRate,
+                        BigDecimal newApprovedAmount,
+                        Boolean businessOwnerOnly,
+                        Double newManagementFeeRate) {
 
                 if (decider == null) {
                         throw new IllegalArgumentException(
@@ -468,11 +483,11 @@ public class LoanApprovalService {
                                         "LOAN_SINGLE_ADMIN_SELF_APPROVAL_EXCEPTION", "LOAN", loanId.toString(),
                                         "ADMIN " + decider.getId()
                                                         + " created and explicitly approved this loan under the temporary single-operator policy");
-                        loanService.approveLoan(loanId, decider,
+                        approveWithNegotiatedRates(loanId, decider,
                                         comments != null && !comments.isBlank()
                                                         ? comments
                                                         : "Approved by same Admin under single-operator policy",
-                                        newInterestRate, newApplicationFeeRate, newApprovedAmount);
+                                        newInterestRate, newApplicationFeeRate, newApprovedAmount, newManagementFeeRate);
                         return selfStep;
                 }
 
@@ -542,7 +557,7 @@ public class LoanApprovalService {
 
                         if (decisionRecord != null) {
                                 applyBusinessOwnerVisibility(loan, businessOwnerOnly);
-                                loanService.approveLoan(
+                                approveWithNegotiatedRates(
                                                 loanId,
                                                 decider,
                                                 comments != null && !comments.isBlank()
@@ -550,7 +565,7 @@ public class LoanApprovalService {
                                                                 : "Finalized from existing website approval.",
                                                 newInterestRate,
                                                 newApplicationFeeRate,
-                                                newApprovedAmount);
+                                                newApprovedAmount, newManagementFeeRate);
                                 return decisionRecord;
                         }
 
@@ -596,7 +611,7 @@ public class LoanApprovalService {
                                                                         : ""));
 
                         applyBusinessOwnerVisibility(loan, businessOwnerOnly);
-                        loanService.approveLoan(
+                        approveWithNegotiatedRates(
                                         loanId,
                                         decider,
                                         comments != null && !comments.isBlank()
@@ -604,7 +619,7 @@ public class LoanApprovalService {
                                                         : "Approved by " + publicRole + " for website-submitted loan.",
                                         newInterestRate,
                                         newApplicationFeeRate,
-                                        newApprovedAmount);
+                                        newApprovedAmount, newManagementFeeRate);
 
                         return decisionRecord;
                 }
@@ -766,16 +781,30 @@ public class LoanApprovalService {
                                         + "-step maker-checker chain";
 
                         applyBusinessOwnerVisibility(loan, businessOwnerOnly);
-                        loanService.approveLoan(
+                        approveWithNegotiatedRates(
                                         loanId,
                                         decider,
-                                        approvalMessage,
+                                        newManagementFeeRate != null && comments != null && !comments.isBlank()
+                                                        ? approvalMessage + ": " + comments.trim()
+                                                        : approvalMessage,
                                         newInterestRate,
                                         newApplicationFeeRate,
-                                        newApprovedAmount);
+                                        newApprovedAmount, newManagementFeeRate);
                 }
 
                 return step;
+        }
+
+        private void approveWithNegotiatedRates(Long loanId, User decider, String comments,
+                        Double interestRate, Double applicationFeeRate, BigDecimal approvedAmount,
+                        Double managementFeeRate) {
+                if (managementFeeRate == null) {
+                        loanService.approveLoan(loanId, decider, comments, interestRate,
+                                        applicationFeeRate, approvedAmount);
+                } else {
+                        loanService.approveLoan(loanId, decider, comments, interestRate,
+                                        applicationFeeRate, approvedAmount, managementFeeRate);
+                }
         }
 
         private void applyBusinessOwnerVisibility(

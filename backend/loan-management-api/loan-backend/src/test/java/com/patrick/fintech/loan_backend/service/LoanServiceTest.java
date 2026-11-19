@@ -298,6 +298,48 @@ class LoanServiceTest {
                                 .isEqualByComparingTo("175000.00");
         }
 
+        @Test
+        void approveLoan_shouldSaveNegotiatedTwoPointFivePercentRatesForAuthorizedManager() {
+                Role managerRole = new Role();
+                managerRole.setName("MANAGER");
+                officer.setRole(managerRole);
+
+                Loan loan = new Loan();
+                loan.setId(200L);
+                loan.setReferenceNumber("NLS-TEST-200");
+                loan.setStatus(LoanStatus.PENDING);
+                loan.setAmount(new BigDecimal("1000000.00"));
+                loan.setRequestedAmount(new BigDecimal("1000000.00"));
+                loan.setInterestRate(new BigDecimal("5.00"));
+                loan.setManagementFeeRate(new BigDecimal("5.00"));
+                loan.setApplicationFeeRate(new BigDecimal("2.00"));
+                loan.setInterestRateType("MONTHLY");
+                loan.setDurationMonths(1);
+                loan.setStartDate(LocalDate.of(2026, 11, 19));
+                loan.setBorrower(borrower);
+                loan.setOrganization(org);
+                loan.setCurrency("RWF");
+
+                when(loanRepository.findVisibleByIdForUpdate(200L, 1L, true))
+                                .thenReturn(Optional.of(loan));
+                when(fileService.getMissingDocumentTypes(any(Long.class), any()))
+                                .thenReturn(List.of());
+                when(loanRepository.save(any(Loan.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+                when(paymentRepository.findByLoanId(200L)).thenReturn(List.of());
+                lenient().when(holidayService.adjustToBusinessDay(anyLong(), any(LocalDate.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(1));
+
+                Loan approved = loanService.approveLoan(200L, officer,
+                                "Borrower agreed to 5% total for the period",
+                                2.5, null, null, 2.5);
+
+                assertThat(approved.getInterestRateDecimal()).isEqualByComparingTo("2.50");
+                assertThat(approved.getManagementFeeRateDecimal()).isEqualByComparingTo("2.50");
+                assertThat(approved.getTotalInterestDecimal()).isEqualByComparingTo("25000.00");
+                assertThat(approved.getManagementFeeDecimal()).isEqualByComparingTo("25000.00");
+        }
+
         // ============================================================
         // BORROWER NOT FOUND
         // ============================================================

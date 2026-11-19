@@ -477,6 +477,8 @@ public class LoanController {
 
                 Double newInterestRate = parseDouble(body, "interestRate",
                                 "interestRate must be a valid number.");
+                Double newManagementFeeRate = parseDouble(body, "managementFeeRate",
+                                "managementFeeRate must be a valid number.");
                 Double applicationFeeRate = parseDouble(body, "applicationFeeRate",
                                 "applicationFeeRate must be a valid number.");
                 java.math.BigDecimal approvedAmount = parseMoney(body, "approvedAmount", "amount",
@@ -491,7 +493,8 @@ public class LoanController {
                                 newInterestRate,
                                 applicationFeeRate,
                                 approvedAmount,
-                                businessOwnerOnly);
+                                businessOwnerOnly,
+                                newManagementFeeRate);
 
                 /*
                  * A BUSINESS_OWNER_ONLY loan becomes hidden from NORMAL_SCOPE

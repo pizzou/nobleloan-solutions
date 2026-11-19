@@ -865,7 +865,7 @@ public class LoanService {
          * Final approval with a contractual pricing snapshot.
          *
          * Interest may be overridden by an authorized approver.
-         * Management fee is always 5% monthly.
+         * Management fee defaults to 5% monthly but may be negotiated down.
          * Application fee may only be overridden by MANAGER or ADMIN.
          */
         @Transactional
@@ -899,6 +899,42 @@ public class LoanService {
                         Double newInterestRate,
                         Double newApplicationFeeRate,
                         BigDecimal newApprovedAmount) {
+                return approveLoan(loanId, approvedBy, notes, newInterestRate,
+                                newApplicationFeeRate, newApprovedAmount, null);
+        }
+
+        @Transactional
+        public Loan approveLoan(
+                        Long loanId,
+                        User approvedBy,
+                        String notes,
+                        Double newInterestRate,
+                        Double newApplicationFeeRate,
+                        BigDecimal newApprovedAmount,
+                        Double newManagementFeeRate) {
+
+                if (newManagementFeeRate != null) {
+                        String role = approvedBy != null && approvedBy.getRole() != null
+                                        && approvedBy.getRole().getName() != null
+                                        ? approvedBy.getRole().getName().replaceFirst("^ROLE_", "")
+                                                        .toUpperCase(Locale.ROOT)
+                                        : "";
+                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role)
+                                        && !"BUSINESS_OWNER".equals(role)) {
+                                throw new SecurityException("Only ADMIN, MANAGER or BUSINESS_OWNER may negotiate the management fee.");
+                        }
+                        if (notes == null || notes.isBlank()) {
+                                throw new IllegalArgumentException("A written negotiation reason is required to reduce the management fee.");
+                        }
+                        if (!Double.isFinite(newManagementFeeRate) || newManagementFeeRate < 0
+                                        || newManagementFeeRate > 5) {
+                                throw new IllegalArgumentException("Negotiated management fee must be between 0% and 5% monthly.");
+                        }
+                        if (newInterestRate != null && (!Double.isFinite(newInterestRate)
+                                        || newInterestRate < 0 || newInterestRate > 5)) {
+                                throw new IllegalArgumentException("Negotiated interest must be between 0% and 5% monthly.");
+                        }
+                }
 
                 if (approvedBy == null
                                 || approvedBy.getOrganization() == null
@@ -982,7 +1018,8 @@ public class LoanService {
                 BigDecimal interestRate = loan.getInterestRateDecimal() != null
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : ZERO;
-                BigDecimal managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal managementFeeRate = newManagementFeeRate != null
+                                ? moneyValue(bd(newManagementFeeRate)) : MONTHLY_MANAGEMENT_FEE_RATE;
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null
                                 ? moneyValue(loan.getApplicationFeeRateDecimal())
                                 : ZERO;
@@ -1008,7 +1045,7 @@ public class LoanService {
                 }
 
                 // Explicit approval values are the final negotiated contractual
-                // terms. Management fee is never negotiable and is forced to 5%.
+                // terms. Management fee can be reduced by an authorized approver.
                 if (newInterestRate != null) {
                         interestRate = moneyValue(bd(newInterestRate));
                 }
@@ -1552,11 +1589,12 @@ public class LoanService {
 
                 // Disbursement is the final contractual snapshot. Preserve
                 // the negotiated interest/application fee stored on the loan,
-                // while management fee remains a fixed 5% monthly policy.
+                // including any negotiated management fee approved for this loan.
                 BigDecimal interestRate = loan.getInterestRateDecimal() != null
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : MONTHLY_INTEREST_RATE;
-                BigDecimal managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal managementFeeRate = loan.getManagementFeeRateDecimal() != null
+                                ? moneyValue(loan.getManagementFeeRateDecimal()) : MONTHLY_MANAGEMENT_FEE_RATE;
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null
                                 ? moneyValue(loan.getApplicationFeeRateDecimal())
                                 : APPLICATION_FEE_RATE;
@@ -2962,7 +3000,8 @@ public class LoanService {
                 BigDecimal interestRate = loan.getInterestRateDecimal() != null
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : MONTHLY_INTEREST_RATE;
-                BigDecimal managementRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal managementRate = loan.getManagementFeeRateDecimal() != null
+                                ? moneyValue(loan.getManagementFeeRateDecimal()) : MONTHLY_MANAGEMENT_FEE_RATE;
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementRate);
