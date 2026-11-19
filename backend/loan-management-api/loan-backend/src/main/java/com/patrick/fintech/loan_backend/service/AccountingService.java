@@ -896,8 +896,9 @@ public class AccountingService {
          *
          * Imported portfolio corrections are offset to migration equity,
          * since pre-import cash/income must not be represented as new cash.
-         * Native loan corrections change receivables against actual principal
-         * disbursement, accrued income and refundable overpayment liabilities.
+         * Native loan recording corrections change principal receivables
+         * against a historical-recording adjustment, never against today's
+         * cash. Actual incremental funding belongs to the disbursement flow.
          */
         @Transactional
         public JournalEntry postApprovedLoanAmendment(
@@ -937,8 +938,8 @@ public class AccountingService {
                         addSignedLine(lines, org, "3010", receivableChange.negate(),
                                         "Historical migration equity offset for amendment #" + amendmentId);
                 } else {
-                        addSignedLine(lines, org, "1000", money(principalContractDelta).negate(),
-                                        "Verified disbursement recording adjustment #" + amendmentId);
+                        addSignedLine(lines, org, "3010", money(principalContractDelta).negate(),
+                                        "Noncash historical principal recording adjustment #" + amendmentId);
                         addSignedLine(lines, org, "4000", money(interestContractDelta).negate(),
                                         "Contractual interest adjustment #" + amendmentId);
                         addSignedLine(lines, org, "4100", money(managementContractDelta).negate(),

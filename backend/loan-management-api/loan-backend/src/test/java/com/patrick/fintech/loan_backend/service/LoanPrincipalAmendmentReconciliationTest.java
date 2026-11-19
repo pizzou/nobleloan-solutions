@@ -120,4 +120,18 @@ class LoanPrincipalAmendmentReconciliationTest {
         assertThrows(IllegalStateException.class, () -> service.apply(17L, 51L, owner));
         verifyNoInteractions(accounting);
     }
+
+    @Test
+    void additionalDisbursementCannotBeMisclassifiedAsHistoricalNoncashCorrection() {
+        var item = approved(n("5.00"), n("5.00"));
+        item.setCorrectionType(LoanPrincipalAmendmentRequest.CorrectionType.ADDITIONAL_DISBURSEMENT);
+        item.setCorrectedPrincipal(n("1500000.00"));
+        when(requests.lock(1L, 17L, 51L)).thenReturn(Optional.of(item));
+
+        var error = assertThrows(IllegalStateException.class,
+                () -> service.apply(17L, 51L, owner));
+        assertTrue(error.getMessage().contains("cash-controlled disbursement"));
+        verifyNoInteractions(accounting);
+        verify(loans, never()).saveAndFlush(any());
+    }
 }

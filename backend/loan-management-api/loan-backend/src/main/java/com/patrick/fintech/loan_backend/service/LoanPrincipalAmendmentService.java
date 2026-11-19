@@ -203,6 +203,8 @@ public class LoanPrincipalAmendmentService {
                 || item.getOldManagementFeeRate().compareTo(item.getCorrectedManagementFeeRate()) != 0;
         if (changesFinancialTerms && loan.getDisbursedAt() == null)
             throw new IllegalStateException("Undisbursed loans must use the existing approval amendment workflow");
+        if (item.getCorrectionType() == LoanPrincipalAmendmentRequest.CorrectionType.ADDITIONAL_DISBURSEMENT)
+            throw new IllegalStateException("Additional disbursements require the cash-controlled disbursement workflow; a correction approval cannot create a cash transaction");
         if (!Objects.equals(item.getOldDisbursementDate(), item.getCorrectedDisbursementDate())
                 && money(loan.getPenaltiesAssessedDecimal()).signum() > 0)
             throw new IllegalStateException("Disbursement date correction requires a separate historical penalty restatement");
