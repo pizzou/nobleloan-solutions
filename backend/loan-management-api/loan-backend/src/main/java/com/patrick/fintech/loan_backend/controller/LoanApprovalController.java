@@ -66,6 +66,10 @@ public class LoanApprovalController {
 
         Double newInterestRate = parseInterestRate(body);
 
+        Double newManagementFeeRate = parsePercentage(
+                firstPresent(body, "managementFeeRate", "newManagementFeeRate"),
+                "managementFeeRate");
+
         Double newApplicationFeeRate = parseApplicationFeeRate(body);
 
         BigDecimal approvedAmount = parseApprovedAmount(body);
@@ -81,7 +85,8 @@ public class LoanApprovalController {
                         newInterestRate,
                         newApplicationFeeRate,
                         approvedAmount,
-                        businessOwnerOnly));
+                        businessOwnerOnly,
+                        newManagementFeeRate));
     }
 
     @PostMapping("/reject")
