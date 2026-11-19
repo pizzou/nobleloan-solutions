@@ -298,6 +298,9 @@ public class LoanPrincipalAmendmentService {
     private void reconcileFutureSchedules(Loan loan,
             LoanAmendmentAllocationCalculator.Allocation allocation, LocalDate correctedDate) {
         var operational = payments.findByLoanId(loan.getId());
+        if (operational.stream().anyMatch(p -> money(p.getAmountPaidDecimal()).signum() > 0
+                && !Boolean.TRUE.equals(p.getPaid())))
+            throw new IllegalStateException("Partially paid installments require payment-by-payment reconciliation before automatic repricing");
         var unpaid = operational.stream()
                 .filter(p -> !Boolean.TRUE.equals(p.getPaid())
                         && money(p.getAmountPaidDecimal()).signum() == 0)
@@ -305,6 +308,9 @@ public class LoanPrincipalAmendmentService {
                         java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .toList();
         var calendar = schedules.findByLoanIdOrderByInstallmentNumberAsc(loan.getId());
+        if (calendar.stream().anyMatch(s -> money(s.getAmountPaid()).signum() > 0
+                && s.getStatus() != PaymentSchedule.ScheduleStatus.PAID))
+            throw new IllegalStateException("Partially paid schedule rows require payment-by-payment reconciliation before automatic repricing");
         var unpaidCalendar = calendar.stream()
                 .filter(s -> money(s.getAmountPaid()).signum() == 0
                         && s.getStatus() != PaymentSchedule.ScheduleStatus.PAID)

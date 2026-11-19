@@ -134,4 +134,19 @@ class LoanPrincipalAmendmentReconciliationTest {
         verifyNoInteractions(accounting);
         verify(loans, never()).saveAndFlush(any());
     }
+
+    @Test
+    void refusesAutomaticRepricingOfPartiallyPaidSchedule() {
+        var item = approved(n("2.50"), n("2.50"));
+        PaymentSchedule partial = new PaymentSchedule();
+        partial.setAmountPaid(n("10000.00"));
+        partial.setStatus(PaymentSchedule.ScheduleStatus.PARTIAL);
+        when(schedules.findByLoanIdOrderByInstallmentNumberAsc(17L))
+                .thenReturn(List.of(partial));
+        when(requests.lock(1L, 17L, 51L)).thenReturn(Optional.of(item));
+
+        assertThrows(IllegalStateException.class, () -> service.apply(17L, 51L, owner));
+        verify(loans, never()).saveAndFlush(any());
+        verify(requests, never()).saveAndFlush(any());
+    }
 }
