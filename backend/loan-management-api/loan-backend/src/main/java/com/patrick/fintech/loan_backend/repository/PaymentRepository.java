@@ -363,8 +363,7 @@ public interface PaymentRepository
                         SELECT COALESCE(SUM(p.amountPaid), 0.0)
                         FROM Payment p
                         WHERE p.organization = :org
-                          AND p.deletedAt IS NULL
-                          AND p.amountPaid > 0
+                          AND p.paid = true
                           AND p.paidDate >= :from
                         """)
         BigDecimal sumCollectedSince(
