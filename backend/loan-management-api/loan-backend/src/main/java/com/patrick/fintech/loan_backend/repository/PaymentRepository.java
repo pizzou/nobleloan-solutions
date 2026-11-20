@@ -516,7 +516,8 @@ public interface PaymentRepository
                         JOIN p.loan l
                         WHERE p.organization.id = :organizationId
                           AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
                           AND p.paidDate >= :from
                           AND p.paidDate <= :to
                         ORDER BY p.paidDate ASC
