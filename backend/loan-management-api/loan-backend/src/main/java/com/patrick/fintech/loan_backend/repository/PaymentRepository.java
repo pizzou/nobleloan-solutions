@@ -118,7 +118,8 @@ public interface PaymentRepository
                           AND p.paidDate > :after
                           AND p.paidDate <= :asOf
                           AND p.organization.id = :organizationId
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
                         ORDER BY p.paidDate ASC
                         """)
         List<Payment> findPaidPaymentsAfterWriteOff(
