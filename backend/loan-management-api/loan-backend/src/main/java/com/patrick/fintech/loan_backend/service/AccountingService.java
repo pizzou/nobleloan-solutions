@@ -980,7 +980,7 @@ public class AccountingService {
 
         static BigDecimal importedMigrationEquityChange(BigDecimal receivableChange,
                                                          BigDecimal liabilityChange) {
-                return money(liabilityChange.subtract(receivableChange));
+                return liabilityChange.subtract(receivableChange).setScale(2, RoundingMode.HALF_UP);
         }
 
         private void assertLoanReceivableEqualsGl(Loan loan, String accountCode, BigDecimal expected) {
