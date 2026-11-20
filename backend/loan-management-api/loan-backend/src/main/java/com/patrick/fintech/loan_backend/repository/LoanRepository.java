@@ -1086,21 +1086,37 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
             FROM Loan l
             WHERE l.organization.id = :orgId
               AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND l.deletedAt IS NULL
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
               )
-              AND l.disbursedAt IS NOT NULL
-              AND l.disbursedAt >= :from
-              AND l.disbursedAt < :to
-            ORDER BY l.disbursedAt ASC
+              AND l.status NOT IN ('PENDING', 'UNDER_REVIEW', 'REJECTED', 'CANCELLED')
+              AND COALESCE(l.disbursedAmount, 0) > 0
+              AND (
+                  (l.disbursedAt >= :from AND l.disbursedAt < :to)
+                  OR (l.disbursedAt IS NULL
+                      AND (l.imported = true OR l.importBatchId IS NOT NULL)
+                      AND l.startDate >= :fromDate AND l.startDate < :toDate)
+              )
+            ORDER BY l.startDate ASC, l.id ASC
             """)
-    List<Loan> findVisibleLoansDisbursedDuringPeriod(
+    List<Loan> findVisibleLoansDisbursedDuringPeriodWithLegacyDates(
             @Param("orgId") Long orgId,
             @Param("branchId") Long branchId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
+            @Param("fromDate") java.time.LocalDate fromDate,
+            @Param("toDate") java.time.LocalDate toDate,
             @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    default List<Loan> findVisibleLoansDisbursedDuringPeriod(
+            Long orgId, Long branchId, LocalDateTime from, LocalDateTime to,
+            boolean includeBusinessOwnerOnly) {
+        return findVisibleLoansDisbursedDuringPeriodWithLegacyDates(
+                orgId, branchId, from, to, from.toLocalDate(), to.toLocalDate(),
+                includeBusinessOwnerOnly);
+    }
 
     /**
      * Compatibility overload for regulatory reporting code.
