@@ -499,9 +499,10 @@ public class RegulatoryReportingService {
                                 switch (status) {
 
                                         case ACTIVE,
-                                                        DISBURSED,
-                                                        OVERDUE ->
+                                                        DISBURSED ->
                                                 activeLoans++;
+
+                                        case OVERDUE -> overdueLoans++;
 
                                         case CLOSED -> closedLoans++;
 
@@ -578,8 +579,6 @@ public class RegulatoryReportingService {
                                                         loan.getDaysOverdue());
 
                         if (dpd > 0 && outstanding.signum() > 0) {
-
-                                overdueLoans++;
 
                                 parAmount = add(parAmount, outstanding);
 
@@ -838,7 +837,11 @@ public class RegulatoryReportingService {
 
                                 totalPrincipalDisbursed = add(totalPrincipalDisbursed, disbursed);
 
-                                BigDecimal applicationFeeCollected = number(loan.getApplicationFeePaid());
+                                // Historical imported application fees have no reliable
+                                // payment date. Their cumulative amount belongs to the
+                                // legacy history, not a new period cash receipt.
+                                BigDecimal applicationFeeCollected = isLegacyImportedLoan(loan)
+                                                ? ZERO : number(loan.getApplicationFeePaid());
                                 feesCollected = add(feesCollected, applicationFeeCollected);
                                 applicationFeesCollected = add(applicationFeesCollected, applicationFeeCollected);
 
@@ -895,10 +898,10 @@ public class RegulatoryReportingService {
                                 continue;
                         }
 
-                        boolean completed = Boolean.TRUE.equals(
-                                        payment.getPaid())
-                                        ||
-                                        payment.getStatus() == Payment.PaymentStatus.COMPLETED;
+                        // A PARTIALLY_PAID installment can contain real cash.
+                        // 'paid' describes settlement of the schedule, not
+                        // whether the recorded amount was received.
+                        boolean completed = hasReceivedCash(payment);
 
                         if (completed) {
 
@@ -2556,6 +2559,11 @@ public class RegulatoryReportingService {
                                 || status == LoanStatus.OVERDUE
                                 || status == LoanStatus.DEFAULTED
                                 || status == LoanStatus.RESTRUCTURED;
+        }
+
+        static boolean hasReceivedCash(Payment payment) {
+                return payment != null && payment.getAmountPaidDecimal() != null
+                                && payment.getAmountPaidDecimal().signum() > 0;
         }
 
         /**

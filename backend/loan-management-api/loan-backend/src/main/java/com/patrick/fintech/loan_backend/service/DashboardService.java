@@ -90,18 +90,6 @@ public class DashboardService {
                         overduePayments = List.of();
                 }
 
-                long overdueLoans = overduePayments
-                                .stream()
-                                .filter(
-                                                payment -> payment != null
-                                                                && payment.getLoan() != null)
-                                .map(
-                                                payment -> payment.getLoan().getId())
-                                .filter(
-                                                loanId -> loanId != null)
-                                .distinct()
-                                .count();
-
                 long latePaymentsCount = overduePayments.size();
 
                 // ============================================================
@@ -117,6 +105,10 @@ public class DashboardService {
                 }
 
                 totalLoans = loans.size();
+                // Count overdue LOANS from the loan state, not from the
+                // presence of unpaid payment-schedule rows. Imported loans
+                // can be overdue without a generated overdue Payment row.
+                long overdueLoans = countOverdueLoans(loans);
                 activeLoans = loans.stream()
                                 .filter(l -> l != null && l.getStatus() == LoanStatus.ACTIVE)
                                 .count();
@@ -540,6 +532,12 @@ public class DashboardService {
          * legacy ledgers often contain an opening position without a precise
          * timestamp.
          */
+        static long countOverdueLoans(List<Loan> loans) {
+                return loans == null ? 0 : loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.OVERDUE)
+                                .count();
+        }
+
         private boolean isCurrentPortfolioLoan(Loan loan) {
                 if (loan == null || loan.getStatus() == null) {
                         return false;

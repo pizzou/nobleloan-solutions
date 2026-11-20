@@ -1111,9 +1111,9 @@ export default function ReportsPage() {
 
   const netCashChange = numberValue(cashFlow?.netChangeInCash);
 
-  const currentPeriodNetIncome = numberValue(
-    balanceSheet?.currentPeriodNetIncome,
-  );
+  // The balance sheet is an as-of-date snapshot and does not always expose a
+  // period income field. The selected-period P&L is the authoritative source.
+  const currentPeriodNetIncome = netIncome;
 
   const totalDebit = numberValue(trialBalance?.totalDebit);
 
@@ -2114,9 +2114,9 @@ export default function ReportsPage() {
                 />
 
                 <ExecutiveMetric
-                  label="Current period income"
+                  label="Net income (period)"
                   value={fmtPrecise(currentPeriodNetIncome)}
-                  detail="Financial position"
+                  detail="Profit & Loss"
                 />
 
                 <ExecutiveMetric
