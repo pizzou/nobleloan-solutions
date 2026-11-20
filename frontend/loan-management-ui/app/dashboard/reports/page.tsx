@@ -1904,7 +1904,7 @@ export default function ReportsPage() {
 
                 <tr>
                   <td className="px-5 py-4 text-xs font-semibold text-slate-700">
-                    Cash from fees
+                    Of which: application fees at disbursement
                   </td>
 
                   <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
