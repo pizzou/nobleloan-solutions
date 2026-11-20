@@ -511,6 +511,10 @@ export default function AccountingPage() {
     return date >= financialPeriod.from && date <= financialPeriod.to;
   });
 
+  const cashLedgerBalance = balanceSheet?.assets.find(
+    (account) => account.code === "1000",
+  )?.balance;
+
   if (loading) {
     return <PageSpinner />;
   }
@@ -720,6 +724,28 @@ export default function AccountingPage() {
           ))}
         </section>
       ) : null}
+
+      {cashLedgerBalance !== undefined && cashLedgerBalance < 0 && (
+        <section
+          role="alert"
+          className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950"
+        >
+          <div className="text-sm font-bold">Cash funding reconciliation required</div>
+          <p className="mt-2 text-sm leading-6">
+            Account 1000 has a credit balance of {fmt(Math.abs(cashLedgerBalance))}
+            {` as of ${financialPeriod.to}`}. This is a negative general-ledger cash
+            position, not the value of outstanding loans. Confirm that opening
+            bank/cash balances, owner funding, borrowing, transfers and all
+            disbursement and repayment entries match bank statements before
+            relying on the cash position for shareholder or external reports.
+          </p>
+          <p className="mt-2 text-xs">
+            A balanced trial balance does not prove that source-of-funds or
+            historical opening balances have been recorded. Do not post an
+            unsupported balancing journal to remove this warning.
+          </p>
+        </section>
+      )}
 
       {/* ===================================================
           TABS
