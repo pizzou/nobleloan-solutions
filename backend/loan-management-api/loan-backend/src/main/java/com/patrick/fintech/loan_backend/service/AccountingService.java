@@ -935,7 +935,21 @@ public class AccountingService {
                                 .add(money(interestReceivableDelta))
                                 .add(money(managementReceivableDelta));
                 if (Boolean.TRUE.equals(loan.getImported())) {
-                        addSignedLine(lines, org, "3010", receivableChange.negate(),
+                        // Legacy repayments can have been booked to refundable
+                        // overpayments (2100). When an approved repricing applies
+                        // that cash to the contract, release the liability too;
+                        // otherwise the loan is paid while the GL still claims a
+                        // refund is owed to the borrower.
+                        BigDecimal liabilityChange = money(overpaymentLiabilityDelta);
+                        if (liabilityChange.signum() < 0) {
+                                BigDecimal existingLiability = loanSpecificAccountBalance(loan, "2100").negate();
+                                if (existingLiability.add(liabilityChange).signum() < 0)
+                                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
+                                                        + " has insufficient booked refundable overpayment for amendment");
+                        }
+                        addSignedLine(lines, org, "2100", liabilityChange.negate(),
+                                        "Reallocate historical borrower overpayment for amendment #" + amendmentId);
+                        addSignedLine(lines, org, "3010", importedMigrationEquityChange(receivableChange, liabilityChange),
                                         "Historical migration equity offset for amendment #" + amendmentId);
                 } else {
                         addSignedLine(lines, org, "3010", money(principalContractDelta).negate(),
@@ -964,7 +978,22 @@ public class AccountingService {
                                 .description(description).build());
         }
 
+        static BigDecimal importedMigrationEquityChange(BigDecimal receivableChange,
+                                                         BigDecimal liabilityChange) {
+                return money(liabilityChange.subtract(receivableChange));
+        }
+
         private void assertLoanReceivableEqualsGl(Loan loan, String accountCode, BigDecimal expected) {
+                BigDecimal actual = loanSpecificAccountBalance(loan, accountCode);
+                if (actual.subtract(money(expected)).abs().compareTo(TOLERANCE) > 0) {
+                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
+                                        + " cannot be automatically amended: GL " + accountCode
+                                        + " balance " + money(actual) + " differs from loan receivable "
+                                        + money(expected) + ". Historical accrual or payment reconciliation is required.");
+                }
+        }
+
+        private BigDecimal loanSpecificAccountBalance(Loan loan, String accountCode) {
                 Organization org = loan.getOrganization();
                 ChartOfAccount receivable = account(org, accountCode);
                 BigDecimal actual = ZERO;
@@ -976,12 +1005,7 @@ public class AccountingService {
                                                 .subtract(money(line.getCreditDecimal()));
                         }
                 }
-                if (actual.subtract(money(expected)).abs().compareTo(TOLERANCE) > 0) {
-                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
-                                        + " cannot be automatically amended: GL " + accountCode
-                                        + " balance " + money(actual) + " differs from loan receivable "
-                                        + money(expected) + ". Historical accrual or payment reconciliation is required.");
-                }
+                return money(actual);
         }
 
         /**
