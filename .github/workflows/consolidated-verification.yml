@@ -40,6 +40,10 @@ jobs:
     name: Frontend security, types and build
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    # Same-origin Nginx proxy is the supported production browser endpoint.
+    # Dockerfile already builds with this value; CI must use it as well.
+    env:
+      NEXT_PUBLIC_API_URL: /api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
