@@ -363,7 +363,8 @@ public interface PaymentRepository
                         SELECT COALESCE(SUM(p.amountPaid), 0.0)
                         FROM Payment p
                         WHERE p.organization = :org
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
                           AND p.paidDate >= :from
                         """)
         BigDecimal sumCollectedSince(
@@ -407,14 +408,17 @@ public interface PaymentRepository
         @Query("""
                         SELECT
                             COALESCE(SUM(
-                                CASE WHEN p.paid = true
+                                CASE WHEN p.deletedAt IS NULL
+                                      AND p.paidDate IS NOT NULL
+                                      AND p.amountPaid > 0
                                      THEN p.amountPaid
                                      ELSE 0
                                 END
                             ), 0),
                             COALESCE(SUM(
                                 CASE
-                                    WHEN p.paid = true
+                                    WHEN p.deletedAt IS NULL
+                                     AND p.amountPaid > 0
                                      AND p.paidDate >= :from
                                      AND p.paidDate <= :to
                                     THEN p.amountPaid
@@ -433,8 +437,10 @@ public interface PaymentRepository
 
         @Query("""
                         SELECT
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.amountPaid ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN p.paid = true AND p.paidDate >= :from AND p.paidDate <= :to
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.paidDate IS NOT NULL AND p.amountPaid > 0
+                                              THEN p.amountPaid ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0
+                                               AND p.paidDate >= :from AND p.paidDate <= :to
                                               THEN p.amountPaid ELSE 0 END), 0),
                             SUM(CASE WHEN p.isLate = true THEN 1 ELSE 0 END)
                         FROM Payment p
@@ -457,19 +463,21 @@ public interface PaymentRepository
          */
         @Query("""
                         SELECT
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.amountPaid ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.principalComponent ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.interestComponent ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.managementFeeComponent ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.extensionFeeComponent ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.penaltyPaid ELSE 0 END), 0)
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0 AND p.paidDate IS NOT NULL THEN p.amountPaid ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0 AND p.paidDate IS NOT NULL THEN p.principalComponent ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0 AND p.paidDate IS NOT NULL THEN p.interestComponent ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0 AND p.paidDate IS NOT NULL THEN p.managementFeeComponent ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0 AND p.paidDate IS NOT NULL THEN p.extensionFeeComponent ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0 AND p.paidDate IS NOT NULL THEN p.penaltyPaid ELSE 0 END), 0)
                         FROM Payment p
                         JOIN p.loan l
                         WHERE l.organization.id = :organizationId
                           AND l.imported = true
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
+                          AND p.paidDate IS NOT NULL
                           AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND (p.paidDate IS NULL OR p.paidDate <= :asOf)
+                          AND p.paidDate <= :asOf
                         """)
         Object[] getImportedPaymentComponentAggregateAsOf(
                         @Param("organizationId") Long organizationId,
