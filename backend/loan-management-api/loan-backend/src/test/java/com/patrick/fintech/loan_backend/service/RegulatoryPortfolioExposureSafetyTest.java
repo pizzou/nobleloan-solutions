@@ -1,11 +1,15 @@
 package com.patrick.fintech.loan_backend.service;
 
 import org.junit.jupiter.api.Test;
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
+import java.time.LocalDateTime;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Source-level guard against counting requested (but not disbursed)
@@ -15,6 +19,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * against the accounting ledger and historical loans.
  */
 class RegulatoryPortfolioExposureSafetyTest {
+
+    @Test
+    void pendingAndRejectedApplicationsNeverEnterFundedPortfolio() {
+        for (LoanStatus status : new LoanStatus[] { LoanStatus.PENDING, LoanStatus.REJECTED }) {
+            Loan loan = new Loan();
+            loan.setStatus(status);
+            assertFalse(RegulatoryReportingService.isCurrentPortfolioLoan(loan));
+        }
+    }
+
+    @Test
+    void systemLoanMustBeDisbursedBeforeEnteringReceivables() {
+        Loan loan = new Loan();
+        loan.setStatus(LoanStatus.ACTIVE);
+        loan.setImported(false);
+
+        assertFalse(RegulatoryReportingService.isCurrentPortfolioLoan(loan));
+
+        loan.setDisbursedAt(LocalDateTime.of(2026, 11, 5, 0, 0));
+        assertTrue(RegulatoryReportingService.isCurrentPortfolioLoan(loan));
+    }
+
+    @Test
+    void historicalImportedLoanDoesNotRequireDisbursementTimestamp() {
+        Loan loan = new Loan();
+        loan.setStatus(LoanStatus.DEFAULTED);
+        loan.setImported(true);
+
+        assertTrue(RegulatoryReportingService.isCurrentPortfolioLoan(loan));
+    }
 
     @Test
     void regulatoryRiskUsesTheEligibleFundedPortfolioPopulation() throws Exception {
