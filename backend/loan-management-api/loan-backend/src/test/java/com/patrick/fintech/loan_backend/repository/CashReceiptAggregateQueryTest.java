@@ -41,12 +41,13 @@ class CashReceiptAggregateQueryTest {
     }
 
     @Test
-    void importedLoanAggregateUsesDatedPartialReceiptsNotFutureOrDeletedRows() throws Exception {
+    void importedHistoricalAggregatePreservesUndatedOpeningRows() throws Exception {
         String jpql = query("getImportedPaymentComponentAggregateAsOf",
                 Long.class, Long.class, LocalDate.class);
-        assertCashReceiptCriteria(jpql);
         assertTrue(jpql.contains("l.imported = true"));
-        assertTrue(jpql.contains("p.paidDate <= :asOf"));
+        assertTrue(jpql.contains("p.paid = true"),
+                "Legacy installment history is not necessarily dated or an individual cash event");
+        assertTrue(jpql.contains("p.paidDate IS NULL OR p.paidDate <= :asOf"));
         assertTrue(jpql.contains(":branchId IS NULL"));
     }
 
