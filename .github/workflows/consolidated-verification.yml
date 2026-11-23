@@ -1,0 +1,87 @@
+name: Noble Loan Consolidated Verification
+
+on:
+  push:
+    branches:
+      - security/nextjs-15.5.28
+  pull_request:
+    branches:
+      - security/nextjs-15.5.28
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests and database migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/loan-management-api/loan-backend/pom.xml
+      - name: Verify backend (unit and integration tests)
+        working-directory: backend/loan-management-api/loan-backend
+        run: mvn -B --no-transfer-progress clean verify
+      - name: Publish test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: backend/loan-management-api/loan-backend/target/surefire-reports/
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend security, types and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/loan-management-ui/package-lock.json
+      - name: Install locked dependencies
+        working-directory: frontend/loan-management-ui
+        run: npm ci
+      - name: Dependency posture
+        working-directory: frontend/loan-management-ui
+        run: npm run verify:deps
+      - name: Security posture
+        working-directory: frontend/loan-management-ui
+        run: npm run verify:security
+      - name: Typescript
+        working-directory: frontend/loan-management-ui
+        run: npm run typecheck
+      - name: Production build
+        working-directory: frontend/loan-management-ui
+        run: npm run build
+
+  source-policy:
+    name: Financial source invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check financial source invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path('backend/loan-management-api/loan-backend/src/main/java/com/patrick/fintech/loan_backend')
+          repo = (base/'repository/PaymentRepository.java').read_text()
+          payment = (base/'service/PaymentService.java').read_text()
+          accounting = (base/'service/AccountingService.java').read_text()
+          assert 'p.amountPaid > 0' in repo, 'Partial receipts must be counted'
+          assert 'p.deletedAt IS NULL' in repo, 'Cash reporting must exclude deleted installments'
+          assert 'p.paidDate IS NULL OR p.paidDate <= :asOf' in repo, 'Preserve historical undated paid installments'
+          assert 'paymentTransactionRepo.saveAndFlush(transaction)' in payment
+          assert 'savedTransaction.getId()' in payment
+          assert '"PAYTX:" + paymentTransactionId' in accounting
+          print('Financial invariant checks passed')
+          PY
