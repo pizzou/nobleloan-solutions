@@ -271,3 +271,98 @@ html { scroll-behavior: smooth; }
 @media (min-width: 1024px) {
   .site-public-nav { box-shadow: 0 10px 35px rgba(15,23,42,.045); }
 }
+
+
+/* Accounting workspace — isolated financial UI styling; no changes to posting logic. */
+.nls-accounting-workspace {
+  --accounting-ink: #0b1f3a;
+  --accounting-muted: #5b6b80;
+}
+.nls-accounting-workspace > .flex:first-child {
+  padding: 1.75rem 2rem;
+  background: linear-gradient(115deg, #0b1f3a, #173b60);
+  border: 1px solid #25466a;
+  border-radius: 1.4rem;
+  box-shadow: 0 16px 38px rgba(11, 31, 58, 0.15);
+}
+.nls-accounting-workspace > .flex:first-child h1,
+.nls-accounting-workspace > .flex:first-child p:not(:first-child) {
+  color: #fff;
+}
+.nls-accounting-workspace > .flex:first-child p:first-child { color: #f4c430; }
+.nls-accounting-workspace > .flex:first-child p:not(:first-child) { opacity: .82; }
+.nls-accounting-workspace > .flex:first-child button {
+  background: #fff;
+  border-color: rgba(255,255,255,.65);
+  color: #0b1f3a;
+}
+.nls-accounting-period {
+  padding: 1rem 1.25rem;
+  background: #fff;
+  border: 1px solid #dce4ef;
+  border-radius: 1rem;
+  box-shadow: 0 4px 20px rgba(11,31,58,.035);
+}
+.nls-accounting-ledger-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  background: #2b4665;
+  box-shadow: 0 8px 30px rgba(11,31,58,.09);
+}
+.nls-accounting-ledger-overview > div {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  min-width: 0;
+  padding: 1.25rem 1.5rem;
+  background: #102945;
+  color: white;
+}
+.nls-accounting-ledger-overview span {
+  color: #bfcee0;
+  font-size: .72rem;
+  font-weight: 650;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.nls-accounting-ledger-overview strong {
+  font-size: clamp(1.05rem, 1.5vw, 1.4rem);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.nls-accounting-ledger-overview small { color: #b7c8da; font-size: .72rem; }
+.nls-accounting-kpi .nls-accounting-kpi {
+  border-radius: 1rem;
+  border-color: #d9e3ed;
+  border-top: 3px solid #183b5f;
+  box-shadow: 0 5px 18px rgba(11,31,58,.045);
+}
+.nls-accounting-kpi > div:nth-child(2) { border-top-color: #11845a; }
+.nls-accounting-kpi > div:nth-child(5) { border-top-color: #c99a00; }
+.nls-accounting-tabs {
+  gap: .35rem;
+  border: 1px solid #dce4ef;
+  border-radius: 1rem;
+  padding: .4rem;
+  background: #fff;
+  box-shadow: 0 3px 14px rgba(11,31,58,.03);
+}
+.nls-accounting-tabs button {
+  border-radius: .7rem .7rem 0 0;
+}
+.nls-accounting-tabs button[aria-selected="true"] {
+  background: #eaf0f6;
+  color: #0b1f3a;
+}
+.nls-accounting-workspace table td,
+.nls-accounting-workspace table th { font-variant-numeric: tabular-nums; }
+.nls-accounting-workspace table tbody tr:nth-child(even) { background-color: #fafcff; }
+.nls-accounting-workspace table tfoot { background-color: #eaf0f6; }
+@media (max-width: 760px) {
+  .nls-accounting-ledger-overview { grid-template-columns: 1fr; }
+  .nls-accounting-workspace > .flex:first-child { padding: 1.25rem; }
+}
