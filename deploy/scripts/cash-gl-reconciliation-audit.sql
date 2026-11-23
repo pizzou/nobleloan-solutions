@@ -70,4 +70,39 @@ SELECT organization_id,
        ROUND(SUM(net_balance),2) AS difference
 FROM balances GROUP BY organization_id ORDER BY organization_id;
 
+\echo ==== Funding and receivable accounts: VALID ACTIVE journal lines only ====
+-- Do not left-join journal_entries to journal_lines with filters on the journal
+-- join alone: that retains amounts from reversed/other-organization journals.
+SELECT coa.code, coa.name, coa.type,
+       COUNT(DISTINCT je.id) AS journal_count,
+       ROUND(COALESCE(SUM(jl.debit),0),2) AS total_debit,
+       ROUND(COALESCE(SUM(jl.credit),0),2) AS total_credit,
+       ROUND(COALESCE(SUM(jl.debit-jl.credit),0),2) AS net_debit
+FROM chart_of_accounts coa
+LEFT JOIN (
+  journal_lines jl
+  INNER JOIN journal_entries je ON je.id = jl.journal_entry_id
+    AND je.organization_id = 1
+    AND COALESCE(je.reversed,false) = false
+    AND je.recycle_loan_id IS NULL
+) ON jl.account_id = coa.id
+WHERE coa.code IN ('1000','1100','1150','1160','1170','1175','1180','3000')
+GROUP BY coa.code, coa.name, coa.type
+ORDER BY coa.code;
+
+\echo ==== Active capital, liability and cash-source events by source type ====
+SELECT je.organization_id, coa.code, coa.name, coa.type, je.source_type,
+       COUNT(DISTINCT je.id) AS journals,
+       ROUND(SUM(jl.debit),2) AS debit,
+       ROUND(SUM(jl.credit),2) AS credit
+FROM journal_entries je
+JOIN journal_lines jl ON jl.journal_entry_id = je.id
+JOIN chart_of_accounts coa ON coa.id = jl.account_id
+WHERE je.organization_id = 1
+  AND COALESCE(je.reversed,false) = false
+  AND je.recycle_loan_id IS NULL
+  AND (coa.type IN ('EQUITY','LIABILITY') OR coa.code = '1000')
+GROUP BY je.organization_id, coa.code, coa.name, coa.type, je.source_type
+ORDER BY coa.code, je.source_type;
+
 COMMIT;
