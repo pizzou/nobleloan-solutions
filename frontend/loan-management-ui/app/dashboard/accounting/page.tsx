@@ -524,14 +524,15 @@ export default function AccountingPage() {
   ======================================================= */
 
   return (
-    <div className="nls-finance-page space-y-6">
+    <div className="nls-finance-page nls-accounting-workspace space-y-6">
       {/* ===================================================
           PAGE HEADER
       =================================================== */}
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-[#0B1F3A]">Accounting</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Finance / Financial control</p>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#0B1F3A]">Accounting &amp; Financial Control</h1>
 
           <p className="text-gray-500 text-sm mt-1">
             General ledger, chart of accounts, cash management, and financial
@@ -551,10 +552,10 @@ export default function AccountingPage() {
         </button>
       </div>
 
-      <FinancialPeriodFilter
+      <div className="nls-accounting-period"><FinancialPeriodFilter
         value={financialPeriod}
         onApply={setFinancialPeriod}
-      />
+      /></div>
 
       {reconciliationSummary && (
         <div
@@ -695,7 +696,7 @@ export default function AccountingPage() {
           OPERATIONAL CONTROL TOTALS
       =================================================== */}
       {controlTotals ? (
-        <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <section aria-label="Operational portfolio totals" className="nls-accounting-kpis mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {[
             ["Gross disbursed", controlTotals.totalDisbursed],
             ["Cash collected", controlTotals.totalCollected],
@@ -708,24 +709,29 @@ export default function AccountingPage() {
           ].map(([label, value]) => (
             <div
               key={String(label)}
-              className="rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
+              className="nls-accounting-kpi rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
             >
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
                 {label as string}
               </div>
               <div className="mt-2 text-xl font-black text-gray-950">
-                {fmt(value as number)}
+                {value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "Unavailable" : fmt(Number(value))}
               </div>
               <div className="mt-1 text-[11px] text-gray-500">
-                Canonical operational control total used across portfolio and
-                reporting.
+                {currency} · Operational portfolio API, not additional GL income.
               </div>
             </div>
           ))}
         </section>
       ) : null}
 
-      {cashLedgerBalance !== undefined && cashLedgerBalance < 0 && (
+      <section aria-label="General ledger control overview" className="nls-accounting-ledger-overview">
+        <div><span>Trial balance integrity</span><strong>{trial ? (trial.balanced ? "Debits = credits" : "Out of balance") : "Unavailable"}</strong><small>Does not verify account completeness</small></div>
+        <div><span>Cash ledger · GL 1000</span><strong>{cashLedgerBalance == null ? "Unavailable" : `${fmt(Math.abs(cashLedgerBalance))} ${cashLedgerBalance < 0 ? "CR" : "DR"}`}</strong><small>Not a verified bank account balance</small></div>
+        <div><span>Statement date</span><strong>{financialPeriod.to}</strong><small>Reports use their defined date basis</small></div>
+      </section>
+
+      {cashLedgerBalance != null && cashLedgerBalance < 0 && (
         <section
           role="alert"
           className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950"
@@ -751,15 +757,17 @@ export default function AccountingPage() {
           TABS
       =================================================== */}
 
-      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+      <div role="tablist" aria-label="Accounting sections" className="nls-accounting-tabs flex gap-1 border-b border-gray-200 overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t}
             type="button"
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
               tab === t
-                ? "border-[#0D6B3E] text-[#0D6B3E]"
+                ? "border-[#0B1F3A] text-[#0B1F3A]"
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
@@ -871,7 +879,7 @@ export default function AccountingPage() {
               <div className="font-bold text-gray-900">Balance Sheet</div>
 
               <p className="text-xs text-gray-500 mt-1">
-                Financial position as of today.
+                Financial position as of {financialPeriod.to}.
               </p>
             </div>
 
