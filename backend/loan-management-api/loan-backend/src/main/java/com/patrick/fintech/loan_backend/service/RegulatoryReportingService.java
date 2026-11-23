@@ -578,53 +578,59 @@ public class RegulatoryReportingService {
                                                         0,
                                                         loan.getDaysOverdue());
 
-                        if (dpd > 0 && outstanding.signum() > 0) {
+                        // Risk and provisioning must use the same funded-loan population
+                        // as gross portfolio principal. Pipeline/rejected applications may
+                        // retain a requested outstandingBalance before any disbursement;
+                        // those amounts are not credit exposure.
+                        BigDecimal exposure = includedInGrossPortfolio ? outstanding : ZERO;
 
-                                parAmount = add(parAmount, outstanding);
+                        if (dpd > 0 && exposure.signum() > 0) {
+
+                                parAmount = add(parAmount, exposure);
 
                                 if (dpd <= 30) {
 
-                                        par1To30 = add(par1To30, outstanding);
+                                        par1To30 = add(par1To30, exposure);
 
                                 } else if (dpd <= 60) {
 
-                                        par31To60 = add(par31To60, outstanding);
+                                        par31To60 = add(par31To60, exposure);
 
                                 } else if (dpd <= 90) {
 
-                                        par61To90 = add(par61To90, outstanding);
+                                        par61To90 = add(par61To90, exposure);
 
                                 } else if (dpd <= 180) {
 
-                                        par91To180 = add(par91To180, outstanding);
+                                        par91To180 = add(par91To180, exposure);
 
                                 } else if (dpd <= 365) {
 
-                                        par181To365 = add(par181To365, outstanding);
+                                        par181To365 = add(par181To365, exposure);
 
                                 } else {
 
-                                        parOver365 = add(parOver365, outstanding);
+                                        parOver365 = add(parOver365, exposure);
                                 }
                         }
 
-                        if (dpd > 30) {
+                        if (includedInGrossPortfolio && dpd > 30) {
                                 loansOver30Days++;
                         }
 
-                        if (dpd > 60) {
+                        if (includedInGrossPortfolio && dpd > 60) {
                                 loansOver60Days++;
                         }
 
-                        if (dpd > 90) {
+                        if (includedInGrossPortfolio && dpd > 90) {
                                 loansOver90Days++;
                         }
 
-                        if (dpd > 180) {
+                        if (includedInGrossPortfolio && dpd > 180) {
                                 loansOver180Days++;
                         }
 
-                        if (dpd > 365) {
+                        if (includedInGrossPortfolio && dpd > 365) {
                                 loansOver365Days++;
                         }
 
@@ -632,20 +638,20 @@ public class RegulatoryReportingService {
                         // NPL
                         // ----------------------------------------------------
 
-                        if (isNpl(loan)) {
+                        if (includedInGrossPortfolio && isNpl(loan)) {
 
                                 nplLoanCount++;
 
-                                nplAmount = add(nplAmount, outstanding);
+                                nplAmount = add(nplAmount, exposure);
                         }
 
                         // ----------------------------------------------------
                         // DEFAULT
                         // ----------------------------------------------------
 
-                        if (status == LoanStatus.DEFAULTED) {
+                        if (includedInGrossPortfolio && status == LoanStatus.DEFAULTED) {
 
-                                defaultedAmount = add(defaultedAmount, outstanding);
+                                defaultedAmount = add(defaultedAmount, exposure);
                         }
 
                         // ----------------------------------------------------
@@ -654,13 +660,13 @@ public class RegulatoryReportingService {
 
                         if (status == LoanStatus.WRITTEN_OFF) {
 
-                                writtenOffAmount = add(writtenOffAmount, outstanding);
+                                writtenOffAmount = add(writtenOffAmount, exposure);
                         }
 
                         // ----------------------------------------------------
                         // PROVISIONING / RECOVERIES
                         // ----------------------------------------------------
-                        BigDecimal provisionBase = outstanding.max(ZERO);
+                        BigDecimal provisionBase = exposure.max(ZERO);
                         BigDecimal provisionRate = provisionRateFor(loan);
                         requiredProvision = add(requiredProvision,
                                         provisionBase.multiply(provisionRate).divide(new BigDecimal("100"), 2,
