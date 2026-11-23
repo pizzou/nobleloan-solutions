@@ -1261,20 +1261,6 @@ public class PaymentService {
                                 loan);
 
                 // ============================================================
-                // ACCOUNTING
-                // ============================================================
-
-                accountingService.postPaymentReceived(
-                                installment,
-                                amount,
-                                principalPaidThisPayment,
-                                interestPaidThisPayment,
-                                managementFeePaidThisPayment,
-                                penaltyPaidThisPayment,
-                                extensionFeePaidThisPayment,
-                                overpayment);
-
-                // ============================================================
                 // IMMUTABLE PAYMENT TRANSACTION LEDGER
                 // ============================================================
                 // Payment rows are cumulative installment state. The
@@ -1322,7 +1308,21 @@ public class PaymentService {
                                 .reversed(false)
                                 .build();
 
-                paymentTransactionRepo.save(transaction);
+                PaymentTransaction savedTransaction = paymentTransactionRepo.saveAndFlush(transaction);
+
+                // Record one balanced cash journal per immutable receipt, not per
+                // cumulative installment. The enclosing transaction rolls both
+                // records back if posting fails.
+                accountingService.postPaymentReceived(
+                                installment,
+                                amount,
+                                principalPaidThisPayment,
+                                interestPaidThisPayment,
+                                managementFeePaidThisPayment,
+                                penaltyPaidThisPayment,
+                                extensionFeePaidThisPayment,
+                                overpayment,
+                                savedTransaction.getId());
 
                 // ============================================================
                 // AUDIT
