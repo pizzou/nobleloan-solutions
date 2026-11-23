@@ -45,7 +45,8 @@ export default function FinancialPeriodFilter({
     }
     return "custom";
   });
-  useEffect(() => setDraft(value), [value.from, value.to]);
+  const { from, to } = value;
+  useEffect(() => setDraft({ from, to }), [from, to]);
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(draft.from)
     && /^\d{4}-\d{2}-\d{2}$/.test(draft.to)
     && draft.from <= draft.to;
