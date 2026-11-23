@@ -2557,7 +2557,7 @@ public class RegulatoryReportingService {
          * Approval/pipeline records are deliberately excluded because no
          * principal receivable is created until the loan is disbursed.
          */
-        private boolean isCurrentPortfolioLoan(Loan loan) {
+        static boolean isCurrentPortfolioLoan(Loan loan) {
                 if (loan == null || loan.getStatus() == null) {
                         return false;
                 }
@@ -2589,7 +2589,7 @@ public class RegulatoryReportingService {
          * collection reporting. It preserves compatibility with older
          * imported rows that predate the imported/importBatchId flags.
          */
-        private boolean isLegacyImportedLoan(Loan loan) {
+        private static boolean isLegacyImportedLoan(Loan loan) {
                 if (loan == null) {
                         return false;
                 }
