@@ -923,6 +923,13 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
               )
+              AND (
+                  l.imported = true
+                  OR l.importBatchId IS NOT NULL
+                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                  OR l.disbursedAt IS NOT NULL
+              )
             """)
     BigDecimal sumVisibleOutstandingBalance(
             @Param("org") Organization org,
@@ -1408,6 +1415,13 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+              AND (
+                  l.imported = true
+                  OR l.importBatchId IS NOT NULL
+                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                  OR l.disbursedAt IS NOT NULL
               )
             """)
     Object[] calculateVisiblePortfolioRiskMetrics(
