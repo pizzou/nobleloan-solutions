@@ -2908,6 +2908,35 @@ public class AccountingService {
                         BigDecimal extensionFeeAmount,
                         BigDecimal overpaymentAmount) {
 
+                return postPaymentReceived(payment, paymentAmount, principalAmount,
+                                interestAmount, managementFeeAmount, penaltyAmount,
+                                extensionFeeAmount, overpaymentAmount, null);
+        }
+
+        /**
+         * Transaction-scoped cash posting. A Payment row is an installment with
+         * cumulative amounts, whereas a PaymentTransaction is one immutable cash
+         * receipt. Use the receipt's identity for journal idempotency.
+         *
+         * Null transaction id retains the historical installment-id overload
+         * for existing callers and journal references.
+         */
+        @Transactional
+        public JournalEntry postPaymentReceived(
+                        Payment payment,
+                        BigDecimal paymentAmount,
+                        BigDecimal principalAmount,
+                        BigDecimal interestAmount,
+                        BigDecimal managementFeeAmount,
+                        BigDecimal penaltyAmount,
+                        BigDecimal extensionFeeAmount,
+                        BigDecimal overpaymentAmount,
+                        Long paymentTransactionId) {
+
+                if (paymentTransactionId != null && paymentTransactionId <= 0) {
+                        throw new IllegalArgumentException("Payment transaction ID must be positive");
+                }
+
                 if (payment == null) {
 
                         throw new IllegalArgumentException(
@@ -2940,8 +2969,9 @@ public class AccountingService {
 
                 ensureChartOfAccounts(org);
 
-                String sourceId = String.valueOf(
-                                payment.getId());
+                String sourceId = paymentTransactionId == null
+                                ? String.valueOf(payment.getId())
+                                : "PAYTX:" + paymentTransactionId;
 
                 JournalEntry existing = journalRepo
                                 .findFirstByOrganization_IdAndSourceTypeAndSourceId(
@@ -3295,6 +3325,10 @@ public class AccountingService {
                                 && !payment.getPaymentReference().isBlank()
                                                 ? payment.getPaymentReference().trim()
                                                 : "PAY-" + payment.getId();
+
+                if (paymentTransactionId != null) {
+                        reference = "PAYTX-" + paymentTransactionId + "-" + loanReference;
+                }
 
                 return post(
                                 org,
