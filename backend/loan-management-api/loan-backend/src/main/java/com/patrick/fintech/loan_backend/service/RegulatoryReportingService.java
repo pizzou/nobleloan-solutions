@@ -658,9 +658,13 @@ public class RegulatoryReportingService {
                         // WRITE OFF
                         // ----------------------------------------------------
 
+                        // Written-off balance is a historical disclosure measure,
+                        // not an active receivable. Retain the recorded amount in
+                        // write-off reporting while excluding it from PAR and
+                        // current-loan provision exposure.
                         if (status == LoanStatus.WRITTEN_OFF) {
 
-                                writtenOffAmount = add(writtenOffAmount, exposure);
+                                writtenOffAmount = add(writtenOffAmount, outstanding);
                         }
 
                         // ----------------------------------------------------
