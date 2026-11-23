@@ -2564,11 +2564,19 @@ public class RegulatoryReportingService {
 
                 LoanStatus status = loan.getStatus();
 
-                return status == LoanStatus.DISBURSED
+                boolean receivableStatus = status == LoanStatus.DISBURSED
                                 || status == LoanStatus.ACTIVE
                                 || status == LoanStatus.OVERDUE
                                 || status == LoanStatus.DEFAULTED
                                 || status == LoanStatus.RESTRUCTURED;
+                if (!receivableStatus) {
+                        return false;
+                }
+
+                // Match DashboardService and LoanRepository: legacy openings
+                // may lack a reliable disbursement timestamp, but a new loan
+                // cannot enter the credit portfolio before disbursement.
+                return isLegacyImportedLoan(loan) || loan.getDisbursedAt() != null;
         }
 
         static boolean hasReceivedCash(Payment payment) {
