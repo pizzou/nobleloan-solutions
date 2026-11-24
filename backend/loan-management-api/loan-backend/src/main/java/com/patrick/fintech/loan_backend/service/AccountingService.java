@@ -14,6 +14,7 @@ import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+import com.patrick.fintech.loan_backend.service.OverduePenaltyClock;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -2502,7 +2503,7 @@ public class AccountingService {
                 LocalDate importDate = loan.getCreatedAt().toLocalDate();
                 if (due == null || importDate.isAfter(asOf))
                         return null;
-                LocalDate firstChargeable = due.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(due);
                 LocalDate lastHistoricalDay = importDate;
                 if (firstChargeable.isAfter(lastHistoricalDay))
                         return null;
@@ -2589,7 +2590,7 @@ public class AccountingService {
                 if (due == null || due.isAfter(asOf))
                         return null;
                 LocalDate importDate = loan.getCreatedAt().toLocalDate();
-                LocalDate firstChargeable = due.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(due);
                 // The opening position is recognized at import; begin new
                 // accrual on the following day to avoid overlapping opening
                 // balances with the import date.
