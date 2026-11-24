@@ -847,7 +847,7 @@ public class PaymentService {
                 BigDecimal totalInterestPaid = roundMoney(
                                 existingInterestComponent
                                                 .add(
-                                                                interestPaidThisPayment));
+                                                                interestPaidOnSelected));
 
                 BigDecimal existingManagementFeeComponent = selectedHadReceipt
                                 ? roundMoney(safe(installment.getManagementFeeComponentDecimal())).max(ZERO)
@@ -856,7 +856,7 @@ public class PaymentService {
                 BigDecimal totalManagementFeePaid = roundMoney(
                                 existingManagementFeeComponent
                                                 .add(
-                                                                managementFeePaidThisPayment));
+                                                                managementPaidOnSelected));
 
                 BigDecimal existingExtensionFeeComponent = selectedHadReceipt
                                 ? roundMoney(safe(installment.getExtensionFeeComponentDecimal())).max(ZERO)
@@ -2451,6 +2451,16 @@ public class PaymentService {
                                                 safe(cycle.getCycleInterestRemainingDecimal()).subtract(settledInterest)));
                                 cycle.setCycleManagementFeeRemaining(roundMoney(
                                                 safe(cycle.getCycleManagementFeeRemainingDecimal()).subtract(settledManagement)));
+                                // An untouched schedule may carry planned amounts in the
+                                // component columns. Only an existing receipt has actual
+                                // paid components that can be carried forward.
+                                boolean hadReceipt = safe(cycle.getAmountPaidDecimal()).signum() > 0;
+                                cycle.setInterestComponent(roundMoney(
+                                                (hadReceipt ? safe(cycle.getInterestComponentDecimal()) : ZERO)
+                                                                .add(settledInterest)));
+                                cycle.setManagementFeeComponent(roundMoney(
+                                                (hadReceipt ? safe(cycle.getManagementFeeComponentDecimal()) : ZERO)
+                                                                .add(settledManagement)));
                                 paymentRepo.save(cycle);
                         }
                 }
