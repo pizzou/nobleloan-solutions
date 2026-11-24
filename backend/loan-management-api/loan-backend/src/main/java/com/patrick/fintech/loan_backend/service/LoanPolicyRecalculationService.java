@@ -160,6 +160,26 @@ public class LoanPolicyRecalculationService {
         if (journal == null)
             throw new IllegalStateException("Correction was nonzero but no accounting journal was posted");
 
+        // Capture the full fee dues at the time of the original receipt BEFORE
+        // mutating the current outstanding balance. The historical installment
+        // must show its complete arrears, not just one month's installment.
+        BigDecimal receiptOpeningInterest = money(loan.getInterestOutstandingDecimal())
+                .add(receipts.stream().map(tx -> money(tx.getInterestComponent()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        BigDecimal receiptOpeningManagement = money(loan.getManagementFeeOutstandingDecimal())
+                .add(receipts.stream().map(tx -> money(tx.getManagementFeeComponent()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        if (receipts.size() == 1) {
+            LoanPolicyRecalculationEngine.CorrectedReceipt receipt = corrected.receipts().get(0);
+            if (!money(receiptOpeningInterest.subtract(receipt.interest()))
+                    .equals(corrected.interestOutstanding())
+                    || !money(receiptOpeningManagement.subtract(receipt.managementFee()))
+                    .equals(corrected.managementOutstanding())) {
+                throw new IllegalStateException(
+                        "Corrected receipt does not reconcile full historical fee arrears");
+            }
+        }
+
         loan.setOutstandingBalance(corrected.principalOutstanding());
         loan.setPrincipalPaid(principalPaid);
         loan.setInterestOutstanding(corrected.interestOutstanding());
@@ -177,18 +197,15 @@ public class LoanPolicyRecalculationService {
         if (receipts.size() == 1) {
             LoanPolicyRecalculationEngine.CorrectedReceipt a = corrected.receipts().get(0);
             Payment row = schedule.get(0);
-            BigDecimal priorInterestArrears = money(loan.getInterestOutstandingDecimal())
-                    .add(money(a.interest()));
-            BigDecimal priorManagementArrears = money(loan.getManagementFeeOutstandingDecimal())
-                    .add(money(a.managementFee()));
+
             row.setPrincipalComponent(a.principal());
             row.setInterestComponent(a.interest());
             row.setManagementFeeComponent(a.managementFee());
             row.setPenaltyPaid(a.penalty());
             row.setPenalty(corrected.penaltyAssessed());
-            row.setCycleInterestDue(priorInterestArrears);
+            row.setCycleInterestDue(receiptOpeningInterest);
             row.setCycleInterestRemaining(corrected.interestOutstanding());
-            row.setCycleManagementFeeDue(priorManagementArrears);
+            row.setCycleManagementFeeDue(receiptOpeningManagement);
             row.setCycleManagementFeeRemaining(corrected.managementOutstanding());
             row.setOutstandingAfter(corrected.principalOutstanding());
             paymentRepository.save(row);
