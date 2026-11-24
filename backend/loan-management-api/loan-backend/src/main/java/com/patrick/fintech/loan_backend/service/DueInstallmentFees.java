@@ -40,9 +40,12 @@ public final class DueInstallmentFees {
         BigDecimal interestOutstanding = money(loan.getInterestOutstandingDecimal());
         BigDecimal managementOutstanding = money(loan.getManagementFeeOutstandingDecimal());
 
+        // Only collapse to one historical arrears bucket when no separate
+        // multi-instalment history exists. Otherwise use individual dues.
         if (Boolean.TRUE.equals(loan.getImported())
-                && (loan.getNextDueDate() == null
-                    || !loan.getNextDueDate().isAfter(today))) {
+                && (installments == null || installments.size() <= 1)
+                && loan.getNextDueDate() != null
+                && !loan.getNextDueDate().isAfter(today)) {
             // Historical loan-level balances may cover many overdue months.
             interest = interest.max(interestOutstanding);
             management = management.max(managementOutstanding);
