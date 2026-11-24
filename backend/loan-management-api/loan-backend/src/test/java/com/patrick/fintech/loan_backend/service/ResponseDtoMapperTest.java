@@ -54,6 +54,25 @@ class ResponseDtoMapperTest {
     }
 
     @Test
+    void unpaidInstallmentBeforeContractEndDoesNotCreateContractOverdueDays() {
+        Loan loan = Loan.builder()
+                .id(111L)
+                .referenceNumber("NLS-000111")
+                .status(com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE)
+                .imported(false)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 8, 19, 10, 0))
+                .durationMonths(24)
+                .maturityDate(java.time.LocalDate.of(2028, 8, 19))
+                .nextDueDate(java.time.LocalDate.of(2026, 9, 19))
+                .daysOverdue(66)
+                .build();
+        LoanResponse response = ResponseDtoMapper.loan(loan);
+        assertEquals(66, response.getDaysOverdue());
+        assertTrue(response.getContractMaturityVerified());
+        assertEquals(0, response.getContractDaysOverdue());
+    }
+
+    @Test
     void paymentMapperProducesRelationshipIdsOnly() {
         Payment payment = Payment.builder()
                 .id(9L)
