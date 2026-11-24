@@ -9,12 +9,11 @@ import java.math.RoundingMode;
  * Single authoritative payment allocation order for the lending platform.
  *
  * Allocation is always:
- * interest -> management fee -> principal -> extension/restructuring fee
- * -> penalty -> overpayment.
+ * penalty -> interest -> management fee -> extension fee -> principal
+ * -> overpayment.
  *
- * Interest and management fee are the first contractual charges. Principal
- * is reduced immediately from the remaining payment. Extension fees and
- * penalties remain separate receivables and never increase principal.
+ * The caller must supply the complete due-and-unpaid amounts across
+ * installments and preserve the original allocation in the cash ledger.
  *
  * This class is deliberately side-effect free. Persistence, accounting and
  * audit updates remain the responsibility of PaymentService.
@@ -36,20 +35,24 @@ public class PaymentAllocationService {
 
         BigDecimal remaining = money(paymentAmount).max(ZERO);
 
+        // Collect assessed penalties first, followed by ALL due unpaid
+        // interest and management fees. Extension charges also precede
+        // principal. The caller must supply aggregated due fee balances
+        // rather than the charges of only one installment.
+        BigDecimal penalty = take(remaining, penaltyDue);
+        remaining = money(remaining.subtract(penalty));
+
         BigDecimal interest = take(remaining, interestDue);
         remaining = money(remaining.subtract(interest));
 
         BigDecimal managementFee = take(remaining, managementFeeDue);
         remaining = money(remaining.subtract(managementFee));
 
-        BigDecimal principal = take(remaining, principalDue);
-        remaining = money(remaining.subtract(principal));
-
         BigDecimal extensionFee = take(remaining, extensionFeeDue);
         remaining = money(remaining.subtract(extensionFee));
 
-        BigDecimal penalty = take(remaining, penaltyDue);
-        remaining = money(remaining.subtract(penalty));
+        BigDecimal principal = take(remaining, principalDue);
+        remaining = money(remaining.subtract(principal));
 
         return new Allocation(
                 penalty,
