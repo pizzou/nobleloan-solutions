@@ -51,6 +51,7 @@ public class PaymentService {
         private final AccountingService accountingService;
         private final PaymentEventPublisher paymentEventPublisher;
         private final PaymentAllocationService paymentAllocationService;
+        private final HistoricalPenaltyBalanceService historicalPenaltyBalanceService;
 
         // ================================================================
         // PLATFORM FINANCIAL RULES
@@ -2377,52 +2378,8 @@ public class PaymentService {
                         BigDecimal currentOutstandingPrincipal,
                         LocalDate firstChargeableDate,
                         LocalDate asOf) {
-
-                // The immutable posted transaction ledger stores *actual* principal
-                // repayments. Installment principalComponent is also used for
-                // scheduled principal and must not be interpreted as paid principal
-                // for an untouched installment.
-                List<PaymentTransaction> posted = paymentTransactionRepo
-                                .findByLoanIdOrderByCreatedAtDesc(loan.getId()).stream()
-                                .filter(t -> t != null
-                                                && t.getCreatedAt() != null
-                                                && t.getStatus() == PaymentTransaction.TransactionStatus.POSTED
-                                                && !Boolean.TRUE.equals(t.getReversed()))
-                                .toList();
-
-                List<Payment> legacyReceipts = posted.isEmpty()
-                                ? paymentRepo.findByLoanId(loan.getId()).stream()
-                                                .filter(p -> p != null
-                                                                && p.getPaidDate() != null
-                                                                && safe(p.getAmountPaidDecimal()).signum() > 0)
-                                                .toList()
-                                : List.of();
-
-                return FinancialPolicy.historicalDailyPenalty(
-                                currentOutstandingPrincipal,
-                                firstChargeableDate,
-                                asOf,
-                                loan.getPenaltyRateDecimal(),
-                                date -> {
-                                        BigDecimal balance = currentOutstandingPrincipal;
-                                        if (!posted.isEmpty()) {
-                                                for (PaymentTransaction transaction : posted) {
-                                                        if (transaction.getCreatedAt().toLocalDate().isAfter(date)) {
-                                                                balance = balance.add(
-                                                                                safe(transaction.getPrincipalComponent()));
-                                                        }
-                                                }
-                                        } else {
-                                                for (Payment payment : legacyReceipts) {
-                                                        if (payment.getPaidDate().isAfter(date)) {
-                                                                balance = balance.add(
-                                                                                safe(payment.getPrincipalComponentDecimal()));
-                                                        }
-                                                }
-                                        }
-                                        return roundMoney(balance.min(
-                                                        safe(loan.getAmountDecimal())).max(ZERO));
-                                });
+                return historicalPenaltyBalanceService.assessedToDate(
+                                loan, currentOutstandingPrincipal, firstChargeableDate, asOf);
         }
 
         private BigDecimal totalDueCharge(
