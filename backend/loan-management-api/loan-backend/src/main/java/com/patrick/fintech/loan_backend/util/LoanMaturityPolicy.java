@@ -20,6 +20,20 @@ public final class LoanMaturityPolicy {
         if (loan == null) {
             return null;
         }
+        // A saved maturity date cannot authorize penalties if it conflicts
+        // with the real disbursement date and contractual duration. Flag
+        // imported inconsistencies for manual contract verification rather
+        // than assessing penalties from a monthly next_due_date or bad import.
+        LocalDate actualDisbursement = loan.getDisbursedAt() == null
+                ? null : loan.getDisbursedAt().toLocalDate();
+        Integer termMonths = loan.getDurationMonths();
+        if (Boolean.TRUE.equals(loan.getImported())
+                && loan.getMaturityDate() != null
+                && actualDisbursement != null
+                && termMonths != null && termMonths > 0
+                && !actualDisbursement.plusMonths(termMonths).equals(loan.getMaturityDate())) {
+            return null;
+        }
         if (loan.getMaturityDate() != null) {
             return loan.getMaturityDate();
         }
