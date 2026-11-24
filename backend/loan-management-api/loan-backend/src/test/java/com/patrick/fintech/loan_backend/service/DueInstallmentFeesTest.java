@@ -58,6 +58,8 @@ class DueInstallmentFeesTest {
                 .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 10, 0))
                 .durationMonths(6)
                 .nextDueDate(LocalDate.of(2026, 10, 25))
+                .totalInterest(new BigDecimal("6300000.00"))
+                .managementFee(new BigDecimal("6300000.00"))
                 .interestOutstanding(new BigDecimal("6300000.00"))
                 .managementFeeOutstanding(new BigDecimal("6300000.00")).build();
         DueInstallmentFees.Due before = DueInstallmentFees.calculate(loan,
