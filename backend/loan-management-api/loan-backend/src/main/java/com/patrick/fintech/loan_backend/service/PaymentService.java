@@ -783,6 +783,24 @@ public class PaymentService {
                                         : 0;
                 }
 
+                // Catch-up penalty assessments are real GL receivables,
+                // not just changes to the loan's operational counter.
+                // Post the accrual once, in the SAME transaction as payment,
+                // before the receipt can clear it. A stale same-day journal
+                // must never create an unbacked operational receivable.
+                if (newlyCalculatedPenalty.compareTo(ZERO) > 0) {
+                        accountingService.postPenaltyAccrual(loan, newlyCalculatedPenalty);
+                        BigDecimal assessedAfterAccrual = roundMoney(
+                                        safe(loan.getPenaltiesAssessedDecimal()));
+                        BigDecimal expectedAssessed = roundMoney(
+                                        loanPenaltyAssessedBeforePayment.add(newlyCalculatedPenalty));
+                        if (assessedAfterAccrual.compareTo(expectedAssessed) != 0) {
+                                throw new IllegalStateException(
+                                                "Penalty catch-up was not journaled consistently. "
+                                                                + "Payment rolled back pending GL reconciliation.");
+                        }
+                }
+
                 // ============================================================
                 // TOTAL PENALTY
                 // ============================================================
@@ -1195,13 +1213,10 @@ public class PaymentService {
                                                 .max(ZERO));
                 loan.setManagementFeeOutstanding(newManagementOutstanding);
 
-                BigDecimal oldPenaltiesAssessed = roundMoney(
-                                safe(loan.getPenaltiesAssessedDecimal()));
+                // postPenaltyAccrual already updated penaltiesAssessed when
+                // catch-up was required; do not assess twice.
                 BigDecimal newPenaltiesAssessed = roundMoney(
-                                oldPenaltiesAssessed
-                                                .add(newlyCalculatedPenalty)
-                                                .max(ZERO));
-                loan.setPenaltiesAssessed(newPenaltiesAssessed);
+                                safe(loan.getPenaltiesAssessedDecimal())).max(ZERO);
 
                 BigDecimal oldPenaltiesPaid = roundMoney(
                                 safe(loan.getPenaltiesPaidDecimal()));
