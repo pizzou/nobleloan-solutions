@@ -22,9 +22,10 @@ class OverduePenaltyClockTest {
                 OverduePenaltyClock.contractualMaturity(loan));
         assertEquals(LocalDate.of(2026, 9, 23),
                 OverduePenaltyClock.firstChargeableDay(loan));
-        assertEquals(0L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 22)));
-        assertEquals(1L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 23)));
-        assertEquals(64L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 11, 25)));
+        assertEquals(3L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 22)));
+        assertEquals(4L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 23)));
+        assertEquals(67L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 11, 25)));
+        assertEquals(64L, OverduePenaltyClock.chargeableDays(loan, LocalDate.of(2026, 11, 25)));
     }
 
     @Test
