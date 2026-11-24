@@ -69,8 +69,7 @@ public final class DueInstallmentFees {
         // only the one placeholder month and sending the rest to principal.
         // Full contractual totals are split across signed monthly periods,
         // never beyond maturity and never beyond the loan's unpaid balances.
-        if (Boolean.TRUE.equals(loan.getImported())
-                && (installments == null || installments.size() <= 1)
+        if ((installments == null || installments.size() <= 1)
                 && loan.getDisbursedAt() != null
                 && loan.getDurationMonths() != null
                 && loan.getDurationMonths() > 0
