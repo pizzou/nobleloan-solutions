@@ -984,6 +984,19 @@ public class AccountingService {
          * user. Reject any unexplained difference rather than manufacturing
          * a suspense or plug journal.
          */
+        /** Prevent repeat historical replay when the original immutable cash
+         * receipt has already been offset by an approved policy journal. */
+        @Transactional(readOnly = true)
+        public boolean hasPolicyRecalculation(Loan loan) {
+                if (loan == null || loan.getId() == null ||
+                        loan.getOrganization() == null ||
+                        loan.getOrganization().getId() == null) return false;
+                return journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                        loan.getOrganization().getId(),
+                        "LOAN_POLICY_RECALC", "LOAN:" + loan.getId() + ":POLICY-V1")
+                        .isPresent();
+        }
+
         @Transactional
         public JournalEntry postPolicyRecalculation(
                         Loan loan, LoanPolicyRecalculationEngine.Result corrected,
