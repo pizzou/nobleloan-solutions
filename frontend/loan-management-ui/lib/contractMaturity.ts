@@ -1,7 +1,7 @@
 import type { Loan } from "@/types";
 
 /** Contract maturity is not the same as an unpaid installment. */
-type LoanDates = Pick<Loan, "maturityDate" | "disbursedAt" | "durationMonths" | "imported" | "status">;
+type LoanDates = Pick<Loan, "maturityDate" | "disbursedAt" | "durationMonths" | "imported" | "status" | "contractDaysOverdue" | "contractMaturityVerified">;
 
 function isoDate(input: unknown): string | null {
   if (typeof input !== "string") return null;
@@ -22,6 +22,7 @@ function addCalendarMonths(start: string, months: number): string {
 
 /** Imported records whose contract fields conflict require verification. */
 export function verifiedContractMaturity(loan: LoanDates): string | null {
+  if (loan.contractMaturityVerified === false) return null;
   const saved = isoDate(loan.maturityDate);
   const disbursed = isoDate(loan.disbursedAt);
   const duration = Number(loan.durationMonths);
@@ -41,6 +42,12 @@ export function verifiedContractMaturity(loan: LoanDates): string | null {
  * regulatory classification, historical statuses or accounting data.
  */
 export function contractDaysOverdue(loan: LoanDates, asOf = new Date()): number | null {
+  // Prefer the authoritative backend metric whenever the API supplies it.
+  if (loan.contractMaturityVerified === false) return null;
+  if (loan.contractDaysOverdue != null &&
+      Number.isFinite(loan.contractDaysOverdue)) {
+    return Math.max(0, loan.contractDaysOverdue);
+  }
   const maturity = verifiedContractMaturity(loan);
   if (!maturity) return null;
   if (["PAID", "CLOSED", "CANCELLED", "REJECTED", "PENDING", "APPROVED", "UNDER_REVIEW"]
