@@ -11,6 +11,7 @@ import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.HistoricalPenaltyBalanceService;
+import com.patrick.fintech.loan_backend.service.OverduePenaltyClock;
 import com.patrick.fintech.loan_backend.service.CollectionsService;
 import com.patrick.fintech.loan_backend.service.CurrencyService;
 import com.patrick.fintech.loan_backend.service.MailService;
@@ -197,9 +198,7 @@ public class ScheduledJobs {
                                                                         .filter(java.util.Objects::nonNull)
                                                                         .filter(d -> d.isBefore(accrualDate))
                                                                         .min(LocalDate::compareTo)
-                                                                        .map(d -> d.plusDays(
-                                                                                        FinancialPolicy.PENALTY_GRACE_DAYS
-                                                                                                        + 1L))
+                                                                        .map(OverduePenaltyClock::firstChargeableDay)
                                                                         .orElse(null);
 
                                                         if (penaltyStart != null && !penaltyStart.isAfter(accrualDate)
