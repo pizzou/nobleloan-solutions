@@ -23,6 +23,12 @@ public final class LoanMaturityPolicy {
         if (loan.getMaturityDate() != null) {
             return loan.getMaturityDate();
         }
+        // Legacy start dates and durations may be inferred/imported rather
+        // than verified against the signed contract. Never infer a new
+        // chargeable penalty date from such incomplete imported data.
+        if (Boolean.TRUE.equals(loan.getImported())) {
+            return null;
+        }
         Integer months = loan.getDurationMonths();
         if (months == null || months <= 0) {
             return null;
