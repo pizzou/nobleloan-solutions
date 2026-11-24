@@ -1,0 +1,27 @@
+name: Financial policy regression
+
+on:
+  pull_request:
+    branches:
+      - security/nextjs-15.5.28
+  workflow_dispatch:
+
+jobs:
+  verify-financial-policy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: backend/loan-management-api/loan-backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 21 and Maven cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/loan-management-api/loan-backend/pom.xml
+      - name: Compile and test all backend financial policies
+        run: mvn -B --no-transfer-progress clean verify
