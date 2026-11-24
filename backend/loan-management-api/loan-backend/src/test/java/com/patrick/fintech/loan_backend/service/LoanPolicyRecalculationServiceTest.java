@@ -94,6 +94,24 @@ class LoanPolicyRecalculationServiceTest {
     }
 
     @Test
+    void alreadyPostedPolicyJournalSuppressesDuplicatePreviewAndApplication() {
+        Organization org = Organization.builder().id(1L).build();
+        Loan loan = Loan.builder().id(54L).organization(org)
+                .referenceNumber("NLS-000054").imported(true).build();
+        when(loans.findById(54L)).thenReturn(Optional.of(loan));
+        when(accounting.hasPolicyRecalculation(loan)).thenReturn(true);
+
+        LoanPolicyRecalculationService.Preview preview =
+                service.preview(54L, 1L, LocalDate.of(2026, 11, 25));
+        assertFalse(preview.needsCorrection());
+        assertEquals("ALREADY_APPLIED_NONCASH_JOURNAL", preview.postingStatus());
+        assertNull(preview.corrected());
+        verifyNoInteractions(receipts);
+        verify(accounting, never()).postPolicyRecalculation(
+                any(), any(), any(), any());
+    }
+
+    @Test
     void rejectsMissingContractMaturityWithoutPostingAnyJournal() {
         Organization org = Organization.builder().id(1L).build();
         Loan loan = Loan.builder().id(54L).organization(org).imported(true)
