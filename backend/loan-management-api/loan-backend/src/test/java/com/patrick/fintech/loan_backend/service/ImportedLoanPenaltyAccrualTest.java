@@ -37,6 +37,9 @@ class ImportedLoanPenaltyAccrualTest {
         l.setStatus(LoanStatus.OVERDUE);
         l.setCreatedAt(importedOn.atTime(10, 26));
         l.setNextDueDate(importedOn.minusDays(73));
+        // Signed contractual maturity is distinct from the earlier monthly
+        // installment due date. The first chargeable day is maturity + 4.
+        l.setMaturityDate(importedOn.minusDays(73));
         l.setOutstandingBalance(new BigDecimal("33500000.00"));
         l.setTotalRepayable(new BigDecimal("33500000.00"));
         l.setPenaltyRate(FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE);
