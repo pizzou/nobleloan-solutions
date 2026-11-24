@@ -828,6 +828,22 @@ public class PaymentService {
                                                                 penaltyAlreadyPaid)
                                                 .max(ZERO));
 
+                // Do not allocate any principal while older unpaid penalty
+                // assessments live on a different installment. That history
+                // must first be reconciled, otherwise subtracting only the
+                // current cycle's penalty would silently overpay principal.
+                BigDecimal globallyUnpaidPenalty = roundMoney(
+                        safe(loan.getPenaltiesAssessedDecimal())
+                                .subtract(safe(loan.getPenaltiesPaidDecimal()))
+                                .max(ZERO));
+                if (globallyUnpaidPenalty.subtract(penaltyRemainingBeforePayment)
+                        .compareTo(ONE_CENT) > 0) {
+                    throw new IllegalStateException(
+                            "Unpaid penalties span multiple installment records. "
+                            + "Reconcile historical penalty allocations before accepting "
+                            + "a receipt; principal cannot be paid ahead of penalties.");
+                }
+
                 // ============================================================
                 // PAYMENT ALLOCATION — CANONICAL ORDER
                 // ============================================================
