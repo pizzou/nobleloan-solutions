@@ -710,7 +710,9 @@ public class PaymentService {
                 // aggregate without having monthly schedule rows. The selected
                 // receipt row then represents their cumulative overdue charges.
                 boolean legacySingleReceiptCycle = Boolean.TRUE.equals(loan.getImported())
-                                && loanPayments.size() <= 1 && cycleIsDue;
+                                && loanPayments.size() <= 1
+                                && (cycleIsDue || (LoanMaturityPolicy.maturityDate(loan) != null
+                                && !today.isBefore(LoanMaturityPolicy.maturityDate(loan))));
                 if (legacySingleReceiptCycle) {
                         totalCycleInterestDue = roundMoney(
                                         interestAlreadyPaidThisCycle.add(remainingInterestBeforePayment));
