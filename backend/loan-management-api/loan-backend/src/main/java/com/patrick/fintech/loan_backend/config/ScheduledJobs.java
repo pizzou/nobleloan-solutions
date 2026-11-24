@@ -409,9 +409,13 @@ public class ScheduledJobs {
                                 Loan overdueLoan = overdueLoanById.get(overdueEntry.getKey());
                                 int accurateDays = (int) Math.min(Integer.MAX_VALUE,
                                                 OverduePenaltyClock.daysOverdue(overdueLoan, today));
+                                LoanStatus expectedStatus = accurateDays > 0
+                                                ? LoanStatus.OVERDUE : LoanStatus.ACTIVE;
                                 if (accurateDays != (overdueLoan.getDaysOverdue() == null
-                                                ? 0 : overdueLoan.getDaysOverdue())) {
+                                                ? 0 : overdueLoan.getDaysOverdue())
+                                                || overdueLoan.getStatus() != expectedStatus) {
                                         overdueLoan.setDaysOverdue(accurateDays);
+                                        overdueLoan.setStatus(expectedStatus);
                                         loanRepo.save(overdueLoan);
                                 }
                         }
