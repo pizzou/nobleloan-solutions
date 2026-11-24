@@ -1349,7 +1349,7 @@ export default function DashboardPage() {
                                 : "rounded-md bg-[#EAF7F0] px-2.5 py-1.5 text-[10px] font-black text-[#168063]"
                             }
                           >
-                            {loanStatus.replaceAll("_", " ")}
+                            {loanStatus === "OVERDUE" ? "INSTALLMENT ARREARS" : loanStatus.replaceAll("_", " ")}
                           </span>
                         </td>
 
