@@ -149,4 +149,65 @@ class LoanPrincipalAmendmentReconciliationTest {
         verify(loans, never()).saveAndFlush(any());
         verify(requests, never()).saveAndFlush(any());
     }
+    @Test
+    void staffRequestAppearsInOwnerQueueAndOwnerDecisionPersistsWithoutMutatingLoan() {
+        Role staffRole = new Role();
+        staffRole.setName("MANAGER");
+        User maker = User.builder().id(4L).organization(owner.getOrganization())
+                .role(staffRole).build();
+        LoanPrincipalAmendmentService.Proposal proposal =
+                new LoanPrincipalAmendmentService.Proposal(
+                        "NLS-000017", n("1000000.00"),
+                        LoanPrincipalAmendmentRequest.CorrectionType.CONTRACT_TERMS,
+                        LocalDate.of(2026, 9, 30), n("4.00"), n("4.00"),
+                        "Correct signed loan terms and date as documented",
+                        "CONTRACT-2026-17");
+        var submitted = service.submit(17L, proposal, maker);
+        assertEquals(LoanPrincipalAmendmentRequest.Status.PENDING_REVIEW,
+                submitted.getStatus());
+        assertEquals(4L, submitted.getRequesterId());
+        verify(requests).saveAndFlush(submitted);
+        verifyNoInteractions(accounting);
+
+        submitted.setId(52L);
+        when(requests.findByOrganizationIdAndStatusOrderByCreatedAtAsc(
+                1L, LoanPrincipalAmendmentRequest.Status.PENDING_REVIEW))
+                .thenReturn(List.of(submitted));
+        assertEquals(List.of(submitted), service.pending(owner));
+
+        when(requests.lock(1L, 17L, 52L)).thenReturn(Optional.of(submitted));
+        var approved = service.decide(17L, 52L, true,
+                new LoanPrincipalAmendmentService.Decision(
+                        "NLS-000017", "Reviewed the signed loan contract and verified the requested changes"),
+                owner);
+        assertEquals(LoanPrincipalAmendmentRequest.Status.APPROVED_FOR_RECONCILIATION,
+                approved.getStatus());
+        assertEquals(9L, approved.getReviewerId());
+        assertEquals(n("1000000.00"), loan.getAmountDecimal());
+        assertEquals(n("5.00"), loan.getInterestRateDecimal());
+        assertEquals(n("5.00"), loan.getManagementFeeRateDecimal());
+        assertEquals(LocalDate.of(2026, 10, 1), loan.getDisbursedAt().toLocalDate());
+        verifyNoInteractions(accounting);
+        verify(loans, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void independentApprovalDoesNotCreateAdditionalCashDisbursement() {
+        var item = approved(n("5.00"), n("5.00"));
+        item.setStatus(LoanPrincipalAmendmentRequest.Status.PENDING_REVIEW);
+        item.setCorrectionType(LoanPrincipalAmendmentRequest.CorrectionType.ADDITIONAL_DISBURSEMENT);
+        item.setCorrectedPrincipal(n("1500000.00"));
+        when(requests.lock(1L, 17L, 51L)).thenReturn(Optional.of(item));
+
+        var reviewed = service.decide(17L, 51L, true,
+                new LoanPrincipalAmendmentService.Decision(
+                        "NLS-000017", "Approved for separate cash-controlled reconciliation"),
+                owner);
+        assertEquals(LoanPrincipalAmendmentRequest.Status.APPROVED_FOR_RECONCILIATION,
+                reviewed.getStatus());
+        verifyNoInteractions(accounting);
+        verify(loans, never()).saveAndFlush(any());
+        assertThrows(IllegalStateException.class, () -> service.apply(17L, 51L, owner));
+    }
+
 }
