@@ -412,11 +412,63 @@ function NewLoanForm() {
     requiredDocuments.length > 0 &&
     missing.length === 0;
 
-  const readyToReview =
-    valid &&
-    documentsReady &&
-    !loadingBorrowers &&
-    !submitting &&
+  const reviewIssues: string[] = [];
+  if (!validBorrowerId) reviewIssues.push("Choose a borrower from the register.");
+  if (!Number.isFinite(principal) || principal < 1_000_000)
+    reviewIssues.push("Enter a principal of at least 1,000,000 RWF.");
+  if (!Number.isInteger(duration) || duration < 1 || duration > 6)
+    reviewIssues.push("Enter a loan term between 1 and 6 months.");
+  if (!startDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(startDate))
+    reviewIssues.push("Choose a valid proposed start date.");
+  if (purpose.trim().length < 10)
+    reviewIssues.push("Describe the loan purpose using at least 10 characters.");
+  if (collateralType !== "NONE" &&
+      (!collateralDescription.trim() ||
+        !collateralValue.trim() || !Number.isFinite(Number(collateralValue)) ||
+        Number(collateralValue) <= 0))
+    reviewIssues.push("Enter the collateral description and a positive valuation.");
+  if (collateralType === "IMMOVABLE" && !collateralExpertise)
+    reviewIssues.push("Attach the required immovable collateral valuation report.");
+  if (collateralValue &&
+      (!Number.isFinite(Number(collateralValue)) || Number(collateralValue) < 0))
+    reviewIssues.push("Enter a valid non-negative collateral value.");
+  if (collateralExpertise &&
+      (!ALLOWED_MIME_TYPES.has(collateralExpertise.type) ||
+       collateralExpertise.size <= 0 ||
+       collateralExpertise.size > MAX_DOCUMENT_BYTES))
+    reviewIssues.push("The collateral valuation must be PDF/JPG/PNG/WEBP, up to 8 MB.");
+  if (extraEvidence.length > 9)
+    reviewIssues.push("Attach no more than nine supporting files.");
+  if (extraEvidence.some((file) =>
+      !ALLOWED_MIME_TYPES.has(file.type) ||
+      file.size <= 0 || file.size > MAX_DOCUMENT_BYTES))
+    reviewIssues.push("Supporting files must be PDF/JPG/PNG/WEBP, up to 8 MB each.");
+  if ((collateralExpertise?.size ?? 0) +
+      extraEvidence.reduce((total, file) => total + file.size, 0) >
+      24 * 1024 * 1024)
+    reviewIssues.push("Combined collateral and supporting files must be 24 MB or less.");
+  if (loadingBorrowers) reviewIssues.push("Borrower search is still running.");
+  if (validBorrowerId && (!documentsMatchBorrower || documents.loading))
+    reviewIssues.push("Borrower profile and required documents are still loading.");
+  if (documents.error) reviewIssues.push("Borrower documents: " + documents.error);
+  if (uploadError) reviewIssues.push("Document upload: " + uploadError);
+  if (uploadingType !== null) reviewIssues.push("Finish uploading the document first.");
+  if (documentsMatchBorrower && !documents.loading && !documents.error &&
+      documents.details === null)
+    reviewIssues.push("The selected borrower profile could not be verified.");
+  if (missing.length)
+    reviewIssues.push("Missing or outdated documents: " +
+      missing.map(documentLabel).join(", ") + ".");
+  if (normalize(documents.details?.status) === "BLACKLISTED")
+    reviewIssues.push("Applications cannot be created for a blacklisted borrower.");
+  if (documentsMatchBorrower && documents.details &&
+      requiredDocuments.length === 0)
+    reviewIssues.push("Unable to determine the required borrower documents.");
+  if (!documentsReady && reviewIssues.length === 0)
+    reviewIssues.push("Required borrower documents are not ready.");
+
+  const readyToReview = valid && documentsReady &&
+    !loadingBorrowers && !submitting &&
     normalize(documents.details?.status) !== "BLACKLISTED";
 
   async function uploadRequiredDocument(type: string, file: File | null) {
@@ -472,20 +524,10 @@ function NewLoanForm() {
 
   function reviewApplication() {
     setError("");
-
-    if (!valid) {
-      setError(
-        "Check the borrower, amount (minimum 1,000,000 RWF), " +
-          "1–6 month term and purpose (at least 10 characters).",
-      );
-      return;
-    }
-
-    if (!documentsReady) {
-      setError(
-        "Upload or update all required borrower documents " +
-          "before reviewing this application.",
-      );
+    if (!readyToReview) {
+      setError(reviewIssues.length
+        ? reviewIssues.join(" ")
+        : "This loan application is not ready for review. Check the entered details.");
       return;
     }
 
@@ -629,6 +671,7 @@ function NewLoanForm() {
       {!review ? (
         <form
           className="space-y-5"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             reviewApplication();
@@ -1044,16 +1087,30 @@ function NewLoanForm() {
             </p>
           </section>
 
-          <div className="flex justify-end">
-            <button
-              className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={!readyToReview}
-              type="submit"
-            >
-              {uploadingType
-                ? "Uploading documents..."
-                : "Review application →"}
-            </button>
+          <div className="space-y-3">
+            {!readyToReview && (
+              <div role="status" aria-live="polite"
+                className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">Complete these items before reviewing:</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {reviewIssues.map((issue) => <li key={issue}>{issue}</li>)}
+                </ul>
+              </div>
+            )}
+            {error && (
+              <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                {error}
+              </p>
+            )}
+            <div className="flex justify-end">
+              <button
+                className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                disabled={submitting}
+                type="submit"
+              >
+                {uploadingType ? "Check upload requirements" : "Review application →"}
+              </button>
+            </div>
           </div>
         </form>
       ) : (
