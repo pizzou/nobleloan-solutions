@@ -52,4 +52,19 @@ class LoanMaturityPolicyTest {
         assertNull(LoanMaturityPolicy.firstPenaltyDate(loan));
         assertFalse(LoanMaturityPolicy.chargeable(loan, LocalDate.of(2027, 7, 15)));
     }
+    @Test
+    void sixMonthContractNeverCreatesExtraMonthlyFeesAfterMaturity() {
+        Loan loan = Loan.builder().imported(true).durationMonths(6)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 9, 0))
+                .maturityDate(LocalDate.of(2026, 9, 26)).build();
+        assertTrue(LoanMaturityPolicy.allowsMonthlyCharge(
+                loan, LocalDate.of(2026, 9, 26)));
+        assertFalse(LoanMaturityPolicy.allowsMonthlyCharge(
+                loan, LocalDate.of(2026, 9, 27)));
+        assertFalse(LoanMaturityPolicy.allowsMonthlyCharge(
+                loan, LocalDate.of(2026, 11, 19)));
+        assertEquals(LocalDate.of(2026, 9, 30),
+                LoanMaturityPolicy.firstPenaltyDate(loan));
+    }
+
 }
