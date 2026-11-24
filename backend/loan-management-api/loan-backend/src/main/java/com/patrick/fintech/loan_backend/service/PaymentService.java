@@ -597,10 +597,17 @@ public class PaymentService {
                                 interestStartDateTime, now, firstInterestCalculation, loanId);
 
                 boolean cycleIsDue = !cycleDueDate.isAfter(today);
+                // Maturity closes the contractual charging window. Existing
+                // scheduled fees and unpaid loan-level fees remain collectible,
+                // but making a late payment must not create a seventh month of
+                // interest or management fees on a six-month contract.
+                LocalDate contractualMaturity = LoanMaturityPolicy.maturityDate(loan);
+                boolean newCycleChargeAllowed = cycleIsDue &&
+                                (contractualMaturity == null || !today.isAfter(contractualMaturity));
 
                 BigDecimal contractualMonthlyInterest = existingCycleInterestDue.signum() > 0
                                 ? existingCycleInterestDue
-                                : (cycleIsDue
+                                : (newCycleChargeAllowed
                                                 ? FinancialPolicy.contractualMonthlyCharge(
                                                                 currentBalance,
                                                                 moneyRatePercent(loan.getInterestRateDecimal(),
@@ -609,7 +616,7 @@ public class PaymentService {
 
                 BigDecimal contractualMonthlyManagementFee = existingCycleManagementFeeDue.signum() > 0
                                 ? existingCycleManagementFeeDue
-                                : (cycleIsDue
+                                : (newCycleChargeAllowed
                                                 ? FinancialPolicy.contractualMonthlyCharge(
                                                                 currentBalance,
                                                                 moneyRatePercent(loan.getManagementFeeRateDecimal(),
