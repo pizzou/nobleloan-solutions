@@ -52,6 +52,15 @@ public class LoanPolicyRecalculationService {
                 .filter(l -> l.getOrganization() != null
                         && organizationId.equals(l.getOrganization().getId()))
                 .orElseThrow(() -> new IllegalArgumentException("Loan not found in organization"));
+        // Immutable receipt components remain historical even after an audited
+        // non-cash policy journal. Do not replay them a second time and
+        // display an imaginary new adjustment after a successful correction.
+        if (accountingService.hasPolicyRecalculation(loan)) {
+            Delta zero = new Delta(BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                    BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2));
+            return new Preview(loan.getReferenceNumber(), asOf, null, zero,
+                    false, "ALREADY_APPLIED_NONCASH_JOURNAL");
+        }
         List<PaymentTransaction> receipts = transactionRepository.findByLoanIdOrderByCreatedAtDesc(loanId);
         LoanPolicyRecalculationEngine.Result calculated =
                 new LoanPolicyRecalculationEngine(allocationService).calculate(loan, receipts, asOf);
