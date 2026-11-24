@@ -2656,6 +2656,16 @@ public class AccountingService {
                         throw new IllegalArgumentException("Loan is required");
                 }
 
+                // Enforce maturity eligibility even when other services call
+                // the posting API directly, rather than through the EOD job.
+                // Missing verified maturity on an imported loan is not
+                // permission to fabricate an overdue penalty.
+                if (!LoanMaturityPolicy.chargeable(loan, LocalDate.now())) {
+                        log.info("Skipping penalty accrual for loan {} before verified "
+                                        + "contract maturity and grace", loan.getReferenceNumber());
+                        return null;
+                }
+
                 Organization org = loan.getOrganization();
                 requireOrganization(org);
                 ensureChartOfAccounts(org);
