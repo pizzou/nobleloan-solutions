@@ -155,6 +155,8 @@ class LoanPrincipalAmendmentReconciliationTest {
         staffRole.setName("MANAGER");
         User maker = User.builder().id(4L).organization(owner.getOrganization())
                 .role(staffRole).build();
+        when(loans.findVisibleByIdForUpdate(17L, 1L, false))
+                .thenReturn(Optional.of(loan));
         LoanPrincipalAmendmentService.Proposal proposal =
                 new LoanPrincipalAmendmentService.Proposal(
                         "NLS-000017", n("1000000.00"),
