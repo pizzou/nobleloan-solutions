@@ -53,6 +53,17 @@ public final class LoanMaturityPolicy {
         return disbursed == null ? null : disbursed.plusMonths(months);
     }
 
+    /**
+     * No new contractual interest/management month is earned after maturity;
+     * already-accrued monthly amounts remain due and collectible.
+     * Unknown maturity is not treated as a fabricated contract end.
+     */
+    public static boolean allowsMonthlyCharge(Loan loan, LocalDate chargeDate) {
+        if (loan == null || chargeDate == null) return false;
+        LocalDate maturity = maturityDate(loan);
+        return maturity == null || !chargeDate.isAfter(maturity);
+    }
+
     public static LocalDate firstPenaltyDate(Loan loan) {
         LocalDate maturity = maturityDate(loan);
         return maturity == null ? null
