@@ -47,7 +47,7 @@ const STATUS_OPTIONS: Array<{
   { value: "REJECTED", label: "Rejected" },
   { value: "DISBURSED", label: "Disbursed" },
   { value: "ACTIVE", label: "Active" },
-  { value: "OVERDUE", label: "Overdue" },
+  { value: "OVERDUE", label: "Installment arrears" },
   { value: "DEFAULTED", label: "Defaulted" },
   { value: "RESTRUCTURED", label: "Restructured" },
   { value: "WRITTEN_OFF", label: "Written off" },
@@ -1235,7 +1235,7 @@ export default function LoanListPage() {
                   <span className="text-2xl font-black">{summary.overdue}</span>
 
                   <span className="text-sm font-semibold text-red-300">
-                    overdue
+                    installment arrears
                   </span>
                 </div>
 
@@ -1313,7 +1313,7 @@ export default function LoanListPage() {
           />
 
           <MetricCard
-            label="Overdue"
+            label="Installment arrears"
             value={summary.overdue.toLocaleString()}
             description={
               isScopedPageSummary
