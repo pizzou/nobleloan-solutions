@@ -690,28 +690,28 @@ public class PaymentService {
                 remainingManagementFeeBeforePayment = roundMoney(
                                 remainingManagementFeeBeforePayment);
 
-                // Imported legacy loans often have one receipt installment but
-                // carry several months of *already due* unpaid interest and
-                // management fees in the imported loan aggregates. Charging
-                // just one freshly created payment cycle incorrectly pushes
-                // those historical fees into principal. Do not accelerate
-                // fees when the imported next due date is still in the future.
-                if (Boolean.TRUE.equals(loan.getImported()) && cycleIsDue) {
-                        BigDecimal importedInterestArrears = roundMoney(
-                                        safe(loan.getInterestOutstandingDecimal())).max(ZERO);
-                        BigDecimal importedManagementArrears = roundMoney(
-                                        safe(loan.getManagementFeeOutstandingDecimal())).max(ZERO);
+                // Aggregate every overdue monthly fee before paying principal.
+                // Do not accelerate any future scheduled installment.
+                BigDecimal selectedInterestDueBeforePayment = remainingInterestBeforePayment;
+                BigDecimal selectedManagementDueBeforePayment = remainingManagementFeeBeforePayment;
+                DueInstallmentFees.Due dueFees =
+                                DueInstallmentFees.calculate(loan, loanPayments, today);
+                remainingInterestBeforePayment = remainingInterestBeforePayment.max(dueFees.interest());
+                remainingManagementFeeBeforePayment =
+                                remainingManagementFeeBeforePayment.max(dueFees.management());
 
-                        if (importedInterestArrears.compareTo(remainingInterestBeforePayment) > 0) {
-                                remainingInterestBeforePayment = importedInterestArrears;
-                                totalCycleInterestDue = roundMoney(
-                                                interestAlreadyPaidThisCycle.add(importedInterestArrears));
-                        }
-                        if (importedManagementArrears.compareTo(remainingManagementFeeBeforePayment) > 0) {
-                                remainingManagementFeeBeforePayment = importedManagementArrears;
-                                totalCycleManagementFeeDue = roundMoney(
-                                                managementFeeAlreadyPaidThisCycle.add(importedManagementArrears));
-                        }
+                // Legacy imported loans generally carry arrears in the loan
+                // aggregate without having monthly schedule rows. The selected
+                // receipt row then represents their cumulative overdue charges.
+                boolean legacySingleReceiptCycle = Boolean.TRUE.equals(loan.getImported())
+                                && loanPayments.size() <= 1 && cycleIsDue;
+                if (legacySingleReceiptCycle) {
+                        totalCycleInterestDue = roundMoney(
+                                        interestAlreadyPaidThisCycle.add(remainingInterestBeforePayment));
+                        totalCycleManagementFeeDue = roundMoney(
+                                        managementFeeAlreadyPaidThisCycle.add(remainingManagementFeeBeforePayment));
+                        selectedInterestDueBeforePayment = remainingInterestBeforePayment;
+                        selectedManagementDueBeforePayment = remainingManagementFeeBeforePayment;
                 }
 
                 // ============================================================
@@ -877,25 +877,30 @@ public class PaymentService {
                 // REMAINING INTEREST
                 // ============================================================
 
+                BigDecimal interestAppliedToSelected = interestPaidThisPayment
+                                .min(selectedInterestDueBeforePayment);
                 BigDecimal remainingInterestAfterPayment = roundMoney(
-                                totalCycleInterestDue
-                                                .subtract(
-                                                                interestAlreadyPaidThisCycle
-                                                                                .add(
-                                                                                                interestPaidThisPayment))
+                                selectedInterestDueBeforePayment
+                                                .subtract(interestAppliedToSelected)
                                                 .max(ZERO));
 
                 // ============================================================
                 // REMAINING MANAGEMENT FEE
                 // ============================================================
 
+                BigDecimal managementAppliedToSelected = managementFeePaidThisPayment
+                                .min(selectedManagementDueBeforePayment);
                 BigDecimal remainingManagementFeeAfterPayment = roundMoney(
-                                totalCycleManagementFeeDue
-                                                .subtract(
-                                                                managementFeeAlreadyPaidThisCycle
-                                                                                .add(
-                                                                                                managementFeePaidThisPayment))
+                                selectedManagementDueBeforePayment
+                                                .subtract(managementAppliedToSelected)
                                                 .max(ZERO));
+
+                // The payment transaction records the entire cash receipt once.
+                // Additional overdue schedule rows track only their newly
+                // settled cycle balances; they do NOT become extra receipts.
+                applyArrearsToOtherDueInstallments(loanPayments, installment, today,
+                                interestPaidThisPayment.subtract(interestAppliedToSelected),
+                                managementFeePaidThisPayment.subtract(managementAppliedToSelected));
 
                 // ============================================================
                 // COMPLETION
@@ -2098,6 +2103,56 @@ public class PaymentService {
                                 effectiveDays);
 
                 return effectiveDays;
+        }
+
+        /**
+         * Reduce scheduled arrears belonging to OTHER unpaid months after the
+         * selected receipt row has absorbed its own due balance. The cash
+         * receipt and accounting journal remain tied to the selected payment
+         * transaction, so no additional cash event is created.
+         */
+        private void applyArrearsToOtherDueInstallments(
+                        List<Payment> schedule, Payment selected, LocalDate today,
+                        BigDecimal remainingInterestPayment, BigDecimal remainingManagementPayment) {
+                BigDecimal interestLeft = roundMoney(remainingInterestPayment).max(ZERO);
+                BigDecimal managementLeft = roundMoney(remainingManagementPayment).max(ZERO);
+                List<Payment> due = schedule.stream()
+                                .filter(java.util.Objects::nonNull)
+                                .filter(p -> p.getDueDate() != null && !p.getDueDate().isAfter(today))
+                                .filter(p -> p != selected && (selected.getId() == null
+                                                || !selected.getId().equals(p.getId())))
+                                .sorted(Comparator.comparing(Payment::getDueDate)
+                                                .thenComparing(Payment::getInstallmentNumber,
+                                                                Comparator.nullsLast(Comparator.naturalOrder())))
+                                .toList();
+
+                for (Payment p : due) {
+                        if (interestLeft.compareTo(ZERO) == 0
+                                        && managementLeft.compareTo(ZERO) == 0) {
+                                break;
+                        }
+                        BigDecimal interestCharge = roundMoney(
+                                        safe(p.getCycleInterestRemainingDecimal())).max(ZERO);
+                        BigDecimal feeCharge = roundMoney(
+                                        safe(p.getCycleManagementFeeRemainingDecimal())).max(ZERO);
+                        BigDecimal paidInterest = interestCharge.min(interestLeft);
+                        BigDecimal paidFee = feeCharge.min(managementLeft);
+                        if (paidInterest.signum() > 0 || paidFee.signum() > 0) {
+                                p.setCycleInterestRemaining(
+                                                roundMoney(interestCharge.subtract(paidInterest)));
+                                p.setCycleManagementFeeRemaining(
+                                                roundMoney(feeCharge.subtract(paidFee)));
+                                paymentRepo.save(p);
+                        }
+                        interestLeft = roundMoney(interestLeft.subtract(paidInterest));
+                        managementLeft = roundMoney(managementLeft.subtract(paidFee));
+                }
+                if (interestLeft.compareTo(ONE_CENT) > 0
+                                || managementLeft.compareTo(ONE_CENT) > 0) {
+                        throw new IllegalStateException(
+                                        "Overdue fee allocation exceeds persisted monthly arrears; "
+                                                        + "payment not recorded pending schedule reconciliation.");
+                }
         }
 
         // ================================================================
