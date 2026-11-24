@@ -1,0 +1,191 @@
+package com.patrick.fintech.loan_backend.service;
+
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.Payment;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class DueInstallmentFeesTest {
+    @Test
+    void threeMissedMonthsAreCollectedBeforePrincipalButNotFutureMonth() {
+        LocalDate now = LocalDate.of(2027, 4, 1);
+        Loan loan = Loan.builder().interestOutstanding(new BigDecimal("400000.00"))
+                .managementFeeOutstanding(new BigDecimal("400000.00"))
+                .imported(false).build();
+        List<Payment> schedule = List.of(
+                due(now.minusMonths(3)),
+                due(now.minusMonths(2)),
+                due(now.minusMonths(1)),
+                due(now.plusMonths(1)));
+        DueInstallmentFees.Due result = DueInstallmentFees.calculate(loan, schedule, now);
+        assertEquals(new BigDecimal("300000.00"), result.interest());
+        assertEquals(new BigDecimal("300000.00"), result.management());
+    }
+
+    @Test
+    void importedLegacyHistoricalArrearsCanCoverMultipleMonthsWithOneReceiptRow() {
+        LocalDate now = LocalDate.of(2027, 4, 1);
+        Loan loan = Loan.builder().imported(true).nextDueDate(now.minusDays(80))
+                .interestOutstanding(new BigDecimal("600000.00"))
+                .managementFeeOutstanding(new BigDecimal("600000.00")).build();
+        DueInstallmentFees.Due result =
+                DueInstallmentFees.calculate(loan, List.of(), now);
+        assertEquals(new BigDecimal("600000.00"), result.interest());
+        assertEquals(new BigDecimal("600000.00"), result.management());
+    }
+
+    @Test
+    void importedNotYetDueDoesNotAccelerateContractualFees() {
+        LocalDate now = LocalDate.of(2027, 4, 1);
+        Loan loan = Loan.builder().imported(true).nextDueDate(now.plusDays(20))
+                .interestOutstanding(new BigDecimal("600000.00"))
+                .managementFeeOutstanding(new BigDecimal("600000.00")).build();
+        DueInstallmentFees.Due result = DueInstallmentFees.calculate(loan, List.of(), now);
+        assertEquals(new BigDecimal("0.00"), result.interest());
+        assertEquals(new BigDecimal("0.00"), result.management());
+    }
+
+    @Test
+    void atVerifiedContractMaturityAllRemainingInterestAndManagementAreDue() {
+        LocalDate maturity = LocalDate.of(2026, 9, 26);
+        Loan loan = Loan.builder().imported(true)
+                .maturityDate(maturity)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 10, 0))
+                .durationMonths(6)
+                .nextDueDate(LocalDate.of(2026, 10, 25))
+                .totalInterest(new BigDecimal("6300000.00"))
+                .managementFee(new BigDecimal("6300000.00"))
+                .interestOutstanding(new BigDecimal("6300000.00"))
+                .managementFeeOutstanding(new BigDecimal("6300000.00")).build();
+        DueInstallmentFees.Due before = DueInstallmentFees.calculate(loan,
+                List.of(), maturity.minusDays(1));
+        assertEquals(new BigDecimal("5250000.00"), before.interest());
+        assertEquals(new BigDecimal("5250000.00"), before.management());
+
+        DueInstallmentFees.Due atMaturity = DueInstallmentFees.calculate(loan,
+                List.of(), maturity);
+        assertEquals(new BigDecimal("6300000.00"), atMaturity.interest());
+        assertEquals(new BigDecimal("6300000.00"), atMaturity.management());
+    }
+
+    @Test
+    void inconsistentImportedContractDoesNotAccelerateFeesFromUnverifiedMaturity() {
+        LocalDate date = LocalDate.of(2026, 9, 26);
+        Loan loan = Loan.builder().imported(true)
+                .maturityDate(date)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 4, 26, 10, 0))
+                .durationMonths(6)
+                .nextDueDate(date.plusMonths(1))
+                .interestOutstanding(new BigDecimal("500000.00"))
+                .managementFeeOutstanding(new BigDecimal("500000.00")).build();
+        DueInstallmentFees.Due fees = DueInstallmentFees.calculate(loan,
+                List.of(), date.plusDays(1));
+        assertEquals(new BigDecimal("0.00"), fees.interest());
+        assertEquals(new BigDecimal("0.00"), fees.management());
+    }
+
+    @Test
+    void importedLoanWithOnlyOneScheduleRowCollectsEveryDueMonthButNotFutureMonths() {
+        LocalDate asOf = LocalDate.of(2026, 7, 27);
+        Loan loan = Loan.builder()
+                .imported(true)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 10, 0))
+                .maturityDate(LocalDate.of(2026, 9, 26))
+                .durationMonths(6)
+                .nextDueDate(LocalDate.of(2026, 4, 26))
+                .totalInterest(new BigDecimal("6300000.00"))
+                .managementFee(new BigDecimal("6300000.00"))
+                .interestPaid(BigDecimal.ZERO)
+                .managementFeePaid(BigDecimal.ZERO)
+                .interestOutstanding(new BigDecimal("6300000.00"))
+                .managementFeeOutstanding(new BigDecimal("6300000.00"))
+                .build();
+        // Four out of six monthly obligations have become due by July 27.
+        DueInstallmentFees.Due result =
+                DueInstallmentFees.calculate(loan, List.of(due(LocalDate.of(2026, 4, 26))), asOf);
+        assertEquals(new BigDecimal("4200000.00"), result.interest());
+        assertEquals(new BigDecimal("4200000.00"), result.management());
+    }
+
+    @Test
+    void cumulativeHistoricalPaidFeesAreSubtractedBeforeAllocatingNewReceipt() {
+        Loan loan = Loan.builder()
+                .imported(true)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 10, 0))
+                .maturityDate(LocalDate.of(2026, 9, 26))
+                .durationMonths(6)
+                .nextDueDate(LocalDate.of(2026, 4, 26))
+                .totalInterest(new BigDecimal("6300000.00"))
+                .managementFee(new BigDecimal("6300000.00"))
+                .interestPaid(new BigDecimal("2000000.00"))
+                .managementFeePaid(new BigDecimal("2000000.00"))
+                .interestOutstanding(new BigDecimal("4300000.00"))
+                .managementFeeOutstanding(new BigDecimal("4300000.00"))
+                .build();
+        DueInstallmentFees.Due result =
+                DueInstallmentFees.calculate(loan, List.of(), LocalDate.of(2026, 7, 27));
+        assertEquals(new BigDecimal("2200000.00"), result.interest());
+        assertEquals(new BigDecimal("2200000.00"), result.management());
+    }
+
+    @Test
+    void systemCreatedLoanWithIncompleteScheduleStillCollectsAllElapsedMonths() {
+        Loan loan = Loan.builder()
+                .imported(false)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 8, 19, 10, 0))
+                .maturityDate(LocalDate.of(2026, 12, 19))
+                .durationMonths(4)
+                .totalInterest(new BigDecimal("1000000.00"))
+                .managementFee(new BigDecimal("1000000.00"))
+                .interestOutstanding(new BigDecimal("1000000.00"))
+                .managementFeeOutstanding(new BigDecimal("1000000.00"))
+                .build();
+        DueInstallmentFees.Due result = DueInstallmentFees.calculate(loan,
+                List.of(due(LocalDate.of(2026, 9, 19))), LocalDate.of(2026, 11, 25));
+        assertEquals(new BigDecimal("750000.00"), result.interest());
+        assertEquals(new BigDecimal("750000.00"), result.management());
+    }
+
+    @Test
+    void gakubaFullReceiptUsesAllSixMonthsOfFeesAfterPenaltiesBeforePrincipal() {
+        Loan loan = Loan.builder()
+                .id(54L).imported(true)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 9, 0))
+                .maturityDate(LocalDate.of(2026, 9, 26))
+                .durationMonths(6)
+                .nextDueDate(LocalDate.of(2026, 4, 26))
+                .totalInterest(new BigDecimal("6300000.00"))
+                .managementFee(new BigDecimal("6300000.00"))
+                .interestOutstanding(new BigDecimal("6300000.00"))
+                .managementFeeOutstanding(new BigDecimal("6300000.00"))
+                .build();
+        DueInstallmentFees.Due dues = DueInstallmentFees.calculate(
+                loan, List.of(due(LocalDate.of(2026, 4, 26))),
+                LocalDate.of(2026, 11, 19));
+        PaymentAllocationService.Allocation allocation =
+                new PaymentAllocationService().allocate(
+                        new BigDecimal("12100000.00"),
+                        new BigDecimal("5583333.33"),
+                        BigDecimal.ZERO,
+                        dues.interest(), dues.management(),
+                        new BigDecimal("33500000.00"));
+        assertEquals(new BigDecimal("6300000.00"), dues.interest());
+        assertEquals(new BigDecimal("6300000.00"), dues.management());
+        assertEquals(new BigDecimal("5583333.33"), allocation.penalty());
+        assertEquals(new BigDecimal("3258333.34"), allocation.interest());
+        assertEquals(new BigDecimal("3258333.33"), allocation.managementFee());
+        assertEquals(new BigDecimal("0.00"), allocation.principal());
+    }
+
+    private Payment due(LocalDate date) {
+        return Payment.builder().dueDate(date)
+                .cycleInterestRemaining(new BigDecimal("100000.00"))
+                .cycleManagementFeeRemaining(new BigDecimal("100000.00"))
+                .build();
+    }
+}

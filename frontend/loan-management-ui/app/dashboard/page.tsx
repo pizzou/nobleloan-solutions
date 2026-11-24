@@ -22,7 +22,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { loanApi, taskApi } from "@/services/api";
+import { get, loanApi, taskApi } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
 
 /* ============================================================
@@ -454,6 +454,28 @@ export default function DashboardPage() {
   const [retrievedAt, setRetrievedAt] = useState<Date | null>(null);
 
   const authenticatedOwner = isOwnerAccount(auth);
+  const [pendingAmendments, setPendingAmendments] = useState<number | null>(null);
+  const [pendingLegacyCorrections, setPendingLegacyCorrections] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!authenticatedOwner) {
+      setPendingAmendments(null);
+      setPendingLegacyCorrections(null);
+      return;
+    }
+    let active = true;
+    void Promise.allSettled([
+      get("/principal-amendments/pending"),
+      get("/legacy-corrections/pending"),
+    ]).then(([amendments, legacy]) => {
+      if (!active) return;
+      setPendingAmendments(amendments.status === "fulfilled" &&
+        Array.isArray(amendments.value) ? amendments.value.length : null);
+      setPendingLegacyCorrections(legacy.status === "fulfilled" &&
+        Array.isArray(legacy.value) ? legacy.value.length : null);
+    });
+    return () => { active = false; };
+  }, [authenticatedOwner]);
 
   // Reporting scope MUST originate from the backend.
   const consolidatedView =
@@ -726,6 +748,26 @@ export default function DashboardPage() {
           >
             Financial refresh failed. Previously loaded figures remain visible.
           </div>
+        )}
+
+        {authenticatedOwner && (
+          <section aria-label="Business Owner loan correction approvals"
+            className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mr-auto">
+              <h2 className="text-sm font-extrabold text-amber-950">Loan correction approvals</h2>
+              <p className="mt-1 text-xs text-amber-900">Review staff requests for principal, disbursement date, negotiated rates and legacy record corrections.</p>
+            </div>
+            <button type="button"
+              onClick={() => router.push("/dashboard/principal-amendments")}
+              className="rounded-lg bg-amber-900 px-4 py-2 text-xs font-bold text-white">
+              Financial amendments{pendingAmendments === null ? "" : ` (${pendingAmendments})`}
+            </button>
+            <button type="button"
+              onClick={() => router.push("/dashboard/loans/correction-requests")}
+              className="rounded-lg border border-amber-900 px-4 py-2 text-xs font-bold text-amber-950">
+              Legacy corrections{pendingLegacyCorrections === null ? "" : ` (${pendingLegacyCorrections})`}
+            </button>
+          </section>
         )}
 
         {/* ============= OWNER CONSOLIDATION ============= */}
@@ -1149,8 +1191,8 @@ export default function DashboardPage() {
             }
           >
             <ActionItem
-              title="Overdue Repayments"
-              detail="Review aging and recovery assignments"
+              title="Installment arrears"
+              detail="Scheduled repayments past due; contractual maturity and penalties are evaluated separately"
               value={`${formatCount(data.overdueLoans)} loans`}
               urgent={numberValue(data.overdueLoans) > 0}
               onClick={() => router.push("/dashboard/loans")}
@@ -1307,7 +1349,7 @@ export default function DashboardPage() {
                                 : "rounded-md bg-[#EAF7F0] px-2.5 py-1.5 text-[10px] font-black text-[#168063]"
                             }
                           >
-                            {loanStatus.replaceAll("_", " ")}
+                            {loanStatus === "OVERDUE" ? "INSTALLMENT ARREARS" : loanStatus.replaceAll("_", " ")}
                           </span>
                         </td>
 

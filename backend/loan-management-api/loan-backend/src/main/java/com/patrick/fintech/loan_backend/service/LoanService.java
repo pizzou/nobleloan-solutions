@@ -3045,6 +3045,7 @@ public class LoanService {
                 BigDecimal accumulatedInterest = ZERO;
                 BigDecimal accumulatedManagementFee = ZERO;
                 LocalDate firstDueDate = null;
+                LocalDate lastContractDueDate = null;
                 Long orgId = loan.getOrganization().getId();
 
                 LocalDate scheduleBaseDate = loan.getDisbursedAt() != null
@@ -3064,6 +3065,7 @@ public class LoanService {
                         if (firstDueDate == null) {
                                 firstDueDate = dueDate;
                         }
+                        lastContractDueDate = dueDate;
 
                         FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
                                         balance,
@@ -3109,6 +3111,14 @@ public class LoanService {
                                         .build();
 
                         paymentRepo.save(payment);
+                }
+
+                // A generated monthly repayment schedule defines its final
+                // contractual installment date. Keep an explicitly approved
+                // maturity intact; populate a missing date on new loans so
+                // penalty rules never need to guess from the first due date.
+                if (loan.getMaturityDate() == null) {
+                        loan.setMaturityDate(lastContractDueDate);
                 }
 
                 // ============================================================

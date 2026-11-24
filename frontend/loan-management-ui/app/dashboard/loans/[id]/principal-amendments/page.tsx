@@ -128,6 +128,22 @@ export default function PrincipalAmendmentsPage() {
     } finally { setBusy(false); }
   }
 
+  async function applyApproved(id: number) {
+    if (!loan || busy) return;
+    if (!window.confirm("Apply this Business Owner-approved correction? This may post financial journals and update balances only if all reconciliation safeguards pass.")) return;
+    setBusy(true);
+    try {
+      await post(`/loans/${loanId}/principal-amendments/${id}/apply`);
+      setMessage("Approved correction reconciled and applied. Review the loan, schedule and accounting.");
+      await refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message :
+        "Financial reconciliation could not be applied. Approval remains pending execution.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-4xl space-y-6 p-6">
       <Link className="text-sm text-blue-700 hover:underline" href={`/dashboard/loans/${loanId}`}>← Back to loan</Link>
@@ -186,6 +202,20 @@ export default function PrincipalAmendmentsPage() {
             <p className="text-sm text-slate-700">{item.reason}</p>
             <p className="text-xs text-slate-500">Evidence: {item.evidenceReference}</p>
             {item.reviewerReason && <p className="text-sm">Review: {item.reviewerReason}</p>}
+            {(isOwner || user?.role === "ACCOUNTANT") &&
+              item.status === "APPROVED_FOR_RECONCILIATION" && (
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-sm text-amber-900">
+                  Independently approved. Financial balances have NOT been updated.
+                  Apply only when the reconciliation checks can complete safely.
+                </p>
+                <button type="button" disabled={busy}
+                  onClick={() => void applyApproved(item.id)}
+                  className="rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  Apply approved reconciliation
+                </button>
+              </div>
+            )}
             {isOwner && item.status === "PENDING_REVIEW" && (
               <div className="space-y-2 border-t pt-3">
                 <textarea className="w-full rounded-lg border p-3" rows={2} value={review} placeholder="Independent review justification (20+ characters)" onChange={(e) => setReview(e.target.value)} />

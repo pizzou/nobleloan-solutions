@@ -81,7 +81,7 @@ class FinalFinancialPolicyInvariantTest {
         }
 
         @Test
-        void paymentAllocationChargesInterestAndManagementBeforePrincipal() {
+        void paymentAllocationCollectsPenaltiesAndFeesBeforePrincipal() {
                 PaymentAllocationService service = new PaymentAllocationService();
                 PaymentAllocationService.Allocation allocation = service.allocate(
                                 new BigDecimal("1200000.00"),
@@ -93,9 +93,9 @@ class FinalFinancialPolicyInvariantTest {
 
                 assertEquals(new BigDecimal("500000.00"), allocation.interest());
                 assertEquals(new BigDecimal("500000.00"), allocation.managementFee());
-                assertEquals(new BigDecimal("200000.00"), allocation.principal());
-                assertEquals(new BigDecimal("0.00"), allocation.extensionFee());
-                assertEquals(new BigDecimal("0.00"), allocation.penalty());
+                assertEquals(new BigDecimal("0.00"), allocation.principal());
+                assertEquals(new BigDecimal("100000.00"), allocation.extensionFee());
+                assertEquals(new BigDecimal("100000.00"), allocation.penalty());
                 assertEquals(new BigDecimal("0.00"), allocation.overpayment());
         }
 

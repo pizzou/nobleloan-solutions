@@ -15,6 +15,8 @@ import {
 } from "@/services/api";
 
 import { Loan, Payment } from "@/types";
+import LoanPolicyReconciliationPanel from "@/components/LoanPolicyReconciliationPanel";
+import { contractDaysOverdue } from "@/lib/contractMaturity";
 
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 
@@ -2331,6 +2333,13 @@ export default function LoanDetailPage() {
                   </button>
                   </>
                 )}
+              {isBusinessOwner && loan.imported && (
+                <LoanPolicyReconciliationPanel
+                  loanId={loan.id}
+                  reference={loan.referenceNumber}
+                  onApplied={load}
+                />
+              )}
               {isBusinessOwner && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span
@@ -2380,7 +2389,11 @@ export default function LoanDetailPage() {
               )}
 
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <StatusBadge status={loan.status} />
+                {loan.status === "OVERDUE" && contractDaysOverdue(loan) === 0 ? (
+                  <StatusBadge status="ACTIVE" />
+                ) : (
+                  <StatusBadge status={loan.status} />
+                )}
 
                 {loan.riskCategory && (
                   <RiskBadge
@@ -2398,12 +2411,13 @@ export default function LoanDetailPage() {
 
                 <Pill label={loan.currency} color="teal" />
 
-                {loan.daysOverdue && loan.daysOverdue > 0 ? (
+                {contractDaysOverdue(loan) !== null &&
+                  contractDaysOverdue(loan)! > 0 ? (
                   <Pill
                     label={
                       <span className="inline-flex items-center gap-1">
                         <IconAlertTriangle className="w-3 h-3" />
-                        {loan.daysOverdue}d overdue
+                        {contractDaysOverdue(loan)} days overdue
                       </span>
                     }
                     color="red"
@@ -3297,7 +3311,12 @@ export default function LoanDetailPage() {
                   value={loan.collectionsStage}
                 />
 
-                <Field label="Days Overdue" value={loan.daysOverdue ?? 0} />
+                {contractDaysOverdue(loan) != null && contractDaysOverdue(loan)! > 0 && (
+                  <Field
+                    label="Days overdue"
+                    value={contractDaysOverdue(loan)}
+                  />
+                )}
 
                 <Field
                   label="Classified At"

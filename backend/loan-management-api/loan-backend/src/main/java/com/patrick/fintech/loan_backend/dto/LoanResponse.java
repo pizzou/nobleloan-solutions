@@ -38,7 +38,12 @@ public class LoanResponse {
     private LocalDate nextDueDate;
     private LocalDate lastPaymentDate;
     private Integer missedInstallments;
+    /** Regulatory/installment days past due; never used for contractual penalties. */
     private Integer daysOverdue;
+    /** Verified maturity-based days after contract end (independent of installment arrears). */
+    private Integer contractDaysOverdue;
+    /** True only if the saved contract date is internally consistent and verified. */
+    private Boolean contractMaturityVerified;
     private BigDecimal interestRate;
     private String interestRateType;
     private BigDecimal managementFeeRate;

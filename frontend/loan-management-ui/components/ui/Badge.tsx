@@ -7,7 +7,7 @@ export function StatusBadge({ status }: { status: LoanStatus }) {
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${STATUS_COLORS[status] || 'bg-gray-100 text-gray-700'}`}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
-      {status.replace(/_/g, ' ')}
+      {status === 'OVERDUE' ? 'Installment arrears' : status.replace(/_/g, ' ')}
     </span>
   );
 }

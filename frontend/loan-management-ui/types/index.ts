@@ -325,7 +325,11 @@ export interface Loan {
 
   missedInstallments?: number;
 
+  /** Scheduled installment days past due, retained for BNR/CRB classification. */
   daysOverdue?: number;
+  /** Days after verified contractual maturity, not the installment due date. */
+  contractDaysOverdue?: number | null;
+  contractMaturityVerified?: boolean;
 
   creditQuality?:
     "CURRENT" | "WATCH" | "SUBSTANDARD" | "DOUBTFUL" | "WRITTEN_OFF";

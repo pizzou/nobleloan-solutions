@@ -112,6 +112,20 @@ const NAV_STAFF: NavSection[] = [
       },
 
       {
+        href: "/dashboard/principal-amendments",
+        icon: "📝",
+        label: "Loan Amendment Approvals",
+        businessOwnerOnly: true,
+      },
+
+      {
+        href: "/dashboard/loans/correction-requests",
+        icon: "✅",
+        label: "Legacy Correction Approvals",
+        businessOwnerOnly: true,
+      },
+
+      {
         href: "/dashboard/loans/recycle-bin",
         icon: "♻",
         label: "Loan Recycle Bin",

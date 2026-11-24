@@ -6,6 +6,7 @@ import Link from "next/link";
 import { loanApi } from "@/services/api";
 import { Loan, LoanStatus, LoanType } from "@/types";
 import { formatCurrency, formatDate, LOAN_TYPE_META } from "@/lib/utils";
+import { contractDaysOverdue, verifiedContractMaturity } from "@/lib/contractMaturity";
 import { useAuth } from "@/hooks/useAuth";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
@@ -46,7 +47,7 @@ const STATUS_OPTIONS: Array<{
   { value: "REJECTED", label: "Rejected" },
   { value: "DISBURSED", label: "Disbursed" },
   { value: "ACTIVE", label: "Active" },
-  { value: "OVERDUE", label: "Overdue" },
+  { value: "OVERDUE", label: "Installment arrears" },
   { value: "DEFAULTED", label: "Defaulted" },
   { value: "RESTRUCTURED", label: "Restructured" },
   { value: "WRITTEN_OFF", label: "Written off" },
@@ -355,7 +356,8 @@ function LoanRow({
       ? Math.min(100, Math.round((totalPaid / repayable) * 100))
       : 0;
 
-  const overdue = Number(loan.daysOverdue || 0);
+  const contractOverdue = contractDaysOverdue(loan);
+  const verifiedMaturity = verifiedContractMaturity(loan);
 
   return (
     <tr
@@ -474,7 +476,11 @@ function LoanRow({
 
       <td className="px-5 py-4 align-top">
         <div className="flex min-w-[180px] flex-wrap gap-1.5">
-          <StatusBadge status={loan.status} />
+          {loan.status === "OVERDUE" && contractOverdue === 0 ? (
+            <StatusBadge status="ACTIVE" />
+          ) : (
+            <StatusBadge status={loan.status} />
+          )}
 
           {loan.riskCategory ? (
             <RiskBadge category={loan.riskCategory} score={loan.riskScore} />
@@ -579,32 +585,17 @@ function LoanRow({
           </div>
         ) : null}
 
-        {loan.imported &&
-        loan.nextDueDate &&
-        loan.startDate &&
-        loan.nextDueDate <= loan.startDate ? (
-          <div
-            className="mt-2 text-xs font-semibold text-amber-700"
-            title="Review the oldest unpaid contractual installment date before relying on days past due"
-          >
-            Review due date — cannot measure arrears from disbursement
-          </div>
-        ) : overdue > 0 ? (
+        {contractOverdue !== null && contractOverdue > 0 ? (
           <div className="mt-2 flex items-center justify-end gap-1 text-xs font-bold text-red-600">
             <IconAlertTriangle className="h-3.5 w-3.5" />
-            {overdue} day
-            {overdue === 1 ? "" : "s"} overdue
-            {loan.imported && loan.nextDueDate && (
-              <span className="font-normal text-slate-500">
-                (from {formatDate(loan.nextDueDate, locale)})
-              </span>
-            )}
+            {contractOverdue} day{contractOverdue === 1 ? "" : "s"} overdue
           </div>
-        ) : loan.nextDueDate ? (
-          <div className="mt-2 text-xs text-slate-400">
-            Next due {formatDate(loan.nextDueDate, locale)}
+        ) : !verifiedMaturity ? (
+          <div className="mt-2 text-xs font-semibold text-amber-700">
+            Verify maturity date
           </div>
         ) : null}
+
       </td>
 
       {canDelete ? (
@@ -1231,7 +1222,7 @@ export default function LoanListPage() {
                   <span className="text-2xl font-black">{summary.overdue}</span>
 
                   <span className="text-sm font-semibold text-red-300">
-                    overdue
+                    installment arrears
                   </span>
                 </div>
 
@@ -1309,7 +1300,7 @@ export default function LoanListPage() {
           />
 
           <MetricCard
-            label="Overdue"
+            label="Installment arrears"
             value={summary.overdue.toLocaleString()}
             description={
               isScopedPageSummary

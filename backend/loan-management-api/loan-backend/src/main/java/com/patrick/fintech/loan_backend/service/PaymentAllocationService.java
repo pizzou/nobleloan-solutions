@@ -9,12 +9,11 @@ import java.math.RoundingMode;
  * Single authoritative payment allocation order for the lending platform.
  *
  * Allocation is always:
- * interest -> management fee -> principal -> extension/restructuring fee
- * -> penalty -> overpayment.
+ * penalty -> paired interest and management fees (pro rata) -> extension fee -> principal
+ * -> overpayment.
  *
- * Interest and management fee are the first contractual charges. Principal
- * is reduced immediately from the remaining payment. Extension fees and
- * penalties remain separate receivables and never increase principal.
+ * The caller must supply the complete due-and-unpaid amounts across
+ * installments and preserve the original allocation in the cash ledger.
  *
  * This class is deliberately side-effect free. Persistence, accounting and
  * audit updates remain the responsibility of PaymentService.
@@ -36,20 +35,43 @@ public class PaymentAllocationService {
 
         BigDecimal remaining = money(paymentAmount).max(ZERO);
 
-        BigDecimal interest = take(remaining, interestDue);
-        remaining = money(remaining.subtract(interest));
+        // Collect assessed penalties first, followed by ALL due unpaid
+        // interest and management fees. Extension charges also precede
+        // principal. The caller must supply aggregated due fee balances
+        // rather than the charges of only one installment.
+        BigDecimal penalty = take(remaining, penaltyDue);
+        remaining = money(remaining.subtract(penalty));
 
-        BigDecimal managementFee = take(remaining, managementFeeDue);
-        remaining = money(remaining.subtract(managementFee));
-
-        BigDecimal principal = take(remaining, principalDue);
-        remaining = money(remaining.subtract(principal));
+        // Both contractual charges are 5% monthly. Partial payments toward
+        // equal outstanding charges must be split equally, not consumed by
+        // interest first and leave management fees unpaid. For unequal
+        // historical balances, allocate proportionally and cap to each due.
+        BigDecimal interestOwed = money(interestDue).max(ZERO);
+        BigDecimal managementOwed = money(managementFeeDue).max(ZERO);
+        BigDecimal combinedOwed = money(interestOwed.add(managementOwed));
+        BigDecimal feePayment = remaining.min(combinedOwed);
+        BigDecimal interest = ZERO;
+        BigDecimal managementFee = ZERO;
+        if (combinedOwed.signum() > 0) {
+            interest = feePayment.multiply(interestOwed)
+                    .divide(combinedOwed, SCALE, ROUNDING).min(interestOwed);
+            managementFee = feePayment.subtract(interest).min(managementOwed);
+            // Cent rounding may cause one side to exceed its cap; give the
+            // leftover cent back to whichever fee still has an unpaid balance.
+            BigDecimal unallocated = money(feePayment.subtract(interest).subtract(managementFee));
+            if (unallocated.signum() > 0) {
+                BigDecimal additionalInterest = unallocated.min(interestOwed.subtract(interest));
+                interest = interest.add(additionalInterest);
+                managementFee = managementFee.add(unallocated.subtract(additionalInterest));
+            }
+        }
+        remaining = money(remaining.subtract(interest).subtract(managementFee));
 
         BigDecimal extensionFee = take(remaining, extensionFeeDue);
         remaining = money(remaining.subtract(extensionFee));
 
-        BigDecimal penalty = take(remaining, penaltyDue);
-        remaining = money(remaining.subtract(penalty));
+        BigDecimal principal = take(remaining, principalDue);
+        remaining = money(remaining.subtract(principal));
 
         return new Allocation(
                 penalty,
