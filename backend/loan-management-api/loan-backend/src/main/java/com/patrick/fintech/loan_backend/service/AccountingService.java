@@ -16,6 +16,8 @@ import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import com.patrick.fintech.loan_backend.util.LoanMaturityPolicy;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -48,6 +50,8 @@ public class AccountingService {
         private final LoanRepository loanRepo;
         private final PaymentRepository paymentRepo;
         private final AccountingPeriodService accountingPeriodService;
+        @PersistenceContext
+        private EntityManager policyRecalculationEntityManager;
         // ============================================================
         // MONEY CONFIGURATION
         // ============================================================
@@ -969,6 +973,122 @@ public class AccountingService {
                                 LocalDate.now(), lines);
         }
 
+        /**
+         * Post ONLY the non-cash delta calculated from immutable payments and
+         * verified contract rules. Historical penalty opening errors reverse
+         * through migration equity; differences in daily post-import accrual
+         * reverse or accrue through fee income. No bank/cash (1000) line is
+         * generated, and no prior journal is edited.
+         *
+         * All amounts are calculated by the application, not entered by a
+         * user. Reject any unexplained difference rather than manufacturing
+         * a suspense or plug journal.
+         */
+        @Transactional
+        public JournalEntry postPolicyRecalculation(
+                        Loan loan, LoanPolicyRecalculationEngine.Result corrected,
+                        java.math.BigDecimal openingPrincipal, LocalDate asOf) {
+                if (loan == null || loan.getId() == null
+                                || !Boolean.TRUE.equals(loan.getImported())
+                                || loan.getCreatedAt() == null
+                                || loan.getMaturityDate() == null
+                                || corrected == null
+                                || asOf == null
+                                || !asOf.equals(LocalDate.now())) {
+                        throw new IllegalStateException(
+                                        "Only verified imported loans can be automatically recalculated today");
+                }
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+                ensureChartOfAccounts(org);
+                String sourceId = "LOAN:" + loan.getId() + ":POLICY-V1";
+                if (journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                org.getId(), "LOAN_POLICY_RECALC", sourceId).isPresent()) {
+                        throw new IllegalStateException(
+                                        "Policy v1 reconciliation already posted. Re-running would double-count it.");
+                }
+                assertLoanReceivableEqualsGl(loan, "1100", loan.getOutstandingBalanceDecimal());
+                assertLoanReceivableEqualsGl(loan, "1150", loan.getInterestOutstandingDecimal());
+                assertLoanReceivableEqualsGl(loan, "1160", loan.getManagementFeeOutstandingDecimal());
+                assertLoanReceivableEqualsGl(loan, "1175",
+                                money(loan.getPenaltiesAssessedDecimal())
+                                                .subtract(money(loan.getPenaltiesPaidDecimal())));
+
+                BigDecimal oldOpening = policyPenaltyReceivableBySource(loan, "LEGACY_PENALTY_OPENING");
+                BigDecimal oldPostImport = policyPenaltyReceivableBySource(loan, "PENALTY_ACCRUAL");
+
+                // Reject cases with unsupported imported penalty sources,
+                // historic paid penalties or missing audit history.
+                BigDecimal oldAssessed = money(loan.getPenaltiesAssessedDecimal());
+                if (oldOpening.add(oldPostImport).subtract(oldAssessed).abs()
+                                .compareTo(TOLERANCE) > 0)
+                        throw new IllegalStateException(
+                                        "Historical penalty assessment source history incomplete; no mutation");
+
+                LocalDate first = com.patrick.fintech.loan_backend.util.LoanMaturityPolicy
+                                .firstPenaltyDate(loan);
+                LocalDate importDate = loan.getCreatedAt().toLocalDate();
+                BigDecimal expectedOpening = first == null || first.isAfter(importDate)
+                                ? ZERO
+                                : com.patrick.fintech.loan_backend.util.FinancialPolicy.historicalDailyPenalty(
+                                                openingPrincipal, first, importDate,
+                                                loan.getPenaltyRateDecimal(), date -> openingPrincipal);
+                BigDecimal expectedPostImport = money(corrected.penaltyAssessed())
+                                .subtract(expectedOpening);
+                if (expectedPostImport.signum() < 0)
+                        throw new IllegalStateException("Contract date and imported accrual cannot reconcile");
+
+                BigDecimal principalDelta = money(corrected.principalOutstanding())
+                                .subtract(money(loan.getOutstandingBalanceDecimal()));
+                BigDecimal interestDelta = money(corrected.interestOutstanding())
+                                .subtract(money(loan.getInterestOutstandingDecimal()));
+                BigDecimal managementDelta = money(corrected.managementOutstanding())
+                                .subtract(money(loan.getManagementFeeOutstandingDecimal()));
+                BigDecimal penaltyDelta = money(corrected.penaltyOutstanding())
+                                .subtract(oldAssessed.subtract(money(loan.getPenaltiesPaidDecimal())));
+
+                BigDecimal openingEquityDebit = oldOpening.subtract(expectedOpening);
+                BigDecimal currentIncomeDebit = oldPostImport.subtract(expectedPostImport);
+                BigDecimal net = principalDelta.add(interestDelta)
+                                .add(managementDelta).add(penaltyDelta)
+                                .add(openingEquityDebit).add(currentIncomeDebit);
+                if (net.abs().compareTo(TOLERANCE) > 0)
+                        throw new IllegalStateException("Policy corrections do not balance: " + net
+                                        + "; no journal or loan changes were made");
+                List<JournalLine> lines = new ArrayList<>();
+                addSignedLine(lines, org, "1100", principalDelta, "Policy replay principal for " + loan.getReferenceNumber());
+                addSignedLine(lines, org, "1150", interestDelta, "Policy replay interest for " + loan.getReferenceNumber());
+                addSignedLine(lines, org, "1160", managementDelta, "Policy replay management fee for " + loan.getReferenceNumber());
+                addSignedLine(lines, org, "1175", penaltyDelta, "Policy replay penalty receivable for " + loan.getReferenceNumber());
+                addSignedLine(lines, org, "3010", openingEquityDebit, "Correct historical imported penalty opening");
+                addSignedLine(lines, org, "4100", currentIncomeDebit, "Correct post-import penalty accrual income");
+                if (lines.isEmpty())
+                        return null;
+                return postAtDate(org, loan.getBranch(), "LOAN_POLICY_RECALC", sourceId,
+                                loan.getReferenceNumber(),
+                                "Automatic non-cash contract-maturity penalty and repayment reconciliation",
+                                asOf, lines);
+        }
+
+        private BigDecimal policyPenaltyReceivableBySource(Loan loan, String sourceType) {
+                Object amount = policyRecalculationEntityManager.createNativeQuery("""
+                        SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+                        FROM journal_entries je
+                        JOIN journal_lines jl ON jl.journal_entry_id = je.id
+                        JOIN chart_of_accounts coa ON coa.id = jl.account_id
+                        WHERE je.organization_id = :org
+                          AND je.reference = :ref
+                          AND je.source_type = :type
+                          AND coa.code = '1175'
+                          AND COALESCE(je.reversed, false) = false
+                        """)
+                        .setParameter("org", loan.getOrganization().getId())
+                        .setParameter("ref", loan.getReferenceNumber())
+                        .setParameter("type", sourceType)
+                        .getSingleResult();
+                return money((BigDecimal) amount);
+        }
+
         private void addSignedLine(List<JournalLine> lines, Organization org,
                                    String code, BigDecimal signedDebit, String description) {
                 BigDecimal value = money(signedDebit);
@@ -1039,6 +1159,7 @@ public class AccountingService {
                                 "LEGACY_LOAN_RECONCILIATION",
                                 "LEGACY_IMPORT_DATA_CORRECTION",
                                 "LOAN_AMENDMENT_RECONCILIATION",
+                                "LOAN_POLICY_RECALC",
                                 "WRITE_OFF");
 
                 java.util.Set<String> paymentTypes = java.util.Set.of(
