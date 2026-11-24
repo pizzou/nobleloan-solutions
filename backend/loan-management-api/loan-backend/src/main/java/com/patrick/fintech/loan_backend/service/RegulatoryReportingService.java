@@ -906,6 +906,8 @@ public class RegulatoryReportingService {
                                                 ReportingScopeService.includeBusinessOwnerOnly());
                 Set<Long> linkedInstallmentIds = visibleReceipts.stream()
                                 .filter(t -> t != null
+                                                && t.getStatus() == PaymentTransaction.TransactionStatus.POSTED
+                                                && !Boolean.TRUE.equals(t.getReversed())
                                                 && t.getInstallment() != null
                                                 && t.getInstallment().getId() != null)
                                 .map(t -> t.getInstallment().getId())
