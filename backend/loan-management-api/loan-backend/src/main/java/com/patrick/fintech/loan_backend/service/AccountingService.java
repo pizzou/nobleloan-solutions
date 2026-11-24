@@ -14,6 +14,7 @@ import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+import com.patrick.fintech.loan_backend.util.LoanMaturityPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -2498,11 +2499,10 @@ public class AccountingService {
                                 || asOf == null || !LocalDate.now().equals(asOf))
                         return null;
 
-                LocalDate due = loan.getNextDueDate() != null ? loan.getNextDueDate() : loan.getNextPaymentDate();
+                LocalDate firstChargeable = LoanMaturityPolicy.firstPenaltyDate(loan);
                 LocalDate importDate = loan.getCreatedAt().toLocalDate();
-                if (due == null || importDate.isAfter(asOf))
+                if (firstChargeable == null || importDate.isAfter(asOf))
                         return null;
-                LocalDate firstChargeable = due.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
                 LocalDate lastHistoricalDay = importDate;
                 if (firstChargeable.isAfter(lastHistoricalDay))
                         return null;
@@ -2583,13 +2583,10 @@ public class AccountingService {
                                 || asOf == null)
                         return null;
 
-                LocalDate due = loan.getNextDueDate() != null
-                                ? loan.getNextDueDate()
-                                : loan.getNextPaymentDate();
-                if (due == null || due.isAfter(asOf))
+                LocalDate firstChargeable = LoanMaturityPolicy.firstPenaltyDate(loan);
+                if (firstChargeable == null || firstChargeable.isAfter(asOf))
                         return null;
                 LocalDate importDate = loan.getCreatedAt().toLocalDate();
-                LocalDate firstChargeable = due.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
                 // The opening position is recognized at import; begin new
                 // accrual on the following day to avoid overlapping opening
                 // balances with the import date.
