@@ -689,6 +689,28 @@ public class PaymentService {
                 remainingManagementFeeBeforePayment = roundMoney(
                                 remainingManagementFeeBeforePayment);
 
+                // Legacy imports can have only a loan-level contractual opening
+                // balance, with no complete cycle-by-cycle schedule. When such a
+                // loan has *matured*, its remaining interest/management receivables
+                // are now due in full. Limiting payment allocation to a single
+                // newly created cycle would wrongly put money against principal.
+                // Never accelerate future charges for an unmatured loan.
+                boolean maturedLegacyWithoutFullSchedule =
+                                Boolean.TRUE.equals(loan.getImported())
+                                                && loan.getMaturityDate() != null
+                                                && !loan.getMaturityDate().isAfter(today)
+                                                && loanPayments.size() <= 1;
+                if (maturedLegacyWithoutFullSchedule) {
+                        remainingInterestBeforePayment = remainingInterestBeforePayment.max(
+                                        roundMoney(safe(loan.getInterestOutstandingDecimal())).max(ZERO));
+                        remainingManagementFeeBeforePayment = remainingManagementFeeBeforePayment.max(
+                                        roundMoney(safe(loan.getManagementFeeOutstandingDecimal())).max(ZERO));
+                        totalCycleInterestDue = roundMoney(
+                                        interestAlreadyPaidThisCycle.add(remainingInterestBeforePayment));
+                        totalCycleManagementFeeDue = roundMoney(
+                                        managementFeeAlreadyPaidThisCycle.add(remainingManagementFeeBeforePayment));
+                }
+
                 // The receipt must first settle every *earned and unpaid* monthly
                 // charge, not just the currently selected installment. Scheduled
                 // future fees are deliberately excluded until their due dates.
