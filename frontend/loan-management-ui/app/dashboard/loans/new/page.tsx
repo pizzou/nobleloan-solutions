@@ -418,7 +418,7 @@ function NewLoanForm() {
     reviewIssues.push("Enter a principal of at least 1,000,000 RWF.");
   if (!Number.isInteger(duration) || duration < 1 || duration > 6)
     reviewIssues.push("Enter a loan term between 1 and 6 months.");
-  if (!startDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(startDate))
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate))
     reviewIssues.push("Choose a valid proposed start date.");
   if (purpose.trim().length < 10)
     reviewIssues.push("Describe the loan purpose using at least 10 characters.");
