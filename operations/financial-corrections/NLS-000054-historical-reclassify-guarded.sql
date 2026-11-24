@@ -24,6 +24,18 @@
 -- original source ledger and obtaining independent correction approval.
 
 \set ON_ERROR_STOP on
+-- A committed correction requires an independent approval reference.
+-- Simulation never needs APPROVAL_REF and ALWAYS rolls back.
+\if :{?APPLY}
+\if :APPLY
+\if :{?APPROVAL_REF}
+\echo 'Approved correction reference supplied; applying guarded financial adjustments'
+\else
+\echo 'ERROR: APPLY=true requires APPROVAL_REF from independent review'
+\quit
+\endif
+\endif
+\endif
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '90s';
@@ -119,6 +131,25 @@ BEGIN
       AND je.reference=l.reference_number AND a.code='1175';
     IF current_penalty_gl <> 8870000 THEN
         RAISE EXCEPTION 'GL 1175 is %, expected 8870000: abort', current_penalty_gl;
+    END IF;
+
+    -- All receivable ledger opening positions must match the operational
+    -- subledger BEFORE any adjusting entry can be posted.
+    SELECT COUNT(*) INTO n FROM (
+        SELECT a.code, ROUND(SUM(jl.debit-jl.credit),2) AS gl_balance
+        FROM chart_of_accounts a
+        JOIN journal_lines jl ON jl.account_id=a.id
+        JOIN journal_entries je ON je.id=jl.journal_entry_id
+        WHERE a.organization_id=l.organization_id
+          AND je.reference=l.reference_number
+          AND a.code IN ('1100','1150','1160')
+        GROUP BY a.code
+    ) balances
+    WHERE (code='1100' AND gl_balance <> 24750000)
+       OR (code='1150' AND gl_balance <> 4625000)
+       OR (code='1160' AND gl_balance <> 4625000);
+    IF n <> 0 THEN
+        RAISE EXCEPTION 'Principal/interest/management GL baseline differs: abort';
     END IF;
 
     sum_components := penalty_repaid + interest_repaid + management_repaid;
@@ -258,6 +289,26 @@ BEGIN
     IF current_penalty_gl <> 558333.34 THEN
         RAISE EXCEPTION 'Corrected loan 54 penalty GL balance % is not 558333.34',
             current_penalty_gl;
+    END IF;
+    SELECT COUNT(*) INTO n FROM (
+        SELECT a.code, ROUND(SUM(jl.debit-jl.credit),2) AS gl_balance
+        FROM chart_of_accounts a
+        JOIN journal_lines jl ON jl.account_id=a.id
+        JOIN journal_entries je ON je.id=jl.journal_entry_id
+        WHERE a.organization_id=l.organization_id
+          AND je.reference=l.reference_number
+          AND a.code IN ('1100','1150','1160')
+        GROUP BY a.code
+    ) balances
+    WHERE (code='1100' AND gl_balance <> 33500000)
+       OR (code='1150' AND gl_balance <> 3041666.67)
+       OR (code='1160' AND gl_balance <> 3041666.66);
+    IF n <> 0 THEN
+        RAISE EXCEPTION 'Corrected loan GL balances do not reconcile: abort';
+    END IF;
+    IF (SELECT COUNT(*) FROM payment_transactions
+        WHERE loan_id=54 AND status='POSTED' AND NOT COALESCE(reversed,false)) <> 1 THEN
+        RAISE EXCEPTION 'Corrected immutable receipt ledger has wrong number of posted receipts';
     END IF;
     RAISE NOTICE 'Verified reclassification candidate. Replacement receipt ID %, cash unchanged %; penalty receivable %. This transaction rolls back unless APPLY=true.',
         corrected_id, t.amount, current_penalty_gl;
