@@ -2380,15 +2380,23 @@ public class PaymentService {
         // ================================================================
 
         private LocalDate resolveEarliestPenaltyDate(Loan loan, LocalDate asOf) {
-                return paymentRepo.findByLoanId(loan.getId()).stream()
+                Optional<LocalDate> oldestUnpaid = paymentRepo.findByLoanId(loan.getId()).stream()
                                 .filter(java.util.Objects::nonNull)
                                 .filter(p -> p.getDueDate() != null)
                                 .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
                                 .map(Payment::getDueDate)
-                                .filter(d -> d.isBefore(asOf))
-                                .min(LocalDate::compareTo)
-                                .map(d -> d.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L))
-                                .orElse(null);
+                                .filter(d -> !d.isAfter(asOf))
+                                .min(LocalDate::compareTo);
+                // Legacy loans with no installments still have a verified
+                // loan-level oldest unpaid date. Do not silently omit penalties.
+                LocalDate dueDate = oldestUnpaid.orElseGet(() ->
+                                Boolean.TRUE.equals(loan.getImported())
+                                                ? (loan.getNextDueDate() != null
+                                                        ? loan.getNextDueDate() : loan.getNextPaymentDate())
+                                                : null);
+                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(dueDate);
+                return firstChargeable != null && !firstChargeable.isAfter(asOf)
+                                ? firstChargeable : null;
         }
 
         private BigDecimal calculateHistoricalPenaltyToDate(
