@@ -21,7 +21,6 @@ import java.util.Objects;
  */
 public final class HistoricalRepaymentReconciliationPlanner {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
-    private static final BigDecimal HUNDRED = new BigDecimal("100");
 
     private HistoricalRepaymentReconciliationPlanner() {}
 
@@ -80,7 +79,7 @@ public final class HistoricalRepaymentReconciliationPlanner {
         }
 
         BigDecimal principal = money(principalAtMaturity);
-        BigDecimal assessedPenalty = ZERO;
+        BigDecimal unroundedPenaltyAccrual = ZERO;
         BigDecimal paidPenalty = ZERO;
         BigDecimal interestDue = ZERO;
         BigDecimal managementDue = ZERO;
@@ -97,14 +96,17 @@ public final class HistoricalRepaymentReconciliationPlanner {
             }
 
             if (!date.isBefore(firstPenaltyDay) && principal.signum() > 0) {
-                assessedPenalty = money(assessedPenalty.add(
+                // Keep precision across daily accruals, rounding only at
+                // settlement boundaries and report totals (never per day).
+                unroundedPenaltyAccrual = unroundedPenaltyAccrual.add(
                         principal.multiply(FinancialPolicy.dailyRateFraction(
-                                penaltyMonthlyRate, date))));
+                                penaltyMonthlyRate, date)));
             }
             while (ri < receipts.size() && receipts.get(ri).receivedOn().equals(date)) {
                 Receipt receipt = receipts.get(ri++);
+                BigDecimal assessedPenaltyToDate = money(unroundedPenaltyAccrual);
                 PaymentAllocationService.Allocation allocation = waterfall.allocate(
-                        receipt.amount(), assessedPenalty.subtract(paidPenalty).max(ZERO),
+                        receipt.amount(), assessedPenaltyToDate.subtract(paidPenalty).max(ZERO),
                         ZERO, interestDue, managementDue, principal);
                 paidPenalty = money(paidPenalty.add(allocation.penalty()));
                 interestDue = money(interestDue.subtract(allocation.interest()));
@@ -115,9 +117,10 @@ public final class HistoricalRepaymentReconciliationPlanner {
                         allocation.interest(), allocation.managementFee(),
                         allocation.extensionFee(), allocation.principal(),
                         allocation.overpayment(), principal,
-                        money(assessedPenalty.subtract(paidPenalty))));
+                        money(assessedPenaltyToDate.subtract(paidPenalty))));
             }
         }
+        BigDecimal assessedPenalty = money(unroundedPenaltyAccrual);
         return new Result(assessedPenalty, paidPenalty,
                 money(assessedPenalty.subtract(paidPenalty)), principal,
                 interestDue, managementDue, List.copyOf(allocations));
