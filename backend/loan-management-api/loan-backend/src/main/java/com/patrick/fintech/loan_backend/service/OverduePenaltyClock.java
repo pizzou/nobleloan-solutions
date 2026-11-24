@@ -40,8 +40,9 @@ public final class OverduePenaltyClock {
                 maturityDate.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
     }
 
+    /** Days overdue run from contractual maturity, even during grace. */
     public static long daysOverdue(Loan loan, LocalDate asOf) {
-        return chargeableDays(loan, asOf);
+        return daysOverdue(contractualMaturity(loan), asOf);
     }
 
     public static long chargeableDays(Loan loan, LocalDate asOf) {
@@ -55,6 +56,7 @@ public final class OverduePenaltyClock {
     }
 
     public static long daysOverdue(LocalDate maturityDate, LocalDate asOf) {
-        return chargeableDays(maturityDate, asOf);
+        return maturityDate == null || asOf == null ? 0L
+                : Math.max(0L, ChronoUnit.DAYS.between(maturityDate, asOf));
     }
 }
