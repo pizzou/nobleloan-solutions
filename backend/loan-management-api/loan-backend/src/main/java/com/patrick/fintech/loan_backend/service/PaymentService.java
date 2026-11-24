@@ -2110,13 +2110,21 @@ public class PaymentService {
                                 .filter(p -> completedPaymentId == null
                                                 || p.getId() == null
                                                 || !p.getId().equals(completedPaymentId))
+                                // Only unearned future installments may be rescheduled.
+                                // Prior overdue cycles and partial receipts are historical
+                                // obligations and must never be overwritten by reamortization.
+                                .filter(p -> p.getDueDate() != null
+                                                && p.getDueDate().isAfter(anchorDate))
+                                .filter(p -> safe(p.getAmountPaidDecimal()).signum() == 0)
                                 .sorted(Comparator.comparing(
                                                 Payment::getInstallmentNumber,
                                                 Comparator.nullsLast(Comparator.naturalOrder())))
                                 .toList();
 
                 if (future.isEmpty()) {
-                        loan.setNextInstallmentAmount(ZERO);
+                        // All future cycles may already be paid, or only historical
+                        // arrears may remain. Do not clear the next contractual
+                        // installment amount merely because no future rows qualify.
                         return;
                 }
 
