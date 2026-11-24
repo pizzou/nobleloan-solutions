@@ -55,6 +55,7 @@ public final class DueInstallmentFees {
         // multi-instalment history exists. Otherwise use individual dues.
         if (Boolean.TRUE.equals(loan.getImported())
                 && (installments == null || installments.size() <= 1)
+                && com.patrick.fintech.loan_backend.util.LoanMaturityPolicy.maturityDate(loan) == null
                 && loan.getNextDueDate() != null
                 && !loan.getNextDueDate().isAfter(today)) {
             // Historical loan-level balances may cover many overdue months.
