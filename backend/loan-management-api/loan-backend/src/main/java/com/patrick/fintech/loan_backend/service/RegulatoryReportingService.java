@@ -1540,9 +1540,13 @@ public class RegulatoryReportingService {
                                 financialPosition.get(
                                                 "totalEquity"));
 
+                // The balance sheet exposes cumulative unclosedProfit, not
+                // currentPeriodNetIncome. BNR's current-period earnings must
+                // come from the same date-filtered P&L as Accounting and
+                // General Reports.
                 BigDecimal currentPeriodNetIncome = decimalValue(
-                                financialPosition.get(
-                                                "currentPeriodNetIncome"));
+                                incomeStatement.get(
+                                                "netIncome"));
 
                 boolean balanceSheetBalanced = booleanValue(
                                 financialPosition.get(
