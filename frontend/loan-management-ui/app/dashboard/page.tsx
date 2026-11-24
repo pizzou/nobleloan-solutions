@@ -22,7 +22,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { loanApi, taskApi } from "@/services/api";
+import { get, loanApi, taskApi } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
 
 /* ============================================================
@@ -454,6 +454,28 @@ export default function DashboardPage() {
   const [retrievedAt, setRetrievedAt] = useState<Date | null>(null);
 
   const authenticatedOwner = isOwnerAccount(auth);
+  const [pendingAmendments, setPendingAmendments] = useState<number | null>(null);
+  const [pendingLegacyCorrections, setPendingLegacyCorrections] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!authenticatedOwner) {
+      setPendingAmendments(null);
+      setPendingLegacyCorrections(null);
+      return;
+    }
+    let active = true;
+    void Promise.allSettled([
+      get("/principal-amendments/pending"),
+      get("/legacy-corrections/pending"),
+    ]).then(([amendments, legacy]) => {
+      if (!active) return;
+      setPendingAmendments(amendments.status === "fulfilled" &&
+        Array.isArray(amendments.value) ? amendments.value.length : null);
+      setPendingLegacyCorrections(legacy.status === "fulfilled" &&
+        Array.isArray(legacy.value) ? legacy.value.length : null);
+    });
+    return () => { active = false; };
+  }, [authenticatedOwner]);
 
   // Reporting scope MUST originate from the backend.
   const consolidatedView =
@@ -738,12 +760,12 @@ export default function DashboardPage() {
             <button type="button"
               onClick={() => router.push("/dashboard/principal-amendments")}
               className="rounded-lg bg-amber-900 px-4 py-2 text-xs font-bold text-white">
-              Financial amendments
+              Financial amendments{pendingAmendments === null ? "" : ` (${pendingAmendments})`}
             </button>
             <button type="button"
               onClick={() => router.push("/dashboard/loans/correction-requests")}
               className="rounded-lg border border-amber-900 px-4 py-2 text-xs font-bold text-amber-950">
-              Legacy corrections
+              Legacy corrections{pendingLegacyCorrections === null ? "" : ` (${pendingLegacyCorrections})`}
             </button>
           </section>
         )}
