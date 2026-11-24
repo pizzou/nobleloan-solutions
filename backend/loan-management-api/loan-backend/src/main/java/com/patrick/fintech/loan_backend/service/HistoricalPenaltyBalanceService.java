@@ -65,13 +65,15 @@ public class HistoricalPenaltyBalanceService {
                     BigDecimal balance = initial;
                     if (!posted.isEmpty()) {
                         for (PaymentTransaction receipt : posted) {
-                            if (receipt.getCreatedAt().toLocalDate().isAfter(day)) {
+                            // Payment is posted after the day's overdue penalty is settled.
+                            // Include the same payment date in prior-day principal.
+                            if (!receipt.getCreatedAt().toLocalDate().isBefore(day)) {
                                 balance = balance.add(money(receipt.getPrincipalComponent()));
                             }
                         }
                     } else {
                         for (Payment row : historicalRows) {
-                            if (row.getPaidDate().isAfter(day)) {
+                            if (!row.getPaidDate().isBefore(day)) {
                                 balance = balance.add(money(row.getPrincipalComponentDecimal()));
                             }
                         }
