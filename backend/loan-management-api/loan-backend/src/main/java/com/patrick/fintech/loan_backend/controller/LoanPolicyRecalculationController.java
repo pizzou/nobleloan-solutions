@@ -22,6 +22,23 @@ public class LoanPolicyRecalculationController {
     private final LoanPolicyRecalculationService service;
     private final CurrentUserUtil currentUser;
 
+    /**
+     * Owner-controlled execution does not accept user-entered financial
+     * amounts. It derives corrections from persisted immutable transactions
+     * and posts the matching non-cash journal in one database transaction.
+     */
+    @PostMapping("/apply")
+    @PreAuthorize("hasRole('BUSINESS_OWNER')")
+    public ResponseEntity<ApiResponse<LoanPolicyRecalculationService.Applied>> apply(
+            @PathVariable Long loanId) {
+        User actor = currentUser.getCurrentUser();
+        if (actor == null || actor.getOrganization() == null
+                || actor.getOrganization().getId() == null)
+            throw new IllegalStateException("Authenticated organization required");
+        return ResponseEntity.ok(ApiResponse.ok(
+                service.apply(loanId, actor.getOrganization().getId(), actor)));
+    }
+
     @GetMapping("/preview")
     @PreAuthorize("hasRole('BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<LoanPolicyRecalculationService.Preview>> preview(
