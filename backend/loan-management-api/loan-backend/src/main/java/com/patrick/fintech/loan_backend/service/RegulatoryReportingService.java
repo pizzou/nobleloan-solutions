@@ -9,9 +9,11 @@ import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
+import com.patrick.fintech.loan_backend.model.PaymentTransaction;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentTransactionRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -59,6 +61,8 @@ public class RegulatoryReportingService {
         private final LoanRepository loanRepository;
 
         private final PaymentRepository paymentRepository;
+
+        private final PaymentTransactionRepository paymentTransactionRepository;
 
         private final OrganizationRepository organizationRepository;
 
@@ -892,6 +896,33 @@ public class RegulatoryReportingService {
                 BigDecimal historicalFeesCollected = ZERO;
                 BigDecimal historicalAmountCollected = ZERO;
 
+                // A Payment is a mutable contractual installment; posted
+                // PaymentTransactions are immutable receipts and authoritative
+                // for cash collections. Retain older dated legacy paid rows only
+                // when no posted transaction is linked to that installment.
+                List<PaymentTransaction> visibleReceipts = paymentTransactionRepository
+                                .findVisibleByOrganizationIdOrderByCreatedAtDesc(
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly());
+                Set<Long> linkedInstallmentIds = visibleReceipts.stream()
+                                .filter(t -> t != null
+                                                && t.getInstallment() != null
+                                                && t.getInstallment().getId() != null)
+                                .map(t -> t.getInstallment().getId())
+                                .collect(Collectors.toSet());
+                List<PaymentTransaction> periodReceipts = visibleReceipts.stream()
+                                .filter(t -> t != null
+                                                && t.getCreatedAt() != null
+                                                && t.getStatus() == PaymentTransaction.TransactionStatus.POSTED
+                                                && !Boolean.TRUE.equals(t.getReversed())
+                                                && !t.getCreatedAt().toLocalDate().isBefore(periodStart)
+                                                && !t.getCreatedAt().toLocalDate().isAfter(periodEnd)
+                                                && (branchId == null
+                                                        || (t.getLoan() != null
+                                                                && t.getLoan().getBranch() != null
+                                                                && branchId.equals(t.getLoan().getBranch().getId()))))
+                                .toList();
+
                 long totalPayments = payments.size();
 
                 long missedPayments = 0;
@@ -913,7 +944,9 @@ public class RegulatoryReportingService {
                         // whether the recorded amount was received.
                         boolean completed = hasReceivedCash(payment);
 
-                        if (completed) {
+                        if (completed
+                                        && (payment.getId() == null
+                                                || !linkedInstallmentIds.contains(payment.getId()))) {
 
                                 BigDecimal principal = number(
                                                 payment.getPrincipalComponent());
@@ -956,6 +989,21 @@ public class RegulatoryReportingService {
                                 interestAccruedUnpaid = add(interestAccruedUnpaid, number(
                                                 payment.getInterestComponent()));
                         }
+                }
+
+                for (PaymentTransaction receipt : periodReceipts) {
+                        principalCollected = add(principalCollected,
+                                        number(receipt.getPrincipalComponent()));
+                        interestCollected = add(interestCollected,
+                                        number(receipt.getInterestComponent()));
+                        feesCollected = add(feesCollected,
+                                        number(receipt.getManagementFeeComponent()));
+                        feesCollected = add(feesCollected,
+                                        number(receipt.getExtensionFeeComponent()));
+                        feesCollected = add(feesCollected,
+                                        number(receipt.getPenaltyComponent()));
+                        totalAmountCollected = add(totalAmountCollected,
+                                        number(receipt.getAmount()));
                 }
 
                 totalAmountCollected = add(totalAmountCollected, applicationFeesCollected);
