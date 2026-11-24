@@ -4776,7 +4776,7 @@ public class AccountingService {
         }
 
         /** Identify the actual income stream behind the shared GL 4100 account. */
-        private String feeIncomeType(JournalEntry entry, JournalLine line) {
+        static String feeIncomeType(JournalEntry entry, JournalLine line) {
                 String source = entry.getSourceType() == null ? "" : entry.getSourceType();
                 String description = line.getDescription() == null ? ""
                                 : line.getDescription().toLowerCase(java.util.Locale.ROOT);
