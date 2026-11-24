@@ -74,6 +74,23 @@ public final class ResponseDtoMapper {
                                         source.getLoanOfficer().getId());
                 }
 
+                java.time.LocalDate verifiedMaturity =
+                        com.patrick.fintech.loan_backend.util.LoanMaturityPolicy.maturityDate(source);
+                target.setContractMaturityVerified(verifiedMaturity != null);
+                if (verifiedMaturity != null) {
+                        boolean settled = java.util.Set.of(
+                                LoanStatus.PAID, LoanStatus.CLOSED, LoanStatus.CANCELLED,
+                                LoanStatus.REJECTED, LoanStatus.PENDING,
+                                LoanStatus.APPROVED, LoanStatus.UNDER_REVIEW)
+                                .contains(source.getStatus());
+                        java.time.LocalDate today = java.time.LocalDate.now(
+                                java.time.ZoneId.of("Africa/Kigali"));
+                        long days = settled ? 0L
+                                : Math.max(0L, java.time.temporal.ChronoUnit.DAYS.between(
+                                        verifiedMaturity, today));
+                        target.setContractDaysOverdue((int) Math.min(Integer.MAX_VALUE, days));
+                }
+
                 return target;
         }
 
