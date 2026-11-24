@@ -38,6 +38,11 @@
 \endif
 \endif
 \endif
+\if :{?APPROVAL_REF}
+SELECT set_config('nls.correction_approval_ref', :'APPROVAL_REF', false);
+\else
+SELECT set_config('nls.correction_approval_ref', 'SIMULATION_ONLY', false);
+\endif
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '90s';
@@ -53,12 +58,16 @@ DECLARE
     current_penalty_gl NUMERIC(19,2);
     sum_components NUMERIC(19,2);
     correction_ref TEXT := 'NLS54-MATURITY-20261124';
+    approval_reference TEXT := current_setting('nls.correction_approval_ref');
     opening_offset NUMERIC(19,2) := 2903333.33;
     current_period_increment NUMERIC(19,2) := 175000.00;
     penalty_repaid NUMERIC(19,2) := 5583333.33;
     interest_repaid NUMERIC(19,2) := 3258333.33;
     management_repaid NUMERIC(19,2) := 3258333.34;
 BEGIN
+    IF length(approval_reference) < 8 THEN
+        RAISE EXCEPTION 'Correction evidence/approval reference must contain at least 8 characters';
+    END IF;
     SELECT * INTO STRICT l FROM loans
     WHERE id=54 AND reference_number='NLS-000054'
     FOR UPDATE;
@@ -174,7 +183,7 @@ BEGIN
     -- historical amount, allocation components, source date or provider fields.
     UPDATE payment_transactions
        SET reversed=true, status='REVERSED', reversed_at=CURRENT_TIMESTAMP,
-           reversal_reason='Audited allocation correction; NO cash refund or new cash event',
+           reversal_reason='Audited allocation correction; NO cash refund; approval='||approval_reference,
            reversal_reference=correction_ref
      WHERE id=t.id;
 
@@ -192,7 +201,7 @@ BEGIN
         0, 0, 0,
         t.provider, t.currency, t.external_reference, t.gateway_status,
         t.payment_method, t.channel,
-        'Approved historical payment allocation correction of PTX '||t.id,
+        'Approved correction of PTX '||t.id||'; approval='||approval_reference,
         'POSTED', false, t.created_at)
     RETURNING id INTO corrected_id;
 
@@ -207,7 +216,8 @@ BEGIN
          'PAYMENT_ALLOCATION_CORRECTION',
          'LOAN:54:CORRECTION:PAYMENT','NLS-000054',
          'No-cash correction of original receipt PTX 5; replacement PTX '
-           ||corrected_id||'; original journal 306 retained','FINANCIAL_RECONCILIATION',
+           ||corrected_id||'; original journal 306 retained; approval='
+             ||approval_reference,'FINANCIAL_RECONCILIATION',
          false,COALESCE(l.business_owner_only,false))
     RETURNING id INTO journal_id;
 
@@ -230,7 +240,8 @@ BEGIN
         (l.organization_id,l.branch_id,DATE '2026-11-13',
          'PENALTY_OPENING_REASSESSMENT',
          'LOAN:54:CORRECTION:OPENING','NLS-000054',
-         'Reverse unsupported pre-maturity historical penalty assessment; no cash',
+         'Reverse unsupported pre-maturity penalty; approval='
+           ||approval_reference,
          'FINANCIAL_RECONCILIATION',false,COALESCE(l.business_owner_only,false))
     RETURNING id INTO journal_id;
     INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit,description)
@@ -250,7 +261,8 @@ BEGIN
         (l.organization_id,l.branch_id,DATE '2026-11-24',
          'PENALTY_CURRENT_REASSESSMENT',
          'LOAN:54:CORRECTION:POSTPAYMENT','NLS-000054',
-         'Additional penalty due Nov 20-24 on corrected full principal; no cash',
+         'Additional penalty due Nov 20-24; approval='
+           ||approval_reference,
          'FINANCIAL_RECONCILIATION',false,COALESCE(l.business_owner_only,false))
     RETURNING id INTO journal_id;
     INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit,description)
