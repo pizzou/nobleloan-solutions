@@ -706,14 +706,14 @@ public class PaymentService {
                 remainingManagementFeeBeforePayment =
                                 remainingManagementFeeBeforePayment.max(dueFees.management());
 
-                // Legacy imported loans generally carry arrears in the loan
-                // aggregate without having monthly schedule rows. The selected
-                // receipt row then represents their cumulative overdue charges.
-                boolean legacySingleReceiptCycle = Boolean.TRUE.equals(loan.getImported())
-                                && loanPayments.size() <= 1
+                // Any loan with only a single receipt placeholder must reflect
+                // its entire due-and-unpaid contractual fee history in that row.
+                // Otherwise a payment can clear the current month, silently
+                // skip earlier fees and incorrectly reduce principal.
+                boolean singleReceiptCycle = loanPayments.size() <= 1
                                 && (cycleIsDue || (LoanMaturityPolicy.maturityDate(loan) != null
                                 && !today.isBefore(LoanMaturityPolicy.maturityDate(loan))));
-                if (legacySingleReceiptCycle) {
+                if (singleReceiptCycle) {
                         totalCycleInterestDue = roundMoney(
                                         interestAlreadyPaidThisCycle.add(remainingInterestBeforePayment));
                         totalCycleManagementFeeDue = roundMoney(
