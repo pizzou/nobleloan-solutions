@@ -15,6 +15,7 @@ import {
 } from "@/services/api";
 
 import { Loan, Payment } from "@/types";
+import LoanPolicyReconciliationPanel from "@/components/LoanPolicyReconciliationPanel";
 import { contractDaysOverdue } from "@/lib/contractMaturity";
 
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
@@ -2332,6 +2333,13 @@ export default function LoanDetailPage() {
                   </button>
                   </>
                 )}
+              {isBusinessOwner && loan.imported && (
+                <LoanPolicyReconciliationPanel
+                  loanId={loan.id}
+                  reference={loan.referenceNumber}
+                  onApplied={load}
+                />
+              )}
               {isBusinessOwner && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span
