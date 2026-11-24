@@ -193,13 +193,7 @@ public class ScheduledJobs {
                                                                 && outstanding.compareTo(ZERO) > 0
                                                                 && !dueInstallments.isEmpty()) {
 
-                                                        LocalDate penaltyStart = dueInstallments.stream()
-                                                                        .map(Payment::getDueDate)
-                                                                        .filter(java.util.Objects::nonNull)
-                                                                        .filter(d -> d.isBefore(accrualDate))
-                                                                        .min(LocalDate::compareTo)
-                                                                        .map(OverduePenaltyClock::firstChargeableDay)
-                                                                        .orElse(null);
+                                                        LocalDate penaltyStart = OverduePenaltyClock.firstChargeableDay(loan);
 
                                                         if (penaltyStart != null && !penaltyStart.isAfter(accrualDate)
                                                                         && loan.getStatus() != LoanStatus.WRITTEN_OFF) {
@@ -334,9 +328,11 @@ public class ScheduledJobs {
                                         continue;
                                 }
 
-                                int daysOverdue = calculateDaysOverdue(
-                                                payment.getDueDate(),
-                                                today);
+                                int daysOverdue = (int) Math.min(Integer.MAX_VALUE,
+                                                OverduePenaltyClock.daysOverdue(loan, today));
+                                if (daysOverdue <= 0) {
+                                        continue;
+                                }
 
                                 loan.setStatus(LoanStatus.OVERDUE);
 
@@ -348,10 +344,7 @@ public class ScheduledJobs {
                                                                 0,
                                                                 currentDays);
 
-                                loan.setDaysOverdue(
-                                                Math.max(
-                                                                previousDays,
-                                                                daysOverdue));
+                                loan.setDaysOverdue(daysOverdue);
 
                                 loanRepo.save(loan);
 
@@ -414,7 +407,8 @@ public class ScheduledJobs {
                         }
                         for (java.util.Map.Entry<Long, LocalDate> overdueEntry : earliestOverdueDue.entrySet()) {
                                 Loan overdueLoan = overdueLoanById.get(overdueEntry.getKey());
-                                int accurateDays = calculateDaysOverdue(overdueEntry.getValue(), today);
+                                int accurateDays = (int) Math.min(Integer.MAX_VALUE,
+                                                OverduePenaltyClock.daysOverdue(overdueLoan, today));
                                 if (accurateDays != (overdueLoan.getDaysOverdue() == null
                                                 ? 0 : overdueLoan.getDaysOverdue())) {
                                         overdueLoan.setDaysOverdue(accurateDays);
@@ -455,7 +449,8 @@ public class ScheduledJobs {
                                                 continue;
                                         }
 
-                                        int daysOverdue = calculateDaysOverdue(dueDate, today);
+                                        int daysOverdue = (int) Math.min(Integer.MAX_VALUE,
+                                                        OverduePenaltyClock.daysOverdue(loan, today));
                                         LoanStatus previousStatus = loan.getStatus();
                                         int previousDaysOverdue = loan.getDaysOverdue() == null
                                                         ? 0
