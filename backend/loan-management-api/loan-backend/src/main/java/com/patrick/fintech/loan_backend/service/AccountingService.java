@@ -2537,11 +2537,10 @@ public class AccountingService {
                                 || asOf == null || !LocalDate.now().equals(asOf))
                         return null;
 
-                LocalDate due = loan.getNextDueDate() != null ? loan.getNextDueDate() : loan.getNextPaymentDate();
                 LocalDate importDate = loan.getCreatedAt().toLocalDate();
-                if (due == null || importDate.isAfter(asOf))
+                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(loan);
+                if (firstChargeable == null || importDate.isAfter(asOf))
                         return null;
-                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(due);
                 LocalDate lastHistoricalDay = importDate;
                 if (firstChargeable.isAfter(lastHistoricalDay))
                         return null;
@@ -2622,13 +2621,10 @@ public class AccountingService {
                                 || asOf == null)
                         return null;
 
-                LocalDate due = loan.getNextDueDate() != null
-                                ? loan.getNextDueDate()
-                                : loan.getNextPaymentDate();
-                if (due == null || due.isAfter(asOf))
-                        return null;
                 LocalDate importDate = loan.getCreatedAt().toLocalDate();
-                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(due);
+                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(loan);
+                if (firstChargeable == null || firstChargeable.isAfter(asOf))
+                        return null;
                 // The opening position is recognized at import; begin new
                 // accrual on the following day to avoid overlapping opening
                 // balances with the import date.
