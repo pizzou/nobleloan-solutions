@@ -232,6 +232,28 @@ public class BnrFinancialStatementService {
 
                 BigDecimal historicalExpenseTotal = ZERO;
 
+                // GL 4100 contains several fee streams. Only source-classified
+                // application fee lines are application-fee income. Use the
+                // identical classifier as the Accounting P&L so BNR, General
+                // Reports and Accounting reconcile for the same GL period.
+                for (JournalEntry entry : periodEntries) {
+                        if (entry.getLines() == null) {
+                                continue;
+                        }
+                        for (JournalLine line : entry.getLines()) {
+                                if (line == null || line.getAccount() == null
+                                                || !"4100".equals(line.getAccount().getCode())) {
+                                        continue;
+                                }
+                                if ("applicationFeeIncome".equals(AccountingService.feeIncomeType(entry, line))) {
+                                        applicationFeeIncome = add(
+                                                        applicationFeeIncome,
+                                                        normalizeMoney(line.getCreditDecimal())
+                                                                        .subtract(normalizeMoney(line.getDebitDecimal())));
+                                }
+                        }
+                }
+
                 // ========================================================
                 // CLASSIFY ACCOUNTS
                 // ========================================================
@@ -424,12 +446,6 @@ public class BnrFinancialStatementService {
                                         totalIncome = add(
                                                         totalIncome,
                                                         periodIncome);
-
-                                        if ("4100".equals(account.getCode())) {
-                                                applicationFeeIncome = add(
-                                                                applicationFeeIncome,
-                                                                periodIncome);
-                                        }
 
                                         income.add(row);
                                 }
