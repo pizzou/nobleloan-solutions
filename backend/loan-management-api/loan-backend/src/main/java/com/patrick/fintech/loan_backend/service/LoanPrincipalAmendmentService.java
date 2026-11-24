@@ -159,11 +159,11 @@ public class LoanPrincipalAmendmentService {
                 approved ? "LOAN_PRINCIPAL_AMENDMENT_REVIEW_APPROVED" : "LOAN_PRINCIPAL_AMENDMENT_REJECTED",
                 "Loan", loanId.toString(), "Amendment " + requestId + ": " + reviewReason,
                 item.getOldPrincipal().toPlainString(), item.getCorrectedPrincipal().toPlainString(), "Loans");
-        if (approved) {
-            // Approval and financial application share one database transaction:
-            // a failed GL posting or schedule update also rolls back the review.
-            applyFinancial(loan, item, actor);
-        }
+        // Owner authorization must persist independently of financial execution.
+        // Repricing complex historical schedules can fail safely; that must not
+        // erase the owner's decision or make the request disappear from the
+        // review workflow. A separate authorized /apply operation performs the
+        // reconciled accounting changes transactionally and idempotently.
         return item;
     }
 
