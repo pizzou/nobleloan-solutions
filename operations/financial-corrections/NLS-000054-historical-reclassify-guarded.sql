@@ -19,6 +19,8 @@
 --   Historical opening penalty adjustment = -2,903,333.33 (account 3010)
 --   Postreceipt penalty accrual adjustment = +175,000.00 (account 4100)
 --   Preexisting total-repayable discrepancy is also reconciled from components.
+--   Reclassification GL entries use the corrected original November reporting
+--   dates ONLY while November accounting period is still OPEN.
 --
 -- NEVER execute APPLY=true against production without first comparing the
 -- original source ledger and obtaining independent correction approval.
@@ -60,6 +62,17 @@ BEGIN
     SELECT * INTO STRICT l FROM loans
     WHERE id=54 AND reference_number='NLS-000054'
     FOR UPDATE;
+    -- This correction is deliberately restricted to the OPEN November 2026
+    -- accounting period. Any later application needs a newly approved
+    -- current-period adjustment package rather than backdating.
+    IF date_trunc('month', CURRENT_DATE) <> DATE '2026-11-01'
+       OR EXISTS (
+           SELECT 1 FROM accounting_periods
+           WHERE organization_id=l.organization_id
+             AND year=2026 AND month=11 AND status='CLOSED'
+       ) THEN
+        RAISE EXCEPTION 'November 2026 financial period is not currently open: abort';
+    END IF;
 
     IF l.status <> 'OVERDUE' OR NOT l.imported
        OR l.disbursed_at::date <> DATE '2026-03-26'
@@ -190,7 +203,7 @@ BEGIN
         (organization_id,branch_id,entry_date,source_type,source_id,
          reference,description,created_by,reversed,business_owner_only)
     VALUES
-        (l.organization_id,l.branch_id,CURRENT_DATE,
+        (l.organization_id,l.branch_id,DATE '2026-11-19',
          'PAYMENT_ALLOCATION_CORRECTION',
          'LOAN:54:CORRECTION:PAYMENT','NLS-000054',
          'No-cash correction of original receipt PTX 5; replacement PTX '
@@ -214,7 +227,7 @@ BEGIN
         (organization_id,branch_id,entry_date,source_type,source_id,
          reference,description,created_by,reversed,business_owner_only)
     VALUES
-        (l.organization_id,l.branch_id,CURRENT_DATE,
+        (l.organization_id,l.branch_id,DATE '2026-11-13',
          'PENALTY_OPENING_REASSESSMENT',
          'LOAN:54:CORRECTION:OPENING','NLS-000054',
          'Reverse unsupported pre-maturity historical penalty assessment; no cash',
@@ -234,7 +247,7 @@ BEGIN
         (organization_id,branch_id,entry_date,source_type,source_id,
          reference,description,created_by,reversed,business_owner_only)
     VALUES
-        (l.organization_id,l.branch_id,CURRENT_DATE,
+        (l.organization_id,l.branch_id,DATE '2026-11-24',
          'PENALTY_CURRENT_REASSESSMENT',
          'LOAN:54:CORRECTION:POSTPAYMENT','NLS-000054',
          'Additional penalty due Nov 20-24 on corrected full principal; no cash',
