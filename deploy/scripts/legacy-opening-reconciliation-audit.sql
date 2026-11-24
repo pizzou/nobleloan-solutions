@@ -23,9 +23,7 @@ WHERE l.organization_id = 1 AND l.imported = true AND l.deleted_at IS NULL
 GROUP BY l.status ORDER BY l.status;
 
 \echo ==== Imported loans missing an active opening journal (diagnostic only) ====
-SELECT l.id, l.reference_number, l.status,
-       l.outstanding_balance, l.interest_outstanding,
-       l.management_fee_outstanding
+SELECT l.id, l.reference_number, l.status
 FROM loans l
 WHERE l.organization_id = 1 AND l.imported = true AND l.deleted_at IS NULL
  AND NOT EXISTS (
