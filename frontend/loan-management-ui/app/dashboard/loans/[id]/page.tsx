@@ -2381,7 +2381,11 @@ export default function LoanDetailPage() {
               )}
 
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <StatusBadge status={loan.status} />
+                {loan.status === "OVERDUE" && contractDaysOverdue(loan) === 0 ? (
+                  <Pill label="Installment arrears · contract active" color="blue" />
+                ) : (
+                  <StatusBadge status={loan.status} />
+                )}
 
                 {loan.riskCategory && (
                   <RiskBadge
