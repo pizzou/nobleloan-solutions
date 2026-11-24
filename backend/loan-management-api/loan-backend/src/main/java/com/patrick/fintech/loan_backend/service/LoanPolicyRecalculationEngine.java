@@ -108,9 +108,10 @@ public final class LoanPolicyRecalculationEngine {
         for (PaymentTransaction tx : receipts) {
             LocalDate paidOn = tx.getCreatedAt().toLocalDate();
             if (!nextAccrualDate.isAfter(paidOn)) {
+                BigDecimal principalForPenalty = principal;
                 penaltyAssessed = penaltyAssessed.add(FinancialPolicy.historicalDailyPenalty(
-                        principal, nextAccrualDate, paidOn, loan.getPenaltyRateDecimal(),
-                        date -> principal));
+                        principalForPenalty, nextAccrualDate, paidOn, loan.getPenaltyRateDecimal(),
+                        date -> principalForPenalty));
                 nextAccrualDate = paidOn.plusDays(1);
             }
             BigDecimal availablePenalty = money(penaltyAssessed.subtract(penaltyPaid));
@@ -128,9 +129,10 @@ public final class LoanPolicyRecalculationEngine {
                     a.principal(), a.overpayment()));
         }
         if (!nextAccrualDate.isAfter(asOf) && !asOf.isBefore(firstPenalty)) {
+            BigDecimal principalForRemainingPenalty = principal;
             penaltyAssessed = money(penaltyAssessed.add(FinancialPolicy.historicalDailyPenalty(
-                    principal, nextAccrualDate, asOf, loan.getPenaltyRateDecimal(),
-                    date -> principal)));
+                    principalForRemainingPenalty, nextAccrualDate, asOf, loan.getPenaltyRateDecimal(),
+                    date -> principalForRemainingPenalty)));
         }
         return new Result(loan.getId(), loan.getReferenceNumber(), firstPenalty,
                 money(principal), money(interest), money(management),
