@@ -970,7 +970,7 @@ public class RegulatoryReportingService {
 
                                 totalAmountCollected = add(totalAmountCollected, amountPaid);
 
-                        } else {
+                        } else if (!completed) {
 
                                 if (payment.getDueDate() != null
                                                 &&
