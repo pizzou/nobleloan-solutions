@@ -9,7 +9,7 @@ import java.math.RoundingMode;
  * Single authoritative payment allocation order for the lending platform.
  *
  * Allocation is always:
- * penalty -> interest -> management fee -> extension fee -> principal
+ * penalty -> paired interest and management fees (pro rata) -> extension fee -> principal
  * -> overpayment.
  *
  * The caller must supply the complete due-and-unpaid amounts across
@@ -42,11 +42,30 @@ public class PaymentAllocationService {
         BigDecimal penalty = take(remaining, penaltyDue);
         remaining = money(remaining.subtract(penalty));
 
-        BigDecimal interest = take(remaining, interestDue);
-        remaining = money(remaining.subtract(interest));
-
-        BigDecimal managementFee = take(remaining, managementFeeDue);
-        remaining = money(remaining.subtract(managementFee));
+        // Both contractual charges are 5% monthly. Partial payments toward
+        // equal outstanding charges must be split equally, not consumed by
+        // interest first and leave management fees unpaid. For unequal
+        // historical balances, allocate proportionally and cap to each due.
+        BigDecimal interestOwed = money(interestDue).max(ZERO);
+        BigDecimal managementOwed = money(managementFeeDue).max(ZERO);
+        BigDecimal combinedOwed = money(interestOwed.add(managementOwed));
+        BigDecimal feePayment = remaining.min(combinedOwed);
+        BigDecimal interest = ZERO;
+        BigDecimal managementFee = ZERO;
+        if (combinedOwed.signum() > 0) {
+            interest = feePayment.multiply(interestOwed)
+                    .divide(combinedOwed, SCALE, ROUNDING).min(interestOwed);
+            managementFee = feePayment.subtract(interest).min(managementOwed);
+            // Cent rounding may cause one side to exceed its cap; give the
+            // leftover cent back to whichever fee still has an unpaid balance.
+            BigDecimal unallocated = money(feePayment.subtract(interest).subtract(managementFee));
+            if (unallocated.signum() > 0) {
+                BigDecimal additionalInterest = unallocated.min(interestOwed.subtract(interest));
+                interest = interest.add(additionalInterest);
+                managementFee = managementFee.add(unallocated.subtract(additionalInterest));
+            }
+        }
+        remaining = money(remaining.subtract(interest).subtract(managementFee));
 
         BigDecimal extensionFee = take(remaining, extensionFeeDue);
         remaining = money(remaining.subtract(extensionFee));
