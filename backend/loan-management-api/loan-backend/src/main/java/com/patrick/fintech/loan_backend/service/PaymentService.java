@@ -1172,11 +1172,19 @@ public class PaymentService {
                 // FULLY PAID LOAN
                 // ============================================================
 
+                // An installment may have no CURRENT-cycle interest or management
+                // charge before its due date, while the loan still carries unpaid
+                // contractual fees. Do not mark the entire loan PAID merely
+                // because principal and the current cycle have been settled.
+                // Early payoff/waiver must explicitly settle the loan-level
+                // contractual obligation; never silently write off those fees.
                 if (principalCovered
                                 && interestCovered
                                 && managementFeeCovered
                                 && penaltyCovered
-                                && extensionFeeCovered) {
+                                && extensionFeeCovered
+                                && newInterestOutstanding.compareTo(ONE_CENT) <= 0
+                                && newManagementOutstanding.compareTo(ONE_CENT) <= 0) {
 
                         loan.setStatus(
                                         LoanStatus.PAID);
