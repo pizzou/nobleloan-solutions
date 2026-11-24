@@ -13,6 +13,7 @@ import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentTransactionRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+import com.patrick.fintech.loan_backend.util.LoanMaturityPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -699,9 +700,14 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                int currentlyChargeablePenaltyDays = Math.max(
-                                0,
-                                daysLate - FinancialPolicy.PENALTY_GRACE_DAYS);
+                // Missed monthly installments remain overdue, but do not
+                // generate contractual penalties until maturity plus three
+                // full calendar grace days.
+                LocalDate firstPenaltyDay = LoanMaturityPolicy.firstPenaltyDate(loan);
+                int currentlyChargeablePenaltyDays = firstPenaltyDay == null
+                                || today.isBefore(firstPenaltyDay)
+                                ? 0 : (int) Math.min(Integer.MAX_VALUE,
+                                                ChronoUnit.DAYS.between(firstPenaltyDay, today) + 1L);
 
                 BigDecimal newlyCalculatedPenalty = ZERO;
                 int newPenaltyDays = 0;
@@ -752,10 +758,9 @@ public class PaymentService {
                 // ============================================================
                 // PAYMENT ALLOCATION — CANONICAL ORDER
                 // ============================================================
-                // Interest -> management fee -> principal -> extension fee -> penalty.
-                // Interest and management fee are the first contractual charges.
-                // Principal is then reduced from the remaining payment. Extension
-                // fees and penalties stay separate and never increase principal.
+                // Penalty -> all due interest -> all due management fees ->
+                // extension fees -> principal -> overpayment.
+                // Maturity controls penalty eligibility, not installment lateness.
 
                 PaymentAllocationService.Allocation allocation = paymentAllocationService.allocate(
                                 amount,
@@ -2288,15 +2293,13 @@ public class PaymentService {
         // ================================================================
 
         private LocalDate resolveEarliestPenaltyDate(Loan loan, LocalDate asOf) {
-                return paymentRepo.findByLoanId(loan.getId()).stream()
-                                .filter(java.util.Objects::nonNull)
-                                .filter(p -> p.getDueDate() != null)
-                                .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
-                                .map(Payment::getDueDate)
-                                .filter(d -> d.isBefore(asOf))
-                                .min(LocalDate::compareTo)
-                                .map(d -> d.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L))
-                                .orElse(null);
+                // Never infer penalty eligibility from the first missed
+                // monthly installment. Missing contract maturity blocks
+                // new automatic penalties pending verification.
+                LocalDate firstChargeable = LoanMaturityPolicy.firstPenaltyDate(loan);
+                return firstChargeable != null && asOf != null
+                                && !firstChargeable.isAfter(asOf)
+                                ? firstChargeable : null;
         }
 
         private BigDecimal calculateHistoricalPenaltyToDate(
