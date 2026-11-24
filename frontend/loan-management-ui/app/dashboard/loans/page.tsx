@@ -356,7 +356,6 @@ function LoanRow({
       ? Math.min(100, Math.round((totalPaid / repayable) * 100))
       : 0;
 
-  const installmentDaysPastDue = Number(loan.daysOverdue || 0);
   const contractOverdue = contractDaysOverdue(loan);
   const verifiedMaturity = verifiedContractMaturity(loan);
 
@@ -589,25 +588,13 @@ function LoanRow({
         {contractOverdue !== null && contractOverdue > 0 ? (
           <div className="mt-2 flex items-center justify-end gap-1 text-xs font-bold text-red-600">
             <IconAlertTriangle className="h-3.5 w-3.5" />
-            {contractOverdue} day{contractOverdue === 1 ? "" : "s"} past contract maturity
+            {contractOverdue} day{contractOverdue === 1 ? "" : "s"} overdue
           </div>
-        ) : verifiedMaturity ? (
-          <div className="mt-2 text-xs font-semibold text-emerald-700">
-            {contractOverdue === 0 ? "Contract not overdue" : "Contract maturity verified"}
-            <span className="block text-[11px] font-normal text-slate-500">
-              Maturity {formatDate(verifiedMaturity, locale)}
-            </span>
-          </div>
-        ) : (
+        ) : !verifiedMaturity ? (
           <div className="mt-2 text-xs font-semibold text-amber-700">
-            Verify contractual maturity
+            Verify maturity date
           </div>
-        )}
-        {installmentDaysPastDue > 0 && (
-          <div className="mt-1 text-[11px] text-slate-500">
-            {installmentDaysPastDue} installment day{installmentDaysPastDue === 1 ? "" : "s"} past due (credit-risk reporting)
-          </div>
-        )}
+        ) : null}
 
       </td>
 
