@@ -50,6 +50,43 @@ class DueInstallmentFeesTest {
         assertEquals(new BigDecimal("0.00"), result.management());
     }
 
+    @Test
+    void atVerifiedContractMaturityAllRemainingInterestAndManagementAreDue() {
+        LocalDate maturity = LocalDate.of(2026, 9, 26);
+        Loan loan = Loan.builder().imported(true)
+                .maturityDate(maturity)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 10, 0))
+                .durationMonths(6)
+                .nextDueDate(LocalDate.of(2026, 10, 25))
+                .interestOutstanding(new BigDecimal("6300000.00"))
+                .managementFeeOutstanding(new BigDecimal("6300000.00")).build();
+        DueInstallmentFees.Due before = DueInstallmentFees.calculate(loan,
+                List.of(), maturity.minusDays(1));
+        assertEquals(new BigDecimal("0.00"), before.interest());
+        assertEquals(new BigDecimal("0.00"), before.management());
+
+        DueInstallmentFees.Due atMaturity = DueInstallmentFees.calculate(loan,
+                List.of(), maturity);
+        assertEquals(new BigDecimal("6300000.00"), atMaturity.interest());
+        assertEquals(new BigDecimal("6300000.00"), atMaturity.management());
+    }
+
+    @Test
+    void inconsistentImportedContractDoesNotAccelerateFeesFromUnverifiedMaturity() {
+        LocalDate date = LocalDate.of(2026, 9, 26);
+        Loan loan = Loan.builder().imported(true)
+                .maturityDate(date)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 4, 26, 10, 0))
+                .durationMonths(6)
+                .nextDueDate(date.plusMonths(1))
+                .interestOutstanding(new BigDecimal("500000.00"))
+                .managementFeeOutstanding(new BigDecimal("500000.00")).build();
+        DueInstallmentFees.Due fees = DueInstallmentFees.calculate(loan,
+                List.of(), date.plusDays(1));
+        assertEquals(new BigDecimal("0.00"), fees.interest());
+        assertEquals(new BigDecimal("0.00"), fees.management());
+    }
+
     private Payment due(LocalDate date) {
         return Payment.builder().dueDate(date)
                 .cycleInterestRemaining(new BigDecimal("100000.00"))
