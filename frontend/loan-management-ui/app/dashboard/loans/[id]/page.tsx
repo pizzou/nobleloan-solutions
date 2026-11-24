@@ -15,6 +15,7 @@ import {
 } from "@/services/api";
 
 import { Loan, Payment } from "@/types";
+import { contractDaysOverdue } from "@/lib/contractMaturity";
 
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 
@@ -997,23 +998,6 @@ function CreditBureauReport({
 // ============================================================
 // MAIN PAGE
 // ============================================================
-
-/**
- * Contractual maturity days are distinct from BNR installment-arrears days.
- * Regulatory classification continues using the backend's stored DPD and
- * is never overwritten or reclassified by this borrower-facing indicator.
- */
-function contractOverdueDays(loan: Loan, today = new Date()): number | null {
-  if (!loan.maturityDate) return null;
-  if (["PAID", "CLOSED", "CANCELLED", "REJECTED", "PENDING", "APPROVED", "UNDER_REVIEW"]
-    .includes(String(loan.status))) return 0;
-  const due = String(loan.maturityDate).slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return null;
-  const maturity = Date.parse(due + "T00:00:00Z");
-  const calendarToday = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-  if (!Number.isFinite(maturity)) return null;
-  return Math.max(0, Math.floor((calendarToday - maturity) / 86400000));
-}
 
 export default function LoanDetailPage() {
   const params = useParams<{ id?: string | string[] }>();
@@ -2415,13 +2399,13 @@ export default function LoanDetailPage() {
 
                 <Pill label={loan.currency} color="teal" />
 
-                {contractOverdueDays(loan) !== null &&
-                  contractOverdueDays(loan)! > 0 ? (
+                {contractDaysOverdue(loan) !== null &&
+                  contractDaysOverdue(loan)! > 0 ? (
                   <Pill
                     label={
                       <span className="inline-flex items-center gap-1">
                         <IconAlertTriangle className="w-3 h-3" />
-                        {contractOverdueDays(loan)}d past contract maturity
+                        {contractDaysOverdue(loan)}d past contract maturity
                       </span>
                     }
                     color="red"
@@ -3317,7 +3301,7 @@ export default function LoanDetailPage() {
 
                 <Field
                   label="Contract-overdue days (after maturity)"
-                  value={contractOverdueDays(loan) ?? "Maturity not verified"}
+                  value={contractDaysOverdue(loan) ?? "Maturity not verified"}
                 />
 
                 <Field
