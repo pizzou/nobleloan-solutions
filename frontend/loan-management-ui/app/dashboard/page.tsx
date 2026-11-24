@@ -728,6 +728,26 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {authenticatedOwner && (
+          <section aria-label="Business Owner loan correction approvals"
+            className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mr-auto">
+              <h2 className="text-sm font-extrabold text-amber-950">Loan correction approvals</h2>
+              <p className="mt-1 text-xs text-amber-900">Review staff requests for principal, disbursement date, negotiated rates and legacy record corrections.</p>
+            </div>
+            <button type="button"
+              onClick={() => router.push("/dashboard/principal-amendments")}
+              className="rounded-lg bg-amber-900 px-4 py-2 text-xs font-bold text-white">
+              Financial amendments
+            </button>
+            <button type="button"
+              onClick={() => router.push("/dashboard/loans/correction-requests")}
+              className="rounded-lg border border-amber-900 px-4 py-2 text-xs font-bold text-amber-950">
+              Legacy corrections
+            </button>
+          </section>
+        )}
+
         {/* ============= OWNER CONSOLIDATION ============= */}
 
         {consolidatedView && (
