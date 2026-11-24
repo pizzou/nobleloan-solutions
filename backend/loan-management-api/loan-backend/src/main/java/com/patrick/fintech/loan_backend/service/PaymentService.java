@@ -733,6 +733,29 @@ public class PaymentService {
                                 ? 0 : (int) Math.min(Integer.MAX_VALUE,
                                                 ChronoUnit.DAYS.between(firstPenaltyDay, today) + 1L);
 
+                // Historical penalties may have been assessed by the OLD
+                // monthly-instalment rule. Do not consume those overstated
+                // receivables from a real payment merely because the new
+                // allocation priority now puts penalties first.
+                if (loanPenaltyAssessedBeforePayment.compareTo(ZERO) > 0) {
+                        if (firstPenaltyDay == null) {
+                                throw new IllegalStateException(
+                                                "Penalty history requires verified contractual maturity. "
+                                                                + "Reconcile existing assessments before recording payment.");
+                        }
+                        BigDecimal permittedToDate = today.isBefore(firstPenaltyDay)
+                                        ? ZERO
+                                        : calculateHistoricalPenaltyToDate(
+                                                        loan, currentBalance, firstPenaltyDay, today);
+                        if (loanPenaltyAssessedBeforePayment
+                                        .subtract(permittedToDate).compareTo(ONE_CENT) > 0) {
+                                throw new IllegalStateException(
+                                                "Existing assessed penalties exceed maturity-based calculation. "
+                                                                + "Use approved penalty reconciliation before accepting "
+                                                                + "this payment; cash must not be double-recorded.");
+                        }
+                }
+
                 BigDecimal newlyCalculatedPenalty = ZERO;
                 int newPenaltyDays = 0;
 
