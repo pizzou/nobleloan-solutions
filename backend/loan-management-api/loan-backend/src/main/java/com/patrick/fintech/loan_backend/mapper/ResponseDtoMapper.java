@@ -78,7 +78,8 @@ public final class ResponseDtoMapper {
                         com.patrick.fintech.loan_backend.util.LoanMaturityPolicy.maturityDate(source);
                 target.setContractMaturityVerified(verifiedMaturity != null);
                 if (verifiedMaturity != null) {
-                        boolean settled = java.util.Set.of(
+                        boolean settled = source.getStatus() != null &&
+                                java.util.Set.of(
                                 LoanStatus.PAID, LoanStatus.CLOSED, LoanStatus.CANCELLED,
                                 LoanStatus.REJECTED, LoanStatus.PENDING,
                                 LoanStatus.APPROVED, LoanStatus.UNDER_REVIEW)
