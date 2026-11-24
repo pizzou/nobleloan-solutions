@@ -2173,20 +2173,23 @@ public class PaymentService {
 
                 List<Payment> allPayments = paymentRepo.findByLoanId(loan.getId());
 
+                LocalDate today = anchorDate == null ? LocalDate.now() : anchorDate;
                 List<Payment> future = allPayments
                                 .stream()
                                 .filter(p -> p != null)
                                 .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
+                                .filter(p -> p.getDueDate() != null && p.getDueDate().isAfter(today))
                                 .filter(p -> completedPaymentId == null
                                                 || p.getId() == null
                                                 || !p.getId().equals(completedPaymentId))
-                                .sorted(Comparator.comparing(
-                                                Payment::getInstallmentNumber,
-                                                Comparator.nullsLast(Comparator.naturalOrder())))
+                                .sorted(Comparator.comparing(Payment::getDueDate)
+                                                .thenComparing(Payment::getInstallmentNumber,
+                                                                Comparator.nullsLast(Comparator.naturalOrder())))
                                 .toList();
 
+                // Past-due instalments must never be repriced or rewritten
+                // simply because a partial payment reduced principal.
                 if (future.isEmpty()) {
-                        loan.setNextInstallmentAmount(ZERO);
                         return;
                 }
 
@@ -2271,7 +2274,12 @@ public class PaymentService {
                                                                 .add(scheduledInterestTotal)
                                                                 .add(scheduledManagementFeeTotal)));
 
-                Payment next = future.get(0);
+                Payment next = allPayments.stream()
+                                .filter(java.util.Objects::nonNull)
+                                .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
+                                .filter(p -> p.getDueDate() != null)
+                                .min(Comparator.comparing(Payment::getDueDate))
+                                .orElse(future.get(0));
                 loan.setNextDueDate(next.getDueDate());
                 loan.setNextPaymentDate(next.getDueDate());
                 loan.setNextInstallmentAmount(roundMoney(next.getAmount()));
