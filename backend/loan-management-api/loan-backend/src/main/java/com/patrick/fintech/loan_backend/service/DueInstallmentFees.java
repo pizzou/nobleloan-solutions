@@ -40,6 +40,17 @@ public final class DueInstallmentFees {
         BigDecimal interestOutstanding = money(loan.getInterestOutstandingDecimal());
         BigDecimal managementOutstanding = money(loan.getManagementFeeOutstandingDecimal());
 
+        // Once the contractual loan ends, every remaining contractual month
+        // has matured. A borrower paying after maturity must clear all accrued
+        // interest and management charges (equally if dues are equal) after
+        // eligible penalties, before any principal. Never charge an additional
+        // month merely because the borrower paid late.
+        LocalDate maturity = com.patrick.fintech.loan_backend.util.LoanMaturityPolicy
+                .maturityDate(loan);
+        if (maturity != null && !today.isBefore(maturity)) {
+            return new Due(interestOutstanding, managementOutstanding);
+        }
+
         // Only collapse to one historical arrears bucket when no separate
         // multi-instalment history exists. Otherwise use individual dues.
         if (Boolean.TRUE.equals(loan.getImported())
