@@ -693,9 +693,11 @@ public class PaymentService {
                 // charge, not just the currently selected installment. Scheduled
                 // future fees are deliberately excluded until their due dates.
                 BigDecimal allDueInterest = totalDueCharge(
-                                loanPayments, installment, today, true);
+                                loanPayments, installment, today, true,
+                                remainingInterestBeforePayment);
                 BigDecimal allDueManagementFees = totalDueCharge(
-                                loanPayments, installment, today, false);
+                                loanPayments, installment, today, false,
+                                remainingManagementFeeBeforePayment);
 
                 // ============================================================
                 // NEW PENALTY DAYS
@@ -806,7 +808,9 @@ public class PaymentService {
                 // at the next receipt, while leaving future cycles untouched.
                 DueChargeSettlement dueSettlement = settleDueCharges(
                                 loanPayments, installment, today,
-                                interestPaidThisPayment, managementFeePaidThisPayment);
+                                interestPaidThisPayment, managementFeePaidThisPayment,
+                                remainingInterestBeforePayment,
+                                remainingManagementFeeBeforePayment);
                 BigDecimal interestPaidOnSelected = dueSettlement.interestOnSelected();
                 BigDecimal managementPaidOnSelected = dueSettlement.managementOnSelected();
 
@@ -2366,7 +2370,8 @@ public class PaymentService {
                         List<Payment> loanPayments,
                         Payment selected,
                         LocalDate asOf,
-                        boolean interest) {
+                        boolean interest,
+                        BigDecimal selectedDue) {
 
                 BigDecimal total = ZERO;
                 boolean includedSelected = false;
@@ -2381,15 +2386,17 @@ public class PaymentService {
                                                         && cycle.getId().equals(selected.getId()))) {
                                 includedSelected = true;
                         }
-                        total = total.add(interest
-                                        ? safe(cycle.getCycleInterestRemainingDecimal()).max(ZERO)
-                                        : safe(cycle.getCycleManagementFeeRemainingDecimal()).max(ZERO));
+                        total = total.add(cycle == selected
+                                        || (cycle.getId() != null && selected.getId() != null
+                                                        && cycle.getId().equals(selected.getId()))
+                                        ? selectedDue
+                                        : (interest
+                                                        ? safe(cycle.getCycleInterestRemainingDecimal()).max(ZERO)
+                                                        : safe(cycle.getCycleManagementFeeRemainingDecimal()).max(ZERO)));
                 }
                 if (!includedSelected && selected.getDueDate() != null
                                 && !selected.getDueDate().isAfter(asOf)) {
-                        total = total.add(interest
-                                        ? safe(selected.getCycleInterestRemainingDecimal()).max(ZERO)
-                                        : safe(selected.getCycleManagementFeeRemainingDecimal()).max(ZERO));
+                        total = total.add(selectedDue);
                 }
                 return roundMoney(total);
         }
@@ -2399,7 +2406,9 @@ public class PaymentService {
                         Payment selected,
                         LocalDate asOf,
                         BigDecimal interestPayment,
-                        BigDecimal managementPayment) {
+                        BigDecimal managementPayment,
+                        BigDecimal selectedInterestDue,
+                        BigDecimal selectedManagementDue) {
 
                 List<Payment> due = new java.util.ArrayList<>(loanPayments.stream()
                                 .filter(p -> p != null && p.getDueDate() != null
@@ -2421,10 +2430,16 @@ public class PaymentService {
                 BigDecimal selectedManagement = ZERO;
 
                 for (Payment cycle : due) {
-                        BigDecimal settledInterest = safe(cycle.getCycleInterestRemainingDecimal())
-                                        .max(ZERO).min(interestLeft);
-                        BigDecimal settledManagement = safe(cycle.getCycleManagementFeeRemainingDecimal())
-                                        .max(ZERO).min(managementLeft);
+                        boolean selectedCycle = cycle == selected
+                                        || (cycle.getId() != null && cycle.getId().equals(selected.getId()));
+                        BigDecimal interestOutstanding = selectedCycle
+                                        ? selectedInterestDue
+                                        : safe(cycle.getCycleInterestRemainingDecimal()).max(ZERO);
+                        BigDecimal managementOutstanding = selectedCycle
+                                        ? selectedManagementDue
+                                        : safe(cycle.getCycleManagementFeeRemainingDecimal()).max(ZERO);
+                        BigDecimal settledInterest = interestOutstanding.min(interestLeft);
+                        BigDecimal settledManagement = managementOutstanding.min(managementLeft);
                         interestLeft = roundMoney(interestLeft.subtract(settledInterest));
                         managementLeft = roundMoney(managementLeft.subtract(settledManagement));
                         if (cycle == selected || (cycle.getId() != null
