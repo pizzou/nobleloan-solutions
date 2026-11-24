@@ -46,14 +46,14 @@ ORDER BY l.reference_number,je.entry_date,je.id;
 \echo ==== Portfolio mismatch between loan-level and GL penalty balances ====
 SELECT l.id, l.reference_number,
        ROUND(l.penalties_assessed-l.penalties_paid,2) AS operational_penalty_outstanding,
-       COALESCE(ROUND(SUM(jl.debit-jl.credit),2),0) AS gl_penalty_outstanding,
+       COALESCE(ROUND(SUM(CASE WHEN coa.code='1175' THEN jl.debit-jl.credit ELSE 0 END),2),0) AS gl_penalty_outstanding,
        ROUND((l.penalties_assessed-l.penalties_paid)
-         - COALESCE(SUM(jl.debit-jl.credit),0),2) AS difference
+         - COALESCE(SUM(CASE WHEN coa.code='1175' THEN jl.debit-jl.credit ELSE 0 END),0),2) AS difference
 FROM loans l
 LEFT JOIN journal_entries je ON je.organization_id=l.organization_id
                             AND je.reference=l.reference_number
 LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id
-LEFT JOIN chart_of_accounts coa ON coa.id=jl.account_id AND coa.code='1175'
+LEFT JOIN chart_of_accounts coa ON coa.id=jl.account_id
 WHERE l.organization_id=1
 GROUP BY l.id,l.reference_number,l.penalties_assessed,l.penalties_paid
 HAVING ROUND((l.penalties_assessed-l.penalties_paid)
