@@ -150,11 +150,14 @@ BEGIN
     JOIN journal_lines jl ON jl.journal_entry_id=je.id
     JOIN chart_of_accounts a ON a.id=jl.account_id
     WHERE je.organization_id=l.organization_id
-      AND je.reference=l.reference_number AND a.code='1175';
+      AND (je.reference=l.reference_number OR je.source_id='LOAN:'||l.id) AND a.code='1175';
     IF current_penalty_gl <> 8870000 THEN
         RAISE EXCEPTION 'GL 1175 is %, expected 8870000: abort', current_penalty_gl;
     END IF;
 
+    -- Historical opening journals use source_id='LOAN:54' without necessarily
+    -- carrying the NLS reference; later receipts/accruals use the reference.
+    -- Both identities are necessary for the complete loan-specific ledger.
     -- All receivable ledger opening positions must match the operational
     -- subledger BEFORE any adjusting entry can be posted.
     SELECT COUNT(*) INTO n FROM (
@@ -163,7 +166,7 @@ BEGIN
         JOIN journal_lines jl ON jl.account_id=a.id
         JOIN journal_entries je ON je.id=jl.journal_entry_id
         WHERE a.organization_id=l.organization_id
-          AND je.reference=l.reference_number
+          AND (je.reference=l.reference_number OR je.source_id='LOAN:'||l.id)
           AND a.code IN ('1100','1150','1160')
         GROUP BY a.code
     ) balances
@@ -310,7 +313,7 @@ BEGIN
     JOIN journal_lines jl ON jl.journal_entry_id=je.id
     JOIN chart_of_accounts a ON a.id=jl.account_id
     WHERE je.organization_id=l.organization_id
-      AND je.reference=l.reference_number AND a.code='1175';
+      AND (je.reference=l.reference_number OR je.source_id='LOAN:'||l.id) AND a.code='1175';
     IF current_penalty_gl <> 558333.34 THEN
         RAISE EXCEPTION 'Corrected loan 54 penalty GL balance % is not 558333.34',
             current_penalty_gl;
@@ -321,7 +324,7 @@ BEGIN
         JOIN journal_lines jl ON jl.account_id=a.id
         JOIN journal_entries je ON je.id=jl.journal_entry_id
         WHERE a.organization_id=l.organization_id
-          AND je.reference=l.reference_number
+          AND (je.reference=l.reference_number OR je.source_id='LOAN:'||l.id)
           AND a.code IN ('1100','1150','1160')
         GROUP BY a.code
     ) balances
