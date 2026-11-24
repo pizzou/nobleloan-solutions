@@ -47,8 +47,8 @@ class PaymentAllocationServiceTest {
                 new BigDecimal("500.00"));
 
         assertEquals(new BigDecimal("30.00"), result.penalty());
-        assertEquals(new BigDecimal("50.00"), result.interest());
-        assertEquals(new BigDecimal("45.00"), result.managementFee());
+        assertEquals(new BigDecimal("47.50"), result.interest());
+        assertEquals(new BigDecimal("47.50"), result.managementFee());
         assertEquals(new BigDecimal("0.00"), result.principal());
         assertEquals(new BigDecimal("0.00"), result.extensionFee());
         assertEquals(new BigDecimal("0.00"), result.overpayment());
@@ -70,6 +70,35 @@ class PaymentAllocationServiceTest {
         assertEquals(new BigDecimal("200000.00"), result.extensionFee());
         assertEquals(new BigDecimal("700000.00"), result.principal());
         assertEquals(new BigDecimal("0.00"), result.overpayment());
+    }
+
+    @Test
+    void feeBalancesSharePartialFundsEquallyAfterPenalty() {
+        PaymentAllocationService.Allocation result = service.allocate(
+                new BigDecimal("12100000.00"),
+                new BigDecimal("8870000.00"),
+                BigDecimal.ZERO,
+                new BigDecimal("4625000.00"),
+                new BigDecimal("4625000.00"),
+                new BigDecimal("24750000.00"));
+        assertEquals(new BigDecimal("8870000.00"), result.penalty());
+        assertEquals(new BigDecimal("1615000.00"), result.interest());
+        assertEquals(new BigDecimal("1615000.00"), result.managementFee());
+        assertEquals(new BigDecimal("0.00"), result.principal());
+    }
+
+    @Test
+    void excessShareMovesToOtherFeeBeforePrincipal() {
+        PaymentAllocationService.Allocation result = service.allocate(
+                new BigDecimal("100.00"),
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                new BigDecimal("10.00"),
+                new BigDecimal("70.00"),
+                new BigDecimal("100.00"));
+        assertEquals(new BigDecimal("10.00"), result.interest());
+        assertEquals(new BigDecimal("70.00"), result.managementFee());
+        assertEquals(new BigDecimal("20.00"), result.principal());
     }
 
     @Test
