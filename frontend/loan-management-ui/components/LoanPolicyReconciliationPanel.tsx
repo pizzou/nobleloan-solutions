@@ -26,7 +26,7 @@ type Correction = {
       extensionFee: Money;
       principal: Money;
     }>;
-  };
+  } | null;
 };
 
 function rwf(amount: Money): string {
@@ -106,7 +106,9 @@ export default function LoanPolicyReconciliationPanel({
       {preview && (
         <div className="mt-4 space-y-3">
           <p className="text-xs font-semibold text-slate-800">
-            As of {preview.asOf} · {preview.needsCorrection ? "Accounting adjustment required" : "Already consistent"}
+            As of {preview.asOf} · {preview.postingStatus === "ALREADY_APPLIED_NONCASH_JOURNAL"
+              ? "Audited reconciliation already applied"
+              : preview.needsCorrection ? "Accounting adjustment required" : "Already consistent"}
           </p>
           <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
             <div>Principal change<strong className="block">{rwf(preview.adjustment.principal)}</strong></div>
