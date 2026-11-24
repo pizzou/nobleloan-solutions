@@ -131,6 +131,24 @@ class DueInstallmentFeesTest {
         assertEquals(new BigDecimal("2200000.00"), result.management());
     }
 
+    @Test
+    void systemCreatedLoanWithIncompleteScheduleStillCollectsAllElapsedMonths() {
+        Loan loan = Loan.builder()
+                .imported(false)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 8, 19, 10, 0))
+                .maturityDate(LocalDate.of(2026, 12, 19))
+                .durationMonths(4)
+                .totalInterest(new BigDecimal("1000000.00"))
+                .managementFee(new BigDecimal("1000000.00"))
+                .interestOutstanding(new BigDecimal("1000000.00"))
+                .managementFeeOutstanding(new BigDecimal("1000000.00"))
+                .build();
+        DueInstallmentFees.Due result = DueInstallmentFees.calculate(loan,
+                List.of(due(LocalDate.of(2026, 9, 19))), LocalDate.of(2026, 11, 25));
+        assertEquals(new BigDecimal("750000.00"), result.interest());
+        assertEquals(new BigDecimal("750000.00"), result.management());
+    }
+
     private Payment due(LocalDate date) {
         return Payment.builder().dueDate(date)
                 .cycleInterestRemaining(new BigDecimal("100000.00"))
