@@ -763,6 +763,27 @@ public class PaymentService {
                                         : 0;
                 }
 
+                // Post any missing penalty accrual before allocating cash.
+                // The journal entry and loan update participate in this payment
+                // transaction. If an accrual already exists for today but its
+                // loan-level amount does not match, fail instead of silently
+                // creating a receivable with no matching GL debit.
+                if (newlyCalculatedPenalty.signum() > 0) {
+                        BigDecimal assessedBeforeCatchUp = roundMoney(
+                                        safe(loan.getPenaltiesAssessedDecimal()));
+                        accountingService.postPenaltyAccrual(loan, newlyCalculatedPenalty);
+                        BigDecimal actuallyPosted = roundMoney(
+                                        safe(loan.getPenaltiesAssessedDecimal())
+                                                        .subtract(assessedBeforeCatchUp));
+                        if (actuallyPosted.compareTo(newlyCalculatedPenalty) != 0) {
+                                throw new IllegalStateException(
+                                                "Penalty accrual journal did not reconcile with loan "
+                                                                + loan.getReferenceNumber()
+                                                                + "; expected=" + newlyCalculatedPenalty
+                                                                + ", posted=" + actuallyPosted);
+                        }
+                }
+
                 // ============================================================
                 // TOTAL PENALTY
                 // ============================================================
@@ -1183,13 +1204,10 @@ public class PaymentService {
                                                 .max(ZERO));
                 loan.setManagementFeeOutstanding(newManagementOutstanding);
 
-                BigDecimal oldPenaltiesAssessed = roundMoney(
-                                safe(loan.getPenaltiesAssessedDecimal()));
+                // Penalty accrual was already posted (with its balanced journal)
+                // earlier in this transaction. Do not assess the same amount again.
                 BigDecimal newPenaltiesAssessed = roundMoney(
-                                oldPenaltiesAssessed
-                                                .add(newlyCalculatedPenalty)
-                                                .max(ZERO));
-                loan.setPenaltiesAssessed(newPenaltiesAssessed);
+                                safe(loan.getPenaltiesAssessedDecimal())).max(ZERO);
 
                 BigDecimal oldPenaltiesPaid = roundMoney(
                                 safe(loan.getPenaltiesPaidDecimal()));
