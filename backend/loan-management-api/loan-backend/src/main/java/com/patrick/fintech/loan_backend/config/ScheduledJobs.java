@@ -17,6 +17,7 @@ import com.patrick.fintech.loan_backend.service.SchedulerLockService;
 import com.patrick.fintech.loan_backend.service.SmsService;
 
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+import com.patrick.fintech.loan_backend.util.LoanMaturityPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -190,15 +191,12 @@ public class ScheduledJobs {
                                                                 && outstanding.compareTo(ZERO) > 0
                                                                 && !dueInstallments.isEmpty()) {
 
-                                                        LocalDate penaltyStart = dueInstallments.stream()
-                                                                        .map(Payment::getDueDate)
-                                                                        .filter(java.util.Objects::nonNull)
-                                                                        .filter(d -> d.isBefore(accrualDate))
-                                                                        .min(LocalDate::compareTo)
-                                                                        .map(d -> d.plusDays(
-                                                                                        FinancialPolicy.PENALTY_GRACE_DAYS
-                                                                                                        + 1L))
-                                                                        .orElse(null);
+                                                        // Monthly installment lateness is not a
+                                                        // contractual penalty event. Accrue only
+                                                        // after maturity plus three full calendar
+                                                        // grace days.
+                                                        LocalDate penaltyStart =
+                                                                        LoanMaturityPolicy.firstPenaltyDate(loan);
 
                                                         if (penaltyStart != null && !penaltyStart.isAfter(accrualDate)
                                                                         && loan.getStatus() != LoanStatus.WRITTEN_OFF) {
