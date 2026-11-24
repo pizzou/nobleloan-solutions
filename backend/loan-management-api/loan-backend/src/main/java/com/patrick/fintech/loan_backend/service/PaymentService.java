@@ -690,6 +690,30 @@ public class PaymentService {
                 remainingManagementFeeBeforePayment = roundMoney(
                                 remainingManagementFeeBeforePayment);
 
+                // Imported legacy loans often have one receipt installment but
+                // carry several months of *already due* unpaid interest and
+                // management fees in the imported loan aggregates. Charging
+                // just one freshly created payment cycle incorrectly pushes
+                // those historical fees into principal. Do not accelerate
+                // fees when the imported next due date is still in the future.
+                if (Boolean.TRUE.equals(loan.getImported()) && cycleIsDue) {
+                        BigDecimal importedInterestArrears = roundMoney(
+                                        safe(loan.getInterestOutstandingDecimal())).max(ZERO);
+                        BigDecimal importedManagementArrears = roundMoney(
+                                        safe(loan.getManagementFeeOutstandingDecimal())).max(ZERO);
+
+                        if (importedInterestArrears.compareTo(remainingInterestBeforePayment) > 0) {
+                                remainingInterestBeforePayment = importedInterestArrears;
+                                totalCycleInterestDue = roundMoney(
+                                                interestAlreadyPaidThisCycle.add(importedInterestArrears));
+                        }
+                        if (importedManagementArrears.compareTo(remainingManagementFeeBeforePayment) > 0) {
+                                remainingManagementFeeBeforePayment = importedManagementArrears;
+                                totalCycleManagementFeeDue = roundMoney(
+                                                managementFeeAlreadyPaidThisCycle.add(importedManagementArrears));
+                        }
+                }
+
                 // ============================================================
                 // NEW PENALTY DAYS
                 // ============================================================
