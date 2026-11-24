@@ -111,15 +111,22 @@ public class ReportingService {
                                 ReportingScopeService.includeBusinessOwnerOnly()));
 
                 BigDecimal totalPaid = ZERO;
+                BigDecimal totalPenalties = ZERO;
                 for (Loan loan : allLoans) {
                         if (loan != null) {
                                 totalPaid = add(totalPaid, normalizeMoney(loan.getTotalPaidDecimal()));
+                                // Operational loan-level assessed-minus-paid is the
+                                // same outstanding penalty position used by accounting
+                                // and BNR. Summing installment penalty columns omits
+                                // unscheduled legacy charges and may double-count.
+                                totalPenalties = add(totalPenalties,
+                                                normalizeMoney(loan.getPenaltiesAssessedDecimal())
+                                                                .subtract(normalizeMoney(loan.getPenaltiesPaidDecimal()))
+                                                                .max(ZERO));
                         }
                 }
 
                 BigDecimal totalPending = ZERO;
-
-                BigDecimal totalPenalties = ZERO;
 
                 BigDecimal legacyTotalPaid = ZERO;
                 BigDecimal legacyPrincipalPaid = ZERO;
@@ -140,9 +147,6 @@ public class ReportingService {
                         BigDecimal amountPaid = normalizeMoney(
                                         payment.getAmountPaidDecimal());
 
-                        BigDecimal penalty = normalizeMoney(
-                                        payment.getPenaltyDecimal());
-
                         if (Boolean.TRUE.equals(payment.getPaid())) {
                                 // Loan.totalPaid is authoritative for lifetime collection totals.
                                 // Do not add Payment rows again or live payments would be double-counted.
@@ -153,9 +157,6 @@ public class ReportingService {
                                 totalPending = add(totalPending, remaining);
                         }
 
-                        totalPenalties = add(
-                                        totalPenalties,
-                                        penalty);
                 }
 
                 List<Loan> importedLoans = safeLoans(
