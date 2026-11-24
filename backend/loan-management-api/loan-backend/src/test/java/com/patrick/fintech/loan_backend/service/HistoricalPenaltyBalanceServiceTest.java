@@ -52,10 +52,33 @@ class HistoricalPenaltyBalanceServiceTest {
         BigDecimal expected = FinancialPolicy.historicalDailyPenalty(
                 new BigDecimal("24750000.00"), first, asOf,
                 new BigDecimal("10.00"),
-                day -> day.isBefore(LocalDate.of(2026, 11, 19))
+                day -> !day.isAfter(LocalDate.of(2026, 11, 19))
                         ? new BigDecimal("33500000.00")
                         : new BigDecimal("24750000.00"));
         assertEquals(expected, calculated);
+    }
+
+    @Test
+    void chargeThroughPaymentDayUsesPrincipalBeforeSameDayReceipt() {
+        Loan loan = Loan.builder().id(54L).amount(new BigDecimal("33500000.00"))
+                .penaltyRate(new BigDecimal("10.00")).build();
+        PaymentTransaction paid = PaymentTransaction.builder()
+                .principalComponent(new BigDecimal("8750000.00"))
+                .createdAt(LocalDateTime.of(2026, 11, 19, 14, 24))
+                .status(PaymentTransaction.TransactionStatus.POSTED)
+                .reversed(false).build();
+        when(transactionRepository.findByLoanIdOrderByCreatedAtDesc(54L))
+                .thenReturn(List.of(paid));
+        BigDecimal assessed = service.assessedToDate(loan,
+                new BigDecimal("24750000.00"),
+                LocalDate.of(2026, 11, 19),
+                LocalDate.of(2026, 11, 19));
+        BigDecimal expected = FinancialPolicy.historicalDailyPenalty(
+                new BigDecimal("24750000.00"),
+                LocalDate.of(2026, 11, 19),
+                LocalDate.of(2026, 11, 19),
+                new BigDecimal("10.00"), day -> new BigDecimal("33500000.00"));
+        assertEquals(expected, assessed);
     }
 
     @Test
