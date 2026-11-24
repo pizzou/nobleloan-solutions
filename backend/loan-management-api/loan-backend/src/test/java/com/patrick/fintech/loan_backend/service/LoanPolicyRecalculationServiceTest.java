@@ -73,6 +73,18 @@ class LoanPolicyRecalculationServiceTest {
         assertEquals(new BigDecimal("0.00"), loan.getPrincipalPaidDecimal());
         assertEquals(new BigDecimal("0.00"), loan.getInterestOutstandingDecimal());
         assertEquals(new BigDecimal("0.00"), installment.getPrincipalComponentDecimal());
+        // The imported payment row must represent the complete unpaid arrears at
+        // the receipt date (6.3m each), not its old 1.675m monthly cycle.
+        assertEquals(new BigDecimal("6300000.00"), installment.getCycleInterestDueDecimal());
+        assertEquals(new BigDecimal("0.00"), installment.getCycleInterestRemainingDecimal());
+        assertEquals(new BigDecimal("6300000.00"), installment.getCycleManagementFeeDueDecimal());
+        assertEquals(new BigDecimal("6083333.33"), installment.getCycleManagementFeeRemainingDecimal());
+        assertEquals(new BigDecimal("6300000.00"), installment.getInterestComponentDecimal());
+        assertEquals(new BigDecimal("216666.67"), installment.getManagementFeeComponentDecimal());
+        assertEquals(new BigDecimal("5583333.33"), installment.getPenaltyPaidDecimal());
+        assertEquals(new BigDecimal("0.00"), loan.getPrincipalPaidDecimal());
+        assertEquals(new BigDecimal("6083333.33"), loan.getManagementFeeOutstandingDecimal());
+        assertEquals(new BigDecimal("33500000.00"), installment.getOutstandingAfterDecimal());
         assertEquals(new BigDecimal("12100000.00"), tx.getAmount());
         assertEquals(new BigDecimal("8750000.00"), tx.getPrincipalComponent());
         verify(accounting, times(1)).postPolicyRecalculation(eq(loan), any(),
