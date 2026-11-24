@@ -24,9 +24,10 @@ class ImportedLoanPenaltyAccrualTest {
     private final JournalLineRepository lineRepo = mock(JournalLineRepository.class);
     private final LoanRepository loanRepo = mock(LoanRepository.class);
     private final PaymentRepository paymentRepo = mock(PaymentRepository.class);
+    private final PaymentTransactionRepository paymentTransactionRepo = mock(PaymentTransactionRepository.class);
     private final AccountingPeriodService periodService = mock(AccountingPeriodService.class);
     private final AccountingService accounting = spy(new AccountingService(
-            coaRepo, journalRepo, lineRepo, loanRepo, paymentRepo, periodService));
+            coaRepo, journalRepo, lineRepo, loanRepo, paymentRepo, paymentTransactionRepo, periodService));
 
     private Loan loan(LocalDate importedOn) {
         Loan l = new Loan();
