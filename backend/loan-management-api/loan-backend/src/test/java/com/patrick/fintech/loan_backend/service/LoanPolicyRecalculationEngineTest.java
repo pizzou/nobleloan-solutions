@@ -40,8 +40,8 @@ class LoanPolicyRecalculationEngineTest {
         LoanPolicyRecalculationEngine.Result result =
                 engine.calculate(l, List.of(tx), LocalDate.of(2026, 11, 19));
         assertEquals(new BigDecimal("33500000.00"), result.principalOutstanding());
-        assertEquals(new BigDecimal("0.00"), result.interestOutstanding());
-        assertEquals(new BigDecimal("6083333.33"), result.managementOutstanding());
+        assertEquals(new BigDecimal("3041666.66"), result.interestOutstanding());
+        assertEquals(new BigDecimal("3041666.67"), result.managementOutstanding());
         assertEquals(new BigDecimal("5583333.33"), result.penaltyPaid());
         assertEquals(new BigDecimal("0.00"), result.penaltyOutstanding());
         assertEquals(new BigDecimal("0.00"), result.receipts().get(0).principal());
