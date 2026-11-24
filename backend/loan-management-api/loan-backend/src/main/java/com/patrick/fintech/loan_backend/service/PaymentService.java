@@ -727,9 +727,11 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                // daysLate is already after the full maturity grace period.
-                // Never subtract the three-day grace period a second time.
-                int currentlyChargeablePenaltyDays = daysLate;
+                // Days overdue count from contract maturity, while assessed
+                // penalty days exclude the first three full grace days.
+                int currentlyChargeablePenaltyDays = (int) Math.min(
+                                Integer.MAX_VALUE,
+                                OverduePenaltyClock.chargeableDays(loan, today));
 
                 BigDecimal newlyCalculatedPenalty = ZERO;
                 int newPenaltyDays = 0;
