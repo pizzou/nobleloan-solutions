@@ -515,6 +515,32 @@ export default function AccountingPage() {
     (account) => account.code === "1000",
   )?.balance;
 
+  // These GL accounts represent outstanding receivables, not lifetime cash
+  // collections or historical loan volumes. Preserve signed debit-credit
+  // balances so a negative receivable cannot be silently hidden.
+  const receivableCodes = new Set(["1100", "1150", "1160", "1170", "1175", "1180"]);
+  const glReceivables = trial
+    ? trial.accounts
+        .filter((account) => receivableCodes.has(account.code))
+        .reduce(
+          (sum, account) =>
+            sum + Number(account.debit ?? 0) - Number(account.credit ?? 0),
+          0,
+        )
+    : null;
+  const operationalReceivables =
+    controlTotals?.totalReceivables != null &&
+    controlTotals.totalReceivables !== "" &&
+    Number.isFinite(Number(controlTotals.totalReceivables))
+      ? Number(controlTotals.totalReceivables)
+      : null;
+  const receivableDifference =
+    glReceivables != null && operationalReceivables != null
+      ? operationalReceivables - glReceivables
+      : null;
+  const comparingCurrentPortfolio = financialPeriod.to ===
+    new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Kigali" });
+
   if (loading) {
     return <PageSpinner />;
   }
@@ -542,7 +568,11 @@ export default function AccountingPage() {
 
         <button
           type="button"
-          onClick={handleLegacyReconciliation}
+          onClick={() => {
+            if (window.confirm("This reconciliation can create accounting journal adjustments. Have you reviewed and approved the proposed financial corrections and ensured a restorable database backup exists?")) {
+              void handleLegacyReconciliation();
+            }
+          }}
           disabled={reconcilingLegacy}
           className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -698,14 +728,11 @@ export default function AccountingPage() {
       {controlTotals ? (
         <section aria-label="Operational portfolio totals" className="nls-accounting-kpis mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {[
-            ["Gross disbursed", controlTotals.totalDisbursed],
-            ["Cash collected", controlTotals.totalCollected],
-            ["Outstanding principal", controlTotals.outstandingBalance],
-            ["Total receivables", controlTotals.totalReceivables],
-            [
-              "Application fees collected",
-              controlTotals.applicationFeesCollected,
-            ],
+            ["Lifetime gross disbursed", controlTotals.totalDisbursed],
+            ["Lifetime recorded collections", controlTotals.totalCollected],
+            ["Current outstanding principal", controlTotals.outstandingBalance],
+            ["Current operational receivables", controlTotals.totalReceivables],
+            ["Lifetime application fees paid", controlTotals.applicationFeesCollected],
           ].map(([label, value]) => (
             <div
               key={String(label)}
@@ -718,12 +745,30 @@ export default function AccountingPage() {
                 {value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "Unavailable" : fmt(Number(value))}
               </div>
               <div className="mt-1 text-[11px] text-gray-500">
-                {currency} · Operational portfolio API, not additional GL income.
+                {currency} · Lifetime/current loan records; not filtered by the statement period and not a GL cash balance.
               </div>
             </div>
           ))}
         </section>
       ) : null}
+
+      {receivableDifference != null && Math.abs(receivableDifference) >= 0.01 && (
+        <section role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950">
+          <h2 className="text-sm font-bold">Operational receivables and general ledger differ</h2>
+          <p className="mt-2 text-sm leading-6">
+            Operational loan receivables: {fmt(operationalReceivables ?? 0)} {currency}.
+            GL 1100, 1150, 1160, 1170, 1175 and 1180 net receivables:
+            {" "}{fmt(glReceivables ?? 0)} {currency}.
+            Signed difference (operational minus GL): {fmt(receivableDifference)} {currency}.
+          </p>
+          <p className="mt-2 text-xs">
+            {comparingCurrentPortfolio
+              ? "These figures come from different accounting sources. Investigate loan-level balances, accruals and journal coverage before posting any correction."
+              : "The operational KPI is current/lifetime, while the GL statement is as of the selected date. First compare them at today's date; then investigate any remaining difference."}
+            {" "}Do not use Reconcile Imported Loans to force these amounts to agree without independently reviewing the proposed postings.
+          </p>
+        </section>
+      )}
 
       <section aria-label="General ledger control overview" className="nls-accounting-ledger-overview">
         <div><span>Trial balance integrity</span><strong>{trial ? (trial.balanced ? "Debits = credits" : "Out of balance") : "Unavailable"}</strong><small>Does not verify account completeness</small></div>
