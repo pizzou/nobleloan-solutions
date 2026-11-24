@@ -8,11 +8,13 @@ import com.patrick.fintech.loan_backend.model.JournalLine;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
+import com.patrick.fintech.loan_backend.model.PaymentTransaction;
 import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentTransactionRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import com.patrick.fintech.loan_backend.service.OverduePenaltyClock;
 
@@ -47,6 +49,7 @@ public class AccountingService {
         private final JournalLineRepository lineRepo;
         private final LoanRepository loanRepo;
         private final PaymentRepository paymentRepo;
+        private final PaymentTransactionRepository paymentTransactionRepo;
         private final AccountingPeriodService accountingPeriodService;
         // ============================================================
         // MONEY CONFIGURATION
@@ -2149,7 +2152,7 @@ public class AccountingService {
                 validateAccrualEligibility(installment, loan);
 
                 BigDecimal scheduled = money(installment.getScheduledInterestDecimal());
-                BigDecimal paid = money(installment.getInterestComponentDecimal());
+                BigDecimal paid = actualPaidChargeForInstallment(installment, true);
                 BigDecimal amount = maxZero(scheduled.subtract(paid));
                 if (amount.compareTo(ZERO) <= 0) {
                         return null;
@@ -2228,7 +2231,7 @@ public class AccountingService {
                 validateAccrualEligibility(installment, loan);
 
                 BigDecimal scheduled = money(installment.getScheduledManagementFeeDecimal());
-                BigDecimal paid = money(installment.getManagementFeeComponentDecimal());
+                BigDecimal paid = actualPaidChargeForInstallment(installment, false);
                 BigDecimal amount = maxZero(scheduled.subtract(paid));
                 if (amount.compareTo(ZERO) <= 0) {
                         return null;
@@ -2294,6 +2297,41 @@ public class AccountingService {
          * not only in the scheduler, so manual/replayed calls cannot bypass
          * the accounting boundary.
          */
+        /**
+         * Only actual posted receipts count as paid contractual charges.
+         * Contractual schedule rows can prefill component columns even before
+         * the borrower has paid, which otherwise suppresses accrued income.
+         */
+        private BigDecimal actualPaidChargeForInstallment(Payment installment, boolean interest) {
+                List<PaymentTransaction> receipts = paymentTransactionRepo
+                                .findByInstallmentIdOrderByCreatedAtAsc(installment.getId());
+                BigDecimal collected = ZERO;
+                boolean hasPostedReceipt = false;
+                for (PaymentTransaction receipt : receipts) {
+                        if (receipt == null
+                                        || receipt.getStatus() != PaymentTransaction.TransactionStatus.POSTED
+                                        || Boolean.TRUE.equals(receipt.getReversed())) {
+                                continue;
+                        }
+                        hasPostedReceipt = true;
+                        collected = collected.add(money(interest
+                                        ? receipt.getInterestComponent()
+                                        : receipt.getManagementFeeComponent()));
+                }
+                if (hasPostedReceipt) {
+                        return money(collected);
+                }
+                // Older legacy payments may predate the immutable receipt ledger.
+                // A scheduled component is only payment evidence if a
+                // positive receipt is actually recorded against the installment.
+                if (money(installment.getAmountPaidDecimal()).signum() > 0) {
+                        return money(interest
+                                        ? installment.getInterestComponentDecimal()
+                                        : installment.getManagementFeeComponentDecimal());
+                }
+                return ZERO;
+        }
+
         private void validateAccrualEligibility(Payment installment, Loan loan) {
                 LocalDate dueDate = installment.getDueDate();
                 if (dueDate == null) {
