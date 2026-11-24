@@ -2382,7 +2382,7 @@ export default function LoanDetailPage() {
 
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {loan.status === "OVERDUE" && contractDaysOverdue(loan) === 0 ? (
-                  <Pill label="Installment arrears · contract active" color="blue" />
+                  <StatusBadge status="ACTIVE" />
                 ) : (
                   <StatusBadge status={loan.status} />
                 )}
@@ -2409,7 +2409,7 @@ export default function LoanDetailPage() {
                     label={
                       <span className="inline-flex items-center gap-1">
                         <IconAlertTriangle className="w-3 h-3" />
-                        {contractDaysOverdue(loan)}d past contract maturity
+                        {contractDaysOverdue(loan)} days overdue
                       </span>
                     }
                     color="red"
@@ -3303,15 +3303,12 @@ export default function LoanDetailPage() {
                   value={loan.collectionsStage}
                 />
 
-                <Field
-                  label="Contract-overdue days (after maturity)"
-                  value={contractDaysOverdue(loan) ?? "Maturity not verified"}
-                />
-
-                <Field
-                  label="Installment days past due (BNR / credit risk)"
-                  value={loan.daysOverdue ?? 0}
-                />
+                {contractDaysOverdue(loan) != null && contractDaysOverdue(loan)! > 0 && (
+                  <Field
+                    label="Days overdue"
+                    value={contractDaysOverdue(loan)}
+                  />
+                )}
 
                 <Field
                   label="Classified At"
