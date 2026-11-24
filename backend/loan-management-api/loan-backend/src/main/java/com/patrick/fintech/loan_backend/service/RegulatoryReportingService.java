@@ -1502,16 +1502,12 @@ public class RegulatoryReportingService {
                 // ACCOUNTING SOURCE
                 // ========================================================
 
-                Map<String, Object> accountingReport = bnrFinancialStatementService
-                                .buildFinancialStatement(
-                                                organizationId,
-                                                periodStart,
-                                                periodEnd);
-
-                if (accountingReport == null) {
-
-                        accountingReport = new LinkedHashMap<>();
-                }
+                // Single authoritative GL calculation for Accounting, General
+                // Report and BNR. The previous BNR-specific implementation
+                // recalculated income/equity separately and omitted cash-flow
+                // keys entirely, producing zero-valued BNR cash-flow cards.
+                Map<String, Object> accountingReport = accountingService
+                                .getFinancialReport(organizationId, periodStart, periodEnd);
 
                 // ========================================================
                 // STATEMENT OF FINANCIAL POSITION
@@ -1519,11 +1515,14 @@ public class RegulatoryReportingService {
 
                 Map<String, Object> financialPosition = getMap(
                                 accountingReport,
-                                "statementOfFinancialPosition");
+                                "balanceSheet");
 
                 Map<String, Object> incomeStatement = getMap(
                                 accountingReport,
-                                "incomeStatement");
+                                "profitAndLoss");
+
+                Map<String, Object> trial = getMap(accountingReport, "trialBalance");
+                Map<String, Object> cashFlow = getMap(accountingReport, "cashFlow");
 
                 // ========================================================
                 // BALANCE SHEET
@@ -1559,7 +1558,7 @@ public class RegulatoryReportingService {
 
                 BigDecimal totalExpenses = decimalValue(
                                 incomeStatement.get(
-                                                "totalExpenses"));
+                                                "totalExpense"));
 
                 // Account 4100 contains management fees, extension fees and
                 // penalties as well as application fees. Use the source-specific
@@ -1576,39 +1575,39 @@ public class RegulatoryReportingService {
                 // ========================================================
 
                 BigDecimal trialBalanceDebit = decimalValue(
-                                accountingReport.get(
-                                                "trialBalanceDebit"));
+                                trial.get(
+                                                "totalDebit"));
 
                 BigDecimal trialBalanceCredit = decimalValue(
-                                accountingReport.get(
-                                                "trialBalanceCredit"));
+                                trial.get(
+                                                "totalCredit"));
 
                 boolean trialBalanceBalanced = booleanValue(
-                                accountingReport.get(
-                                                "trialBalanceBalanced"));
+                                trial.get(
+                                                "balanced"));
 
                 // ========================================================
                 // CASH FLOW
                 // ========================================================
 
                 BigDecimal cashUsedForLending = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "cashUsedForLending"));
 
                 BigDecimal cashFromCollections = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "cashFromCollections"));
 
                 BigDecimal cashFromFees = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "cashFromFees"));
 
                 BigDecimal otherCashMovement = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "otherCashMovement"));
 
                 BigDecimal netChangeInCash = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "netChangeInCash"));
 
                 // ========================================================
