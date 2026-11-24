@@ -385,6 +385,42 @@ public class ScheduledJobs {
                                 }
                         }
 
+                        // Refresh the currently overdue day count for all
+                        // scheduled loans, including those already OVERDUE.
+                        // The previous ACTIVE-only loop preserved stale values
+                        // and missed an earlier unpaid installment when later
+                        // overdue installments were visited first.
+                        java.util.Map<Long, LocalDate> earliestOverdueDue =
+                                        new java.util.HashMap<>();
+                        java.util.Map<Long, Loan> overdueLoanById =
+                                        new java.util.HashMap<>();
+                        for (Payment overdueInstallment : overdue) {
+                                if (overdueInstallment == null
+                                                || overdueInstallment.getDueDate() == null
+                                                || overdueInstallment.getLoan() == null) {
+                                        continue;
+                                }
+                                Loan overdueLoan = overdueInstallment.getLoan();
+                                if (overdueLoan.getId() == null
+                                                || (overdueLoan.getStatus() != LoanStatus.ACTIVE
+                                                                && overdueLoan.getStatus() != LoanStatus.OVERDUE)) {
+                                        continue;
+                                }
+                                overdueLoanById.put(overdueLoan.getId(), overdueLoan);
+                                earliestOverdueDue.merge(overdueLoan.getId(),
+                                                overdueInstallment.getDueDate(),
+                                                (a, b) -> a.isBefore(b) ? a : b);
+                        }
+                        for (java.util.Map.Entry<Long, LocalDate> overdueEntry : earliestOverdueDue.entrySet()) {
+                                Loan overdueLoan = overdueLoanById.get(overdueEntry.getKey());
+                                int accurateDays = calculateDaysOverdue(overdueEntry.getValue(), today);
+                                if (accurateDays != (overdueLoan.getDaysOverdue() == null
+                                                ? 0 : overdueLoan.getDaysOverdue())) {
+                                        overdueLoan.setDaysOverdue(accurateDays);
+                                        loanRepo.save(overdueLoan);
+                                }
+                        }
+
                         // Legacy imports contain a loan-level next_due_date and
                         // historical balances, but do not synthesize operational
                         // Payment rows because loan-level totals are insufficient
