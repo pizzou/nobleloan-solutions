@@ -1,5 +1,6 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import org.junit.jupiter.api.Test;
 
@@ -9,35 +10,46 @@ import java.time.LocalDate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class OverduePenaltyClockTest {
-    @Test
-    void threeFullGraceDaysThenCalendarDayAccrual() {
-        LocalDate due = LocalDate.of(2026, 8, 31);
-        LocalDate receiptDate = LocalDate.of(2026, 11, 19);
-        assertEquals(80L, OverduePenaltyClock.daysOverdue(due, receiptDate));
-        assertEquals(LocalDate.of(2026, 9, 4), OverduePenaltyClock.firstChargeableDay(due));
-        assertEquals(77L, OverduePenaltyClock.chargeableDays(due, receiptDate));
-        assertEquals(0L, OverduePenaltyClock.chargeableDays(due, due.plusDays(3)));
-        assertEquals(1L, OverduePenaltyClock.chargeableDays(due, due.plusDays(4)));
+    private Loan loan(LocalDate disbursement, int duration) {
+        return Loan.builder().disbursedAt(disbursement.atStartOfDay())
+                .durationMonths(duration).build();
     }
 
     @Test
-    void sourcePenaltyMatchesActualChargeableDaysWithActualCalendarMonths() {
-        LocalDate due = LocalDate.of(2026, 8, 31);
-        LocalDate paid = LocalDate.of(2026, 11, 19);
+    void sixMonthContractMaturesBeforeGraceThenPenaltiesBegin() {
+        Loan loan = loan(LocalDate.of(2026, 3, 19), 6);
+        assertEquals(LocalDate.of(2026, 9, 19),
+                OverduePenaltyClock.contractualMaturity(loan));
+        assertEquals(LocalDate.of(2026, 9, 23),
+                OverduePenaltyClock.firstChargeableDay(loan));
+        assertEquals(0L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 22)));
+        assertEquals(1L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 23)));
+        assertEquals(64L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 11, 25)));
+    }
+
+    @Test
+    void monthlyInstallmentDateDoesNotStartPenaltyBeforeContractMaturity() {
+        Loan loan = loan(LocalDate.of(2026, 3, 19), 6);
+        loan.setNextDueDate(LocalDate.of(2026, 4, 19));
+        assertEquals(0L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 8, 31)));
+        assertEquals(LocalDate.of(2026, 9, 23), OverduePenaltyClock.firstChargeableDay(loan));
+    }
+
+    @Test
+    void penaltyUsesCalendarMonthDaysFromMaturityNotEarlyInstallment() {
+        Loan loan = loan(LocalDate.of(2026, 3, 19), 6);
         BigDecimal principal = new BigDecimal("33500000.00");
-        BigDecimal assessed = FinancialPolicy.historicalDailyPenalty(
+        BigDecimal actual = FinancialPolicy.historicalDailyPenalty(
                 principal,
-                OverduePenaltyClock.firstChargeableDay(due),
-                paid,
+                OverduePenaltyClock.firstChargeableDay(loan),
+                LocalDate.of(2026, 11, 19),
                 new BigDecimal("10.00"),
                 day -> principal);
-        assertEquals(new BigDecimal("8486666.67"), assessed);
-    }
-
-    @Test
-    void firstThreeOverdueDaysHaveZeroPenaltyAndMaturityAloneIsNotEnough() {
-        LocalDate due = LocalDate.of(2026, 11, 19);
-        assertEquals(0L, OverduePenaltyClock.chargeableDays(due, LocalDate.of(2026, 11, 22)));
-        assertEquals(1L, OverduePenaltyClock.chargeableDays(due, LocalDate.of(2026, 11, 23)));
+        // Sep 23-30: 8 days, Oct 1-31: 31 days, Nov 1-19: 19 days.
+        BigDecimal expected = new BigDecimal("893333.333333333333")
+                .add(new BigDecimal("3350000.00"))
+                .add(new BigDecimal("2121666.666666666667"))
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+        assertEquals(expected, actual);
     }
 }
