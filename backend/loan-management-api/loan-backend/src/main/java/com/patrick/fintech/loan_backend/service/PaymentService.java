@@ -1264,6 +1264,35 @@ public class PaymentService {
                         }
                 }
 
+                // Recompute delinquency from the oldest *currently unpaid*
+                // installment after posting. Keeping the days-late value from
+                // the installment just settled would leave fully cured loans
+                // showing a stale 60-day overdue warning.
+                if (loan.getStatus() == LoanStatus.PAID) {
+                        loan.setDaysOverdue(0);
+                } else {
+                        Optional<LocalDate> oldestOpenDue = paymentRepo.findByLoanId(loanId)
+                                        .stream()
+                                        .filter(p -> p != null && !Boolean.TRUE.equals(p.getPaid()))
+                                        .map(Payment::getDueDate)
+                                        .filter(java.util.Objects::nonNull)
+                                        .min(LocalDate::compareTo);
+                        if (oldestOpenDue.isPresent()) {
+                                LocalDate oldestDue = oldestOpenDue.get();
+                                int currentDaysOverdue = (int) Math.max(0L,
+                                                ChronoUnit.DAYS.between(oldestDue, today));
+                                loan.setDaysOverdue(currentDaysOverdue);
+                                loan.setStatus(currentDaysOverdue > 0
+                                                ? LoanStatus.OVERDUE
+                                                : LoanStatus.ACTIVE);
+                                loan.setNextDueDate(oldestDue);
+                                loan.setNextPaymentDate(oldestDue);
+                        } else {
+                                loan.setDaysOverdue(0);
+                                loan.setStatus(LoanStatus.ACTIVE);
+                        }
+                }
+
                 // Any payment that actually reduces principal changes the
                 // outstanding balance. Rebuild every future unpaid installment
                 // from that NEW balance immediately. This is especially
