@@ -10,6 +10,7 @@ import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.service.AccountingService;
+import com.patrick.fintech.loan_backend.service.HistoricalPenaltyBalanceService;
 import com.patrick.fintech.loan_backend.service.CollectionsService;
 import com.patrick.fintech.loan_backend.service.CurrencyService;
 import com.patrick.fintech.loan_backend.service.MailService;
@@ -46,6 +47,7 @@ public class ScheduledJobs {
         private final IdempotencyKeyRepository idempotencyRepo;
         private final CollectionsService collectionsService;
         private final AccountingService accountingService;
+        private final HistoricalPenaltyBalanceService historicalPenaltyBalanceService;
         private final OrganizationRepository organizationRepo;
         private final SchedulerLockService lockService;
 
@@ -762,24 +764,8 @@ public class ScheduledJobs {
                         BigDecimal currentOutstanding,
                         LocalDate firstChargeableDate,
                         LocalDate asOf) {
-
-                List<Payment> payments = paymentRepo.findByLoanId(loan.getId());
-                return FinancialPolicy.historicalDailyPenalty(
-                                currentOutstanding,
-                                firstChargeableDate,
-                                asOf,
-                                loan.getPenaltyRateDecimal(),
-                                date -> {
-                                        BigDecimal balance = currentOutstanding;
-                                        for (Payment payment : payments) {
-                                                if (payment == null || payment.getPaidDate() == null
-                                                                || !payment.getPaidDate().isAfter(date)) {
-                                                        continue;
-                                                }
-                                                balance = balance.add(money(payment.getPrincipalComponentDecimal()));
-                                        }
-                                        return money(balance);
-                                });
+                return historicalPenaltyBalanceService.assessedToDate(
+                                loan, currentOutstanding, firstChargeableDate, asOf);
         }
 
         /**
