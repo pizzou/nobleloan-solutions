@@ -1191,8 +1191,8 @@ export default function DashboardPage() {
             }
           >
             <ActionItem
-              title="Overdue Repayments"
-              detail="Review aging and recovery assignments"
+              title="Installment arrears"
+              detail="Scheduled repayments past due; contractual maturity and penalties are evaluated separately"
               value={`${formatCount(data.overdueLoans)} loans`}
               urgent={numberValue(data.overdueLoans) > 0}
               onClick={() => router.push("/dashboard/loans")}
