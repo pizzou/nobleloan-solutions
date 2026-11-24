@@ -87,6 +87,27 @@ class PaymentAllocationServiceTest {
     }
 
     @Test
+    void gakubaClaverPaymentCannotReducePrincipalUntilMaturedPenaltyAndPastDueFeesAreCleared() {
+        // Confirmed portfolio audit: NLS-000054, immutable payment 12.1m,
+        // contractual maturity 2026-09-26, first penalty date 2026-09-30.
+        // These values represent the prepayment fee arrears and the
+        // maturity-based penalty estimate through 2026-11-19.
+        PaymentAllocationService.Allocation result = service.allocate(
+                new BigDecimal("12100000.00"),
+                new BigDecimal("5583333.33"),
+                BigDecimal.ZERO,
+                new BigDecimal("6300000.00"),
+                new BigDecimal("6300000.00"),
+                new BigDecimal("33500000.00"));
+
+        assertEquals(new BigDecimal("5583333.33"), result.penalty());
+        assertEquals(new BigDecimal("6300000.00"), result.interest());
+        assertEquals(new BigDecimal("216666.67"), result.managementFee());
+        assertEquals(new BigDecimal("0.00"), result.principal());
+        assertEquals(new BigDecimal("0.00"), result.overpayment());
+    }
+
+    @Test
     void nullAndNegativeInputsCannotCreateNegativeAllocations() {
         PaymentAllocationService.Allocation result = service.allocate(
                 new BigDecimal("-1.00"),
