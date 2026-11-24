@@ -151,6 +151,37 @@ class DueInstallmentFeesTest {
         assertEquals(new BigDecimal("750000.00"), result.management());
     }
 
+    @Test
+    void gakubaFullReceiptUsesAllSixMonthsOfFeesAfterPenaltiesBeforePrincipal() {
+        Loan loan = Loan.builder()
+                .id(54L).imported(true)
+                .disbursedAt(java.time.LocalDateTime.of(2026, 3, 26, 9, 0))
+                .maturityDate(LocalDate.of(2026, 9, 26))
+                .durationMonths(6)
+                .nextDueDate(LocalDate.of(2026, 4, 26))
+                .totalInterest(new BigDecimal("6300000.00"))
+                .managementFee(new BigDecimal("6300000.00"))
+                .interestOutstanding(new BigDecimal("6300000.00"))
+                .managementFeeOutstanding(new BigDecimal("6300000.00"))
+                .build();
+        DueInstallmentFees.Due dues = DueInstallmentFees.calculate(
+                loan, List.of(due(LocalDate.of(2026, 4, 26))),
+                LocalDate.of(2026, 11, 19));
+        PaymentAllocationService.Allocation allocation =
+                new PaymentAllocationService().allocate(
+                        new BigDecimal("12100000.00"),
+                        new BigDecimal("5583333.33"),
+                        BigDecimal.ZERO,
+                        dues.interest(), dues.management(),
+                        new BigDecimal("33500000.00"));
+        assertEquals(new BigDecimal("6300000.00"), dues.interest());
+        assertEquals(new BigDecimal("6300000.00"), dues.management());
+        assertEquals(new BigDecimal("5583333.33"), allocation.penalty());
+        assertEquals(new BigDecimal("3258333.34"), allocation.interest());
+        assertEquals(new BigDecimal("3258333.33"), allocation.managementFee());
+        assertEquals(new BigDecimal("0.00"), allocation.principal());
+    }
+
     private Payment due(LocalDate date) {
         return Payment.builder().dueDate(date)
                 .cycleInterestRemaining(new BigDecimal("100000.00"))
