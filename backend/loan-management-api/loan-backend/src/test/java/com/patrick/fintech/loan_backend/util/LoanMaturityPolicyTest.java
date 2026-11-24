@@ -27,7 +27,8 @@ class LoanMaturityPolicyTest {
 
     @Test
     void importedLoanWithoutVerifiedMaturityCannotAccrueFromMonthlyDueDate() {
-        Loan loan = Loan.builder().imported(true).durationMonths(6).build();
+        Loan loan = Loan.builder().imported(true).durationMonths(6)
+                .startDate(LocalDate.of(2027, 1, 1)).build();
         assertNull(LoanMaturityPolicy.maturityDate(loan));
         assertNull(LoanMaturityPolicy.firstPenaltyDate(loan));
         assertFalse(LoanMaturityPolicy.chargeable(loan, LocalDate.of(2027, 7, 15)));
