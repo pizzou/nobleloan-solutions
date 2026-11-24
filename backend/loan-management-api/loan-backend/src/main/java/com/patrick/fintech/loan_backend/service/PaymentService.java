@@ -445,13 +445,8 @@ public class PaymentService {
                 // OVERDUE DAYS
                 // ============================================================
 
-                long daysLateLong = ChronoUnit.DAYS.between(
-                                cycleDueDate,
-                                today);
-
-                int daysLate = (int) Math.max(
-                                0L,
-                                daysLateLong);
+                long daysLateLong = OverduePenaltyClock.daysOverdue(loan, today);
+                int daysLate = (int) Math.min(Integer.MAX_VALUE, daysLateLong);
 
                 boolean isLate = daysLate > 0;
 
@@ -732,9 +727,9 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                int currentlyChargeablePenaltyDays = Math.max(
-                                0,
-                                daysLate - FinancialPolicy.PENALTY_GRACE_DAYS);
+                // daysLate is already after the full maturity grace period.
+                // Never subtract the three-day grace period a second time.
+                int currentlyChargeablePenaltyDays = daysLate;
 
                 BigDecimal newlyCalculatedPenalty = ZERO;
                 int newPenaltyDays = 0;
@@ -809,7 +804,7 @@ public class PaymentService {
                 // ============================================================
                 // PAYMENT ALLOCATION — CANONICAL ORDER
                 // ============================================================
-                // Penalty -> all earned interest -> all earned management fees
+                // Penalty -> equal priority due interest and management fees
                 // -> extension fees -> principal. Never allocate to principal
                 // while an already-due contractual charge is outstanding.
 
@@ -1305,33 +1300,29 @@ public class PaymentService {
                         }
                 }
 
-                // Recompute delinquency from the oldest *currently unpaid*
-                // installment after posting. Keeping the days-late value from
-                // the installment just settled would leave fully cured loans
-                // showing a stale 60-day overdue warning.
+                // Institution-wide contractual delinquency is based on
+                // actual disbursement + duration + 3 full grace days.
+                // Repayment installment dates govern cash scheduling only.
+                // Preserve oldest unpaid installment for the next due date,
+                // without using it as the regulatory overdue clock.
                 if (loan.getStatus() == LoanStatus.PAID) {
                         loan.setDaysOverdue(0);
                 } else {
+                        int contractualDaysOverdue = (int) Math.min(
+                                        Integer.MAX_VALUE, OverduePenaltyClock.daysOverdue(loan, today));
+                        loan.setDaysOverdue(contractualDaysOverdue);
+                        loan.setStatus(contractualDaysOverdue > 0
+                                        ? LoanStatus.OVERDUE : LoanStatus.ACTIVE);
                         Optional<LocalDate> oldestOpenDue = paymentRepo.findByLoanId(loanId)
                                         .stream()
                                         .filter(p -> p != null && !Boolean.TRUE.equals(p.getPaid()))
                                         .map(Payment::getDueDate)
                                         .filter(java.util.Objects::nonNull)
                                         .min(LocalDate::compareTo);
-                        if (oldestOpenDue.isPresent()) {
-                                LocalDate oldestDue = oldestOpenDue.get();
-                                int currentDaysOverdue = (int) Math.max(0L,
-                                                ChronoUnit.DAYS.between(oldestDue, today));
-                                loan.setDaysOverdue(currentDaysOverdue);
-                                loan.setStatus(currentDaysOverdue > 0
-                                                ? LoanStatus.OVERDUE
-                                                : LoanStatus.ACTIVE);
-                                loan.setNextDueDate(oldestDue);
-                                loan.setNextPaymentDate(oldestDue);
-                        } else {
-                                loan.setDaysOverdue(0);
-                                loan.setStatus(LoanStatus.ACTIVE);
-                        }
+                        oldestOpenDue.ifPresent(due -> {
+                                loan.setNextDueDate(due);
+                                loan.setNextPaymentDate(due);
+                        });
                 }
 
                 // Any payment that actually reduces principal changes the
@@ -2380,21 +2371,7 @@ public class PaymentService {
         // ================================================================
 
         private LocalDate resolveEarliestPenaltyDate(Loan loan, LocalDate asOf) {
-                Optional<LocalDate> oldestUnpaid = paymentRepo.findByLoanId(loan.getId()).stream()
-                                .filter(java.util.Objects::nonNull)
-                                .filter(p -> p.getDueDate() != null)
-                                .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
-                                .map(Payment::getDueDate)
-                                .filter(d -> !d.isAfter(asOf))
-                                .min(LocalDate::compareTo);
-                // Legacy loans with no installments still have a verified
-                // loan-level oldest unpaid date. Do not silently omit penalties.
-                LocalDate dueDate = oldestUnpaid.orElseGet(() ->
-                                Boolean.TRUE.equals(loan.getImported())
-                                                ? (loan.getNextDueDate() != null
-                                                        ? loan.getNextDueDate() : loan.getNextPaymentDate())
-                                                : null);
-                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(dueDate);
+                LocalDate firstChargeable = OverduePenaltyClock.firstChargeableDay(loan);
                 return firstChargeable != null && !firstChargeable.isAfter(asOf)
                                 ? firstChargeable : null;
         }
