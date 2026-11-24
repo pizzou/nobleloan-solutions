@@ -1,40 +1,60 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
 /**
- * One calendar-day convention for late charges across payment posting,
- * daily accrual and audit.
+ * Institution-wide loan delinquency rule:
+ * contractual maturity = actual disbursement + agreed term in calendar months.
+ * Three full grace days follow maturity. Overdue and penalty days begin on
+ * maturity + four calendar days. Each chargeable day includes the as-of date.
  *
- * A loan due on Aug 31 has Sep 1, 2 and 3 as full grace days,
- * and Sep 4 as its first chargeable day. The as-of date is inclusive:
- * a receipt posted on Nov 19 settles the penalty calculated through
- * Nov 19, before the principal is reduced by that receipt.
+ * Installment due dates are repayment schedule obligations, not the start of
+ * contractual penalty accrual or overdue loan classification.
  */
 public final class OverduePenaltyClock {
     private OverduePenaltyClock() {}
 
-    public static LocalDate firstChargeableDay(LocalDate oldestUnpaidDueDate) {
-        if (oldestUnpaidDueDate == null) {
-            return null;
+    public static LocalDate contractualMaturity(Loan loan) {
+        if (loan == null) return null;
+        LocalDate disbursed = loan.getDisbursedAt() != null
+                ? loan.getDisbursedAt().toLocalDate()
+                : loan.getDisbursedAtTimestamp() != null
+                        ? loan.getDisbursedAtTimestamp().toLocalDate()
+                        : loan.getStartDate();
+        Integer duration = loan.getDurationMonths();
+        if (disbursed != null && duration != null && duration > 0) {
+            return disbursed.plusMonths(duration);
         }
-        return oldestUnpaidDueDate.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+        return loan.getMaturityDate();
     }
 
-    public static long daysOverdue(LocalDate oldestUnpaidDueDate, LocalDate asOf) {
-        if (oldestUnpaidDueDate == null || asOf == null) {
-            return 0L;
-        }
-        return Math.max(0L, ChronoUnit.DAYS.between(oldestUnpaidDueDate, asOf));
+    public static LocalDate firstChargeableDay(Loan loan) {
+        return firstChargeableDay(contractualMaturity(loan));
     }
 
-    public static long chargeableDays(LocalDate oldestUnpaidDueDate, LocalDate asOf) {
-        LocalDate first = firstChargeableDay(oldestUnpaidDueDate);
-        if (first == null || asOf == null || first.isAfter(asOf)) {
-            return 0L;
-        }
-        return ChronoUnit.DAYS.between(first, asOf) + 1L;
+    public static LocalDate firstChargeableDay(LocalDate maturityDate) {
+        return maturityDate == null ? null :
+                maturityDate.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+    }
+
+    public static long daysOverdue(Loan loan, LocalDate asOf) {
+        return chargeableDays(loan, asOf);
+    }
+
+    public static long chargeableDays(Loan loan, LocalDate asOf) {
+        return chargeableDays(contractualMaturity(loan), asOf);
+    }
+
+    public static long chargeableDays(LocalDate maturityDate, LocalDate asOf) {
+        LocalDate first = firstChargeableDay(maturityDate);
+        return first == null || asOf == null || first.isAfter(asOf)
+                ? 0L : ChronoUnit.DAYS.between(first, asOf) + 1L;
+    }
+
+    public static long daysOverdue(LocalDate maturityDate, LocalDate asOf) {
+        return chargeableDays(maturityDate, asOf);
     }
 }
