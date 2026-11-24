@@ -477,7 +477,7 @@ function LoanRow({
       <td className="px-5 py-4 align-top">
         <div className="flex min-w-[180px] flex-wrap gap-1.5">
           {loan.status === "OVERDUE" && contractOverdue === 0 ? (
-            <Pill label="Installment arrears · contract active" color="blue" />
+            <StatusBadge status="ACTIVE" />
           ) : (
             <StatusBadge status={loan.status} />
           )}
