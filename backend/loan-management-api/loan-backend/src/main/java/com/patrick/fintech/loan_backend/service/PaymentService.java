@@ -601,9 +601,8 @@ public class PaymentService {
                 // scheduled fees and unpaid loan-level fees remain collectible,
                 // but making a late payment must not create a seventh month of
                 // interest or management fees on a six-month contract.
-                LocalDate contractualMaturity = LoanMaturityPolicy.maturityDate(loan);
                 boolean newCycleChargeAllowed = cycleIsDue &&
-                                (contractualMaturity == null || !today.isAfter(contractualMaturity));
+                                LoanMaturityPolicy.allowsMonthlyCharge(loan, today);
 
                 BigDecimal contractualMonthlyInterest = existingCycleInterestDue.signum() > 0
                                 ? existingCycleInterestDue
