@@ -629,6 +629,19 @@ public class AccountingService {
                         String description,
                         LocalDate entryDate,
                         List<JournalLine> lines) {
+                return postAtDate(org, branch, sourceType, sourceId, reference, description, entryDate, lines, null);
+        }
+
+        private JournalEntry postAtDate(
+                        Organization org,
+                        Branch branch,
+                        String sourceType,
+                        String sourceId,
+                        String reference,
+                        String description,
+                        LocalDate entryDate,
+                        List<JournalLine> lines,
+                        Loan originatingLoan) {
 
                 requireOrganization(org);
 
@@ -680,10 +693,14 @@ public class AccountingService {
 
                 String normalizedSourceId = sourceId.trim();
 
-                boolean businessOwnerOnly = resolveBusinessOwnerOnly(
-                                org.getId(),
-                                normalizedSourceType,
-                                normalizedSourceId);
+                if (originatingLoan != null && (originatingLoan.getOrganization() == null
+                                || !org.getId().equals(originatingLoan.getOrganization().getId()))) {
+                        throw new IllegalArgumentException("Originating loan belongs to a different organization");
+                }
+
+                boolean businessOwnerOnly = originatingLoan == null
+                                ? resolveBusinessOwnerOnly(org.getId(), normalizedSourceType, normalizedSourceId)
+                                : Boolean.TRUE.equals(originatingLoan.getBusinessOwnerOnly());
 
                 if (!"REVERSAL".equals(
                                 normalizedSourceType)) {
@@ -2977,6 +2994,10 @@ public class AccountingService {
                                 .orElse(null);
 
                 if (existing != null) {
+                        if (Boolean.TRUE.equals(existing.getBusinessOwnerOnly())
+                                        != Boolean.TRUE.equals(loan.getBusinessOwnerOnly())) {
+                                throw new IllegalStateException("Payment journal already exists in a different reporting scope.");
+                        }
 
                         log.info(
                                         "Payment {} already posted as journal {}",
@@ -3326,15 +3347,17 @@ public class AccountingService {
                         reference = "PAYTX-" + paymentTransactionId + "-" + loanReference;
                 }
 
-                return post(
+                // The receipt ID identifies the journal. Its reporting scope comes from the payment's loan.
+                return postAtDate(
                                 org,
                                 loan.getBranch(),
                                 "PAYMENT_RECEIVED",
                                 sourceId,
                                 reference,
-                                "Payment received on loan "
-                                                + loanReference,
-                                lines);
+                                "Payment received on loan " + loanReference,
+                                LocalDate.now(),
+                                lines,
+                                loan);
         }
 
         // ============================================================
