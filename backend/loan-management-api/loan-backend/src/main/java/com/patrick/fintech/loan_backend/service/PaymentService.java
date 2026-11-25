@@ -753,13 +753,67 @@ public class PaymentService {
                         }
                 }
 
-                PaymentAllocationService.Allocation allocation = paymentAllocationService.allocate(
-                                amount,
-                                penaltyRemainingBeforePayment,
-                                safe(loan.getExtensionFeeOutstandingDecimal()),
-                                remainingInterestBeforePayment,
-                                remainingManagementFeeBeforePayment,
-                                currentBalance);
+                long selectedId = installment.getId() == null ? 0L : installment.getId();
+                Map<Long, Payment> otherDueInstallments = new HashMap<>();
+                List<PaymentAllocationService.InstallmentDue> dueCharges = new java.util.ArrayList<>();
+                for (Payment row : loanPayments) {
+                        if (row == null || row.getId() == null || row.getId() == selectedId
+                                        || Boolean.TRUE.equals(row.getPaid()) || row.getDueDate() == null
+                                        || row.getDueDate().isAfter(today)) {
+                                continue;
+                        }
+                        otherDueInstallments.put(row.getId(), row);
+                        dueCharges.add(new PaymentAllocationService.InstallmentDue(
+                                        row.getId(), row.getDueDate(),
+                                        row.getCycleManagementFeeRemainingDecimal(),
+                                        row.getCycleInterestRemainingDecimal()));
+                }
+                LocalDate selectedChargeDate = cycleDueDate;
+                LocalDate firstPenaltyDay = FinancialPolicy.firstContractPenaltyDate(loan);
+                if (Boolean.TRUE.equals(loan.getImported()) && firstPenaltyDay != null
+                                && !today.isBefore(firstPenaltyDay.minusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L))) {
+                        // A matured imported loan may have verified contractual balances
+                        // without a full installment schedule. All remaining contractual fees
+                        // are due at maturity. Add only the amounts not represented by other rows.
+                        BigDecimal interestOnOtherRows = dueCharges.stream()
+                                        .map(charge -> roundMoney(safe(charge.interest())).max(ZERO))
+                                        .reduce(ZERO, BigDecimal::add);
+                        BigDecimal managementOnOtherRows = dueCharges.stream()
+                                        .map(charge -> roundMoney(safe(charge.managementFee())).max(ZERO))
+                                        .reduce(ZERO, BigDecimal::add);
+                        remainingInterestBeforePayment = roundMoney(safe(loan.getInterestOutstandingDecimal()))
+                                        .subtract(interestOnOtherRows).max(ZERO);
+                        remainingManagementFeeBeforePayment = roundMoney(safe(loan.getManagementFeeOutstandingDecimal()))
+                                        .subtract(managementOnOtherRows).max(ZERO);
+                        totalCycleInterestDue = interestAlreadyPaidThisCycle.add(remainingInterestBeforePayment);
+                        totalCycleManagementFeeDue = managementFeeAlreadyPaidThisCycle.add(remainingManagementFeeBeforePayment);
+                        if (selectedChargeDate.isAfter(today)) {
+                                selectedChargeDate = today;
+                        }
+                }
+                dueCharges.add(new PaymentAllocationService.InstallmentDue(
+                                selectedId, selectedChargeDate, remainingManagementFeeBeforePayment,
+                                remainingInterestBeforePayment));
+
+                var dueAllocation = paymentAllocationService.allocateDueInstallments(
+                                amount, penaltyRemainingBeforePayment,
+                                safe(loan.getExtensionFeeOutstandingDecimal()), currentBalance, today, dueCharges);
+                PaymentAllocationService.Allocation allocation = dueAllocation.total();
+
+                BigDecimal interestPaidOnSelected = ZERO;
+                BigDecimal managementPaidOnSelected = ZERO;
+                BigDecimal paidOnOtherInstallments = ZERO;
+                for (var share : dueAllocation.installments()) {
+                        if (share.id() == selectedId) {
+                                interestPaidOnSelected = share.interest();
+                                managementPaidOnSelected = share.managementFee();
+                        } else {
+                                Payment row = otherDueInstallments.get(share.id());
+                                paidOnOtherInstallments = paidOnOtherInstallments.add(
+                                                applyDueFeeShare(row, share, today));
+                        }
+                }
+                BigDecimal paidOnSelectedInstallment = amount.subtract(paidOnOtherInstallments);
 
                 BigDecimal penaltyPaidThisPayment = roundMoney(allocation.penalty());
 
@@ -799,7 +853,7 @@ public class PaymentService {
                 // CUMULATIVE PAYMENT COMPONENTS
                 // ============================================================
 
-                BigDecimal existingPrincipalPaid = roundMoney(
+                BigDecimal existingPrincipalPaid = amountPaidSoFar.signum() == 0 ? ZERO : roundMoney(
                                 safe(
                                                 installment
                                                                 .getPrincipalComponentDecimal()))
@@ -810,7 +864,7 @@ public class PaymentService {
                                                 .add(
                                                                 principalPaidThisPayment));
 
-                BigDecimal existingInterestComponent = roundMoney(
+                BigDecimal existingInterestComponent = amountPaidSoFar.signum() == 0 ? ZERO : roundMoney(
                                 safe(
                                                 installment
                                                                 .getInterestComponentDecimal()))
@@ -819,9 +873,9 @@ public class PaymentService {
                 BigDecimal totalInterestPaid = roundMoney(
                                 existingInterestComponent
                                                 .add(
-                                                                interestPaidThisPayment));
+                                                                interestPaidOnSelected));
 
-                BigDecimal existingManagementFeeComponent = roundMoney(
+                BigDecimal existingManagementFeeComponent = amountPaidSoFar.signum() == 0 ? ZERO : roundMoney(
                                 safe(
                                                 installment
                                                                 .getManagementFeeComponentDecimal()))
@@ -830,7 +884,7 @@ public class PaymentService {
                 BigDecimal totalManagementFeePaid = roundMoney(
                                 existingManagementFeeComponent
                                                 .add(
-                                                                managementFeePaidThisPayment));
+                                                                managementPaidOnSelected));
 
                 BigDecimal existingExtensionFeeComponent = roundMoney(
                                 safe(installment.getExtensionFeeComponentDecimal()))
@@ -849,7 +903,7 @@ public class PaymentService {
                                                 .subtract(
                                                                 interestAlreadyPaidThisCycle
                                                                                 .add(
-                                                                                                interestPaidThisPayment))
+                                                                                                interestPaidOnSelected))
                                                 .max(ZERO));
 
                 // ============================================================
@@ -861,7 +915,7 @@ public class PaymentService {
                                                 .subtract(
                                                                 managementFeeAlreadyPaidThisCycle
                                                                                 .add(
-                                                                                                managementFeePaidThisPayment))
+                                                                                                managementPaidOnSelected))
                                                 .max(ZERO));
 
                 // ============================================================
@@ -889,7 +943,7 @@ public class PaymentService {
                 boolean scheduledAmountCovered = isScheduledInstallmentCovered(
                                 installment,
                                 amountPaidSoFar,
-                                amount);
+                                paidOnSelectedInstallment);
 
                 boolean cycleCompleted;
 
@@ -944,10 +998,7 @@ public class PaymentService {
                 // UPDATE PAYMENT ROW
                 // ============================================================
 
-                BigDecimal newAmountPaid = roundMoney(
-                                amountPaidSoFar
-                                                .add(
-                                                                amount));
+                BigDecimal newAmountPaid = roundMoney(amountPaidSoFar.add(paidOnSelectedInstallment));
 
                 installment.setAmountPaid(
                                 newAmountPaid);
@@ -1737,6 +1788,34 @@ public class PaymentService {
         // ================================================================
         // INSTALLMENT COMPLETION
         // ================================================================
+
+        private BigDecimal applyDueFeeShare(Payment row, PaymentAllocationService.InstallmentAllocation share,
+                        LocalDate today) {
+                BigDecimal interestDue = roundMoney(safe(row.getCycleInterestDueDecimal()));
+                BigDecimal managementDue = roundMoney(safe(row.getCycleManagementFeeDueDecimal()));
+                BigDecimal interestRemaining = roundMoney(safe(row.getCycleInterestRemainingDecimal())
+                                .subtract(share.interest()));
+                BigDecimal managementRemaining = roundMoney(safe(row.getCycleManagementFeeRemainingDecimal())
+                                .subtract(share.managementFee()));
+                BigDecimal feesPaid = share.interest().add(share.managementFee());
+                BigDecimal previousPaid = roundMoney(safe(row.getAmountPaidDecimal()));
+                if (previousPaid.signum() == 0) {
+                        row.setPrincipalComponent(ZERO);
+                }
+                row.setAmountPaid(previousPaid.add(feesPaid));
+                row.setInterestComponent(interestDue.subtract(interestRemaining));
+                row.setManagementFeeComponent(managementDue.subtract(managementRemaining));
+                row.setCycleInterestRemaining(interestRemaining);
+                row.setCycleManagementFeeRemaining(managementRemaining);
+                // This share allocates fees only. Preserve a previous principal
+                // settlement date used for penalty reconstruction.
+                if (row.getPaidDate() == null) {
+                        row.setPaidDate(today);
+                }
+                row.setStatus(Payment.PaymentStatus.PARTIALLY_PAID);
+                paymentRepo.save(row);
+                return feesPaid;
+        }
 
         private boolean isScheduledInstallmentCovered(
                         Payment installment,
