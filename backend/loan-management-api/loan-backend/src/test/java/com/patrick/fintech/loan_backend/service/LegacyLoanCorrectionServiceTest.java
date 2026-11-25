@@ -368,7 +368,11 @@ class LegacyLoanCorrectionServiceTest {
 
         @Test
         void correctingOnlyOldestUnpaidDateMustNotPostCashOrChangeAmounts() {
-                LocalDate actualDue = LocalDate.now().minusDays(21);
+                LocalDate today = LocalDate.now();
+                LocalDate actualDue = today.minusDays(21);
+                LocalDate contractMaturity = loan.getMaturityDate();
+                int expectedOverdueDays = (int) Math.max(0,
+                                java.time.temporal.ChronoUnit.DAYS.between(contractMaturity.plusDays(3), today));
                 var pending = service.submit(77L, request(actualDue, null), admin);
                 pending.setId(334L);
                 when(corrections.lock(1L, 77L, 334L)).thenReturn(Optional.of(pending));
@@ -383,7 +387,9 @@ class LegacyLoanCorrectionServiceTest {
                 var applied = service.applyAuthorized(77L, 334L, admin);
                 assertEquals("APPROVED", applied.getStatus());
                 assertEquals(actualDue, loan.getNextDueDate());
-                assertEquals(21, loan.getDaysOverdue());
+                assertEquals(contractMaturity, loan.getMaturityDate());
+                assertEquals(expectedOverdueDays, loan.getDaysOverdue(),
+                                "Overdue days start after contract maturity and three grace days");
                 assertEquals(new BigDecimal("6000000.00"), loan.getTotalPaid());
                 assertEquals(new BigDecimal("8000000.00"), loan.getTotalRepayable());
                 verify(accounting, never()).postApprovedLegacyCorrection(any(), any(), any());
