@@ -58,9 +58,13 @@ BEGIN
      OR l.management_fee_outstanding <> 200000
      OR l.interest_paid <> 100000
      OR l.management_fee_paid <> 100000
+     -- The legacy total_repayable is the scheduled contractual amount;
+     -- this premature penalty was added to assessed penalties and GL 1175,
+     -- but never included in total_repayable.
+     OR l.total_repayable <> 2600000
+     OR l.total_paid <> 200000
      OR ROUND(l.total_repayable-l.total_paid-l.outstanding_balance-
            l.interest_outstanding-l.management_fee_outstanding-
-           (l.penalties_assessed-l.penalties_paid)-
            COALESCE(l.extension_fee_outstanding,0),2)<>0 THEN
     RAISE EXCEPTION 'Loan 124 snapshot guard failed; no changes made'
       USING DETAIL = jsonb_build_object(
@@ -83,11 +87,12 @@ BEGIN
         'total_paid',l.total_paid,
         'total_repayable',l.total_repayable,
         'extension_fee_outstanding',l.extension_fee_outstanding,
-        'repayment_reconciliation_difference',
+        'scheduled_repayment_difference',
           ROUND(l.total_repayable-l.total_paid-l.outstanding_balance-
             l.interest_outstanding-l.management_fee_outstanding-
-            (l.penalties_assessed-l.penalties_paid)-
-            COALESCE(l.extension_fee_outstanding,0),2)
+            COALESCE(l.extension_fee_outstanding,0),2),
+        'erroneous_penalty_amount_excluded_from_scheduled_total',
+          l.penalties_assessed-l.penalties_paid
       )::text;
   END IF;
 
@@ -170,7 +175,8 @@ BEGIN
 
   UPDATE loans SET
        penalties_assessed=0,
-       total_repayable=total_repayable-60000,
+       -- total_repayable is already RWF 2,600,000 and correctly excludes
+       -- the unsupported penalty. Never remove it a second time.
        status='ACTIVE',
        days_overdue=0,
        arrears_status='NOT_DUE'
@@ -193,6 +199,9 @@ BEGIN
       WHERE id=124 AND (penalties_assessed<>0 OR penalties_paid<>0
          OR days_overdue<>0 OR status<>'ACTIVE'
          OR outstanding_balance<>2000000
+         OR total_repayable<>2600000 OR total_paid<>200000
+         OR interest_outstanding<>200000
+         OR management_fee_outstanding<>200000
          OR ROUND(total_repayable-total_paid-outstanding_balance-
                interest_outstanding-management_fee_outstanding-
                COALESCE(extension_fee_outstanding,0),2)<>0)) THEN
