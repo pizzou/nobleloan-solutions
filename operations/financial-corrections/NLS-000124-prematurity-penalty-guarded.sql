@@ -62,7 +62,33 @@ BEGIN
            l.interest_outstanding-l.management_fee_outstanding-
            (l.penalties_assessed-l.penalties_paid)-
            COALESCE(l.extension_fee_outstanding,0),2)<>0 THEN
-    RAISE EXCEPTION 'Loan 124 snapshot or current date differs; abort';
+    RAISE EXCEPTION 'Loan 124 snapshot guard failed; no changes made'
+      USING DETAIL = jsonb_build_object(
+        'database_current_date',CURRENT_DATE,
+        'status',l.status,
+        'imported',l.imported,
+        'disbursed_at',l.disbursed_at,
+        'duration_months',l.duration_months,
+        'maturity_calculated',
+          (l.disbursed_at::date + make_interval(months=>l.duration_months))::date,
+        'amount',l.amount,
+        'outstanding_balance',l.outstanding_balance,
+        'principal_paid',l.principal_paid,
+        'penalties_assessed',l.penalties_assessed,
+        'penalties_paid',l.penalties_paid,
+        'interest_outstanding',l.interest_outstanding,
+        'management_fee_outstanding',l.management_fee_outstanding,
+        'interest_paid',l.interest_paid,
+        'management_fee_paid',l.management_fee_paid,
+        'total_paid',l.total_paid,
+        'total_repayable',l.total_repayable,
+        'extension_fee_outstanding',l.extension_fee_outstanding,
+        'repayment_reconciliation_difference',
+          ROUND(l.total_repayable-l.total_paid-l.outstanding_balance-
+            l.interest_outstanding-l.management_fee_outstanding-
+            (l.penalties_assessed-l.penalties_paid)-
+            COALESCE(l.extension_fee_outstanding,0),2)
+      )::text;
   END IF;
 
   IF EXISTS (SELECT 1 FROM accounting_periods p
