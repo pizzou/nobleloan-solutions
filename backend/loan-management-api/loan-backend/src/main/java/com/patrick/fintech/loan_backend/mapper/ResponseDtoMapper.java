@@ -2,6 +2,7 @@ package com.patrick.fintech.loan_backend.mapper;
 
 import com.patrick.fintech.loan_backend.dto.*;
 import com.patrick.fintech.loan_backend.model.*;
+import com.patrick.fintech.loan_backend.service.OverduePenaltyClock;
 import org.hibernate.Hibernate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.Page;
@@ -9,6 +10,7 @@ import org.springframework.data.domain.Page;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.time.temporal.Temporal;
+import java.time.LocalDate;
 import java.util.*;
 
 public final class ResponseDtoMapper {
@@ -39,6 +41,18 @@ public final class ResponseDtoMapper {
                                 "loanOfficer",
                                 "legacyAmountDouble",
                                 "internalNotes");
+
+                // Never expose a stale database overdue counter from the
+                // previous maturity-based algorithm. Calculate the response
+                // from actual disbursement + duration + three FULL grace days,
+                // independently of the overnight scheduler.
+                if (source.getStatus() == LoanStatus.ACTIVE
+                                || source.getStatus() == LoanStatus.OVERDUE) {
+                        int correctDays = (int) Math.min(Integer.MAX_VALUE,
+                                        OverduePenaltyClock.daysOverdue(source, LocalDate.now()));
+                        target.setDaysOverdue(correctDays);
+                        target.setStatus(correctDays > 0 ? LoanStatus.OVERDUE : LoanStatus.ACTIVE);
+                }
 
                 if (source.getOrganization() != null) {
                         target.setOrganizationId(
