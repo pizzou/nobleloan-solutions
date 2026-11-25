@@ -40,7 +40,7 @@ public final class OverduePenaltyClock {
                 maturityDate.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
     }
 
-    /** Days overdue run from contractual maturity, even during grace. */
+    /** Days overdue begin on the first chargeable day, after three FULL grace days. */
     public static long daysOverdue(Loan loan, LocalDate asOf) {
         return daysOverdue(contractualMaturity(loan), asOf);
     }
@@ -56,7 +56,9 @@ public final class OverduePenaltyClock {
     }
 
     public static long daysOverdue(LocalDate maturityDate, LocalDate asOf) {
-        return maturityDate == null || asOf == null ? 0L
-                : Math.max(0L, ChronoUnit.DAYS.between(maturityDate, asOf));
+        // Day one is maturity + 4 calendar days (after three full grace days).
+        // Example: disbursed 2026-03-26, six months -> maturity 2026-09-26;
+        // grace 27-29 Sep; overdue day 1 on 2026-09-30.
+        return chargeableDays(maturityDate, asOf);
     }
 }
