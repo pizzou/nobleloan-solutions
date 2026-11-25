@@ -2511,7 +2511,8 @@ public class AccountingService {
                 if (loan == null || !Boolean.TRUE.equals(loan.getImported())
                                 || loan.getId() == null || loan.getOrganization() == null
                                 || loan.getCreatedAt() == null || loan.getDeletedAt() != null
-                                || loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE
+                                || (loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE
+                                    && loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE)
                                 || asOf == null || !LocalDate.now().equals(asOf))
                         return null;
 
@@ -2520,8 +2521,6 @@ public class AccountingService {
                 if (firstChargeable == null || importDate.isAfter(asOf))
                         return null;
                 LocalDate lastHistoricalDay = importDate;
-                if (firstChargeable.isAfter(lastHistoricalDay))
-                        return null;
 
                 BigDecimal principal = money(loan.getOutstandingBalanceDecimal());
                 if (principal.signum() <= 0 || loan.getPenaltyRateDecimal() == null
@@ -2555,7 +2554,8 @@ public class AccountingService {
                         return creditVerifiedHistoricalPenaltyOpening(loan, openingJournal,
                                         historicalAlreadyAssessed, additionalHistorical, asOf);
                 }
-                if (openingJournal != null || additionalHistorical.signum() <= 0)
+                if (openingJournal != null || additionalHistorical.signum() <= 0
+                                || loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE)
                         return null;
 
                 JournalEntry entry = postAtDate(org, loan.getBranch(), "LEGACY_PENALTY_OPENING", sourceId,

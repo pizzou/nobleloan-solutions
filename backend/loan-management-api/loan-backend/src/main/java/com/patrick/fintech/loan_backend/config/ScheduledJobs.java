@@ -251,7 +251,7 @@ public class ScheduledJobs {
                 try {
                         LocalDate today = LocalDate.now();
                         int posted = 0;
-                        for (Loan loan : loanRepo.findByStatusIn(List.of(LoanStatus.OVERDUE))) {
+                        for (Loan loan : loanRepo.findByStatusIn(List.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE))) {
                                 if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
                                         continue;
                                 }
