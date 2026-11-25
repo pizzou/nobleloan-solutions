@@ -21,7 +21,7 @@ SELECT id, reference_number, imported, status, disbursement_date,
        duration_months, saved_maturity, contractual_maturity,
        scheduled_due_date, stored_overdue_days,
        CASE WHEN contractual_maturity IS NULL THEN NULL
-            ELSE GREATEST(0, CURRENT_DATE - contractual_maturity) END AS expected_overdue_days,
+            ELSE GREATEST(0, CURRENT_DATE - contractual_maturity - 3) END AS expected_overdue_days,
        CASE WHEN contractual_maturity IS NULL THEN NULL
             ELSE GREATEST(0, CURRENT_DATE - (contractual_maturity + INTERVAL '4 days')::date + 1) END
             AS expected_penalty_chargeable_days,
