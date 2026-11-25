@@ -1020,6 +1020,27 @@ public class AccountingService {
                                 LocalDate.now(), lines, loan);
         }
 
+        @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+        public void postHistoricalPenaltyRestatement(Loan loan, long receiptId,
+                        BigDecimal openingDelta, BigDecimal incomeDelta) {
+                assertLoanReceivableEqualsGl(loan, "1175",
+                                money(loan.getPenaltiesAssessedDecimal().subtract(loan.getPenaltiesPaidDecimal())));
+                Organization organization = loan.getOrganization();
+                List<JournalLine> lines = new ArrayList<>();
+                addSignedLine(lines, organization, "1175", openingDelta.add(incomeDelta),
+                                "Restate penalty receivable");
+                addSignedLine(lines, organization, "3010", openingDelta.negate(),
+                                "Restate legacy opening penalty");
+                addSignedLine(lines, organization, "4100", incomeDelta.negate(),
+                                "Restate penalty accrual income");
+                if (lines.isEmpty()) return;
+
+                postAtDate(organization, loan.getBranch(), "HISTORICAL_PENALTY_RESTATEMENT",
+                                "LOAN:" + loan.getId() + ":RECEIPT:" + receiptId,
+                                loan.getReferenceNumber(), "Restate penalties for receipt " + receiptId,
+                                LocalDate.now(), lines, loan);
+        }
+
         private void addSignedLine(List<JournalLine> lines, Organization org,
                                    String code, BigDecimal signedDebit, String description) {
                 BigDecimal value = money(signedDebit);
