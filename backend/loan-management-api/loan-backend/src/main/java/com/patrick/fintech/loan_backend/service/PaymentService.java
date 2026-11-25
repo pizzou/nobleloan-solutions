@@ -717,6 +717,54 @@ public class PaymentService {
                                 loanPayments, installment, today, false,
                                 remainingManagementFeeBeforePayment);
 
+                // Once the contractual loan is overdue, ALL its remaining
+                // contractual interest and management charges are due, not
+                // merely charges represented by the selected installment.
+                // This applies to system-created and imported loans alike.
+                // Reconcile loan-level receivables with the dated schedule
+                // before the canonical penalty/fees/principal waterfall.
+                if (isLate) {
+                        BigDecimal loanInterestOutstanding = roundMoney(
+                                        safe(loan.getInterestOutstandingDecimal())).max(ZERO);
+                        BigDecimal loanManagementOutstanding = roundMoney(
+                                        safe(loan.getManagementFeeOutstandingDecimal())).max(ZERO);
+
+                        if (allDueInterest.compareTo(loanInterestOutstanding) > 0
+                                        || allDueManagementFees.compareTo(loanManagementOutstanding) > 0) {
+                                throw new IllegalStateException(
+                                                "Due installment fees exceed loan-level outstanding fees for "
+                                                                + loan.getReferenceNumber()
+                                                                + "; reconcile the schedule before accepting payment.");
+                        }
+
+                        // Carry unscheduled earned balances onto the selected
+                        // payable cycle so settleDueCharges can book the full
+                        // allocation, without inventing new money or modifying
+                        // any previous receipt.
+                        BigDecimal missingInterest = roundMoney(
+                                        loanInterestOutstanding.subtract(allDueInterest)).max(ZERO);
+                        BigDecimal missingManagement = roundMoney(
+                                        loanManagementOutstanding.subtract(allDueManagementFees)).max(ZERO);
+                        if (missingInterest.signum() > 0 || missingManagement.signum() > 0) {
+                                if (cycleDueDate.isAfter(today)) {
+                                        throw new IllegalStateException(
+                                                        "Overdue contractual fee balance has no due payment cycle for "
+                                                                        + loan.getReferenceNumber()
+                                                                        + "; reconcile schedule before posting payment.");
+                                }
+                                remainingInterestBeforePayment = roundMoney(
+                                                remainingInterestBeforePayment.add(missingInterest));
+                                remainingManagementFeeBeforePayment = roundMoney(
+                                                remainingManagementFeeBeforePayment.add(missingManagement));
+                                totalCycleInterestDue = roundMoney(
+                                                totalCycleInterestDue.add(missingInterest));
+                                totalCycleManagementFeeDue = roundMoney(
+                                                totalCycleManagementFeeDue.add(missingManagement));
+                                allDueInterest = loanInterestOutstanding;
+                                allDueManagementFees = loanManagementOutstanding;
+                        }
+                }
+
                 // ============================================================
                 // NEW PENALTY DAYS
                 // ============================================================
@@ -727,8 +775,8 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                // Days overdue count from contract maturity, while assessed
-                // penalty days exclude the first three full grace days.
+                // Overdue days and penalty days both begin after three full
+                // grace days following contractual maturity.
                 int currentlyChargeablePenaltyDays = (int) Math.min(
                                 Integer.MAX_VALUE,
                                 OverduePenaltyClock.chargeableDays(loan, today));
