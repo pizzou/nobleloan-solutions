@@ -9,12 +9,8 @@ import java.math.RoundingMode;
  * Single authoritative payment allocation order for the lending platform.
  *
  * Allocation is always:
- * interest -> management fee -> principal -> extension/restructuring fee
- * -> penalty -> overpayment.
- *
- * Interest and management fee are the first contractual charges. Principal
- * is reduced immediately from the remaining payment. Extension fees and
- * penalties remain separate receivables and never increase principal.
+ * penalty -> management fee -> interest -> principal -> extension fee -> overpayment.
+ * Fees and penalties are separate receivables and never increase principal.
  *
  * This class is deliberately side-effect free. Persistence, accounting and
  * audit updates remain the responsibility of PaymentService.
@@ -36,20 +32,20 @@ public class PaymentAllocationService {
 
         BigDecimal remaining = money(paymentAmount).max(ZERO);
 
-        BigDecimal interest = take(remaining, interestDue);
-        remaining = money(remaining.subtract(interest));
+        BigDecimal penalty = take(remaining, penaltyDue);
+        remaining = money(remaining.subtract(penalty));
 
         BigDecimal managementFee = take(remaining, managementFeeDue);
         remaining = money(remaining.subtract(managementFee));
+
+        BigDecimal interest = take(remaining, interestDue);
+        remaining = money(remaining.subtract(interest));
 
         BigDecimal principal = take(remaining, principalDue);
         remaining = money(remaining.subtract(principal));
 
         BigDecimal extensionFee = take(remaining, extensionFeeDue);
         remaining = money(remaining.subtract(extensionFee));
-
-        BigDecimal penalty = take(remaining, penaltyDue);
-        remaining = money(remaining.subtract(penalty));
 
         return new Allocation(
                 penalty,
