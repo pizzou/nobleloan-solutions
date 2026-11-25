@@ -26,6 +26,7 @@ authorizing any posting:
 - `audits/portfolio-contract-maturity-overdue-read-only.sql`
 - `audits/portfolio-maturity-penalty-recalculation-candidates-read-only.sql`
 - `audits/portfolio-historical-payment-evidence-and-gl-read-only.sql`
+- `audits/portfolio-historical-reallocation-readiness-read-only.sql` (per-loan receipt integrity, historical-opening gap and dated-schedule readiness)
 
 Stop any auto-mass-correction where an import has unexplained paid principal,
 missing receipt dates, undated legacy fees, a stale GL balance, duplicate
