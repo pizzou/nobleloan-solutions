@@ -47,11 +47,19 @@ public final class ResponseDtoMapper {
                 // from actual disbursement + duration + three FULL grace days,
                 // independently of the overnight scheduler.
                 if (source.getStatus() == LoanStatus.ACTIVE
-                                || source.getStatus() == LoanStatus.OVERDUE) {
+                                || source.getStatus() == LoanStatus.OVERDUE
+                                || source.getStatus() == LoanStatus.DEFAULTED
+                                || source.getStatus() == LoanStatus.RESTRUCTURED
+                                || source.getStatus() == LoanStatus.DISBURSED) {
                         int correctDays = (int) Math.min(Integer.MAX_VALUE,
                                         OverduePenaltyClock.daysOverdue(source, LocalDate.now()));
                         target.setDaysOverdue(correctDays);
-                        target.setStatus(correctDays > 0 ? LoanStatus.OVERDUE : LoanStatus.ACTIVE);
+                        // Preserve specialized collection/legal statuses.
+                        if (source.getStatus() == LoanStatus.ACTIVE
+                                        || source.getStatus() == LoanStatus.OVERDUE) {
+                                target.setStatus(correctDays > 0
+                                                ? LoanStatus.OVERDUE : LoanStatus.ACTIVE);
+                        }
                 }
 
                 if (source.getOrganization() != null) {
