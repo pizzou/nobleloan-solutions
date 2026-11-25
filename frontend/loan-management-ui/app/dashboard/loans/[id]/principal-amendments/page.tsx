@@ -109,6 +109,20 @@ export default function PrincipalAmendmentsPage() {
     } finally { setBusy(false); }
   }
 
+  async function applyApproved(id: number) {
+    if (!loan || busy) return;
+    setBusy(true);
+    try {
+      await post(`/loans/${loanId}/principal-amendments/${id}/apply`, {});
+      setMessage("Correction applied. The loan and accounting balances were updated.");
+      await refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not apply the correction");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function decide(id: number, approved: boolean) {
     if (!loan || busy) return;
     if (review.trim().length < 20) {
@@ -187,6 +201,12 @@ export default function PrincipalAmendmentsPage() {
             <p className="text-sm text-slate-700">{item.reason}</p>
             <p className="text-xs text-slate-500">Evidence: {item.evidenceReference}</p>
             {item.reviewerReason && <p className="text-sm">Review: {item.reviewerReason}</p>}
+            {(isOwner || user?.role === "ACCOUNTANT") && item.status === "APPROVED_FOR_RECONCILIATION" && (
+              <button type="button" disabled={busy} onClick={() => void applyApproved(item.id)}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                Apply approved correction
+              </button>
+            )}
             {isOwner && item.status === "PENDING_REVIEW" && (
               <div className="space-y-2 border-t pt-3">
                 <textarea className="w-full rounded-lg border p-3" rows={2} value={review} placeholder="Independent review justification (20+ characters)" onChange={(e) => setReview(e.target.value)} />
