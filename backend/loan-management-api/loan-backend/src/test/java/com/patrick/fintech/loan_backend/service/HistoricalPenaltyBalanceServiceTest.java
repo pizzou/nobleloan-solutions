@@ -82,6 +82,37 @@ class HistoricalPenaltyBalanceServiceTest {
     }
 
     @Test
+    void penaltyStartsSeptemberThirtyOnActualPrincipalAndUsesDaysInEachMonth() {
+        Loan loan = Loan.builder().id(88L).amount(new BigDecimal("1000000.00"))
+                .penaltyRate(new BigDecimal("15.00"))
+                .disbursedAt(LocalDate.of(2026, 3, 26).atStartOfDay())
+                .durationMonths(6).build();
+        LocalDate first = OverduePenaltyClock.firstChargeableDay(loan);
+        assertEquals(LocalDate.of(2026, 9, 30), first);
+        // A real RWF 100,000 principal payment was received on 1 October.
+        // Both 30 September and 1 October assess on the prepayment 1m
+        // balance; from 2 October the principal subject to penalty is 900k.
+        PaymentTransaction posted = PaymentTransaction.builder()
+                .amount(new BigDecimal("100000.00"))
+                .principalComponent(new BigDecimal("100000.00"))
+                .createdAt(LocalDateTime.of(2026, 10, 1, 12, 30))
+                .status(PaymentTransaction.TransactionStatus.POSTED)
+                .reversed(false).build();
+        when(transactionRepository.findByLoanIdOrderByCreatedAtDesc(88L))
+                .thenReturn(List.of(posted));
+        BigDecimal assessed = service.assessedToDate(
+                loan, new BigDecimal("900000.00"), first,
+                LocalDate.of(2026, 10, 2));
+        BigDecimal expected = FinancialPolicy.historicalDailyPenalty(
+                new BigDecimal("900000.00"), first,
+                LocalDate.of(2026, 10, 2), new BigDecimal("15.00"),
+                day -> day.isAfter(LocalDate.of(2026, 10, 1))
+                        ? new BigDecimal("900000.00")
+                        : new BigDecimal("1000000.00"));
+        assertEquals(expected, assessed);
+    }
+
+    @Test
     void ignoresUnpaidSchedulePrincipalWhenHistoricalTransactionsAreUnavailable() {
         Loan loan = Loan.builder().id(55L).amount(new BigDecimal("1000000.00"))
                 .penaltyRate(new BigDecimal("15.00")).build();
