@@ -2220,7 +2220,7 @@ public class PaymentService {
                                         BigDecimal historicalBalance = currentOutstandingPrincipal;
                                         for (Payment payment : payments) {
                                                 if (payment == null || payment.getPaidDate() == null
-                                                                || !payment.getPaidDate().isAfter(date)) {
+                                                                || payment.getPaidDate().isBefore(date)) {
                                                         continue;
                                                 }
                                                 historicalBalance = historicalBalance.add(

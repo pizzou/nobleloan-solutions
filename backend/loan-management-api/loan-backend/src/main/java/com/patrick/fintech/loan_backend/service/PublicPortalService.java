@@ -609,7 +609,7 @@ public class PublicPortalService {
                                                 BigDecimal reconstructed = currentBalance;
                                                 for (Payment payment : loanPayments) {
                                                         if (payment == null || payment.getPaidDate() == null
-                                                                        || !payment.getPaidDate().isAfter(date)) {
+                                                                        || payment.getPaidDate().isBefore(date)) {
                                                                 continue;
                                                         }
                                                         reconstructed = reconstructed.add(

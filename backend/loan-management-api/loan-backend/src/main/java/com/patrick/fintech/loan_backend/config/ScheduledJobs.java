@@ -169,7 +169,7 @@ public class ScheduledJobs {
                                                         }
                                                 }
 
-                                                if (loan.getStatus() == LoanStatus.OVERDUE
+                                                if (FinancialPolicy.contractDaysOverdue(loan, accrualDate) > 0
                                                                 && outstanding.compareTo(ZERO) > 0
                                                                 && Boolean.TRUE.equals(loan.getImported())
                                                                 && dueInstallments.isEmpty()) {
@@ -185,7 +185,7 @@ public class ScheduledJobs {
                                                                 posted++;
                                                 }
 
-                                                if (loan.getStatus() == LoanStatus.OVERDUE
+                                                if (FinancialPolicy.contractDaysOverdue(loan, accrualDate) > 0
                                                                 && outstanding.compareTo(ZERO) > 0
                                                                 && !dueInstallments.isEmpty()) {
 
@@ -628,7 +628,7 @@ public class ScheduledJobs {
                                         BigDecimal balance = currentOutstanding;
                                         for (Payment payment : payments) {
                                                 if (payment == null || payment.getPaidDate() == null
-                                                                || !payment.getPaidDate().isAfter(date)) {
+                                                                || payment.getPaidDate().isBefore(date)) {
                                                         continue;
                                                 }
                                                 balance = balance.add(money(payment.getPrincipalComponentDecimal()));
