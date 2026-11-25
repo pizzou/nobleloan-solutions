@@ -2058,7 +2058,9 @@ export default function LoanDetailPage() {
     0,
   );
 
-  const totalPenalty = loan.penaltiesAssessed ?? scheduledPenalty;
+  const penaltyAssessed = loan.penaltiesAssessed ?? scheduledPenalty;
+  const penaltyPaid = loan.penaltiesPaid ?? 0;
+  const penaltyOutstanding = Math.max(0, penaltyAssessed - penaltyPaid);
 
   const managementFeeRate = loan.managementFeeRate ?? 5;
   const interestRate = loan.interestRate ?? 5;
@@ -2641,8 +2643,8 @@ export default function LoanDetailPage() {
             },
 
             {
-              label: "Penalty",
-              value: fc(totalPenalty),
+              label: "Penalty Outstanding",
+              value: fc(penaltyOutstanding),
               Icon: IconFileText,
               color: "#6B7280",
             },
@@ -2884,24 +2886,18 @@ export default function LoanDetailPage() {
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Assessed</span>
-                    <strong>{fc(loan.penaltiesAssessed)}</strong>
+                    <strong>{fc(penaltyAssessed)}</strong>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Paid</span>
-                    <strong>{fc(loan.penaltiesPaid)}</strong>
+                    <strong>{fc(penaltyPaid)}</strong>
                   </div>
                   <div className="flex justify-between gap-4 border-t border-rose-100 pt-2">
                     <span className="font-semibold text-slate-600">
                       Outstanding
                     </span>
                     <strong className="text-rose-700">
-                      {fc(
-                        Math.max(
-                          0,
-                          (loan.penaltiesAssessed ?? 0) -
-                            (loan.penaltiesPaid ?? 0),
-                        ),
-                      )}
+                      {fc(penaltyOutstanding)}
                     </strong>
                   </div>
                 </div>
