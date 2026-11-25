@@ -772,6 +772,15 @@ public class PaymentService {
                                         : calculateHistoricalPenaltyToDate(
                                                         loan, currentBalance, earliestPenaltyDate, today);
 
+                        // A previously over-assessed penalty is NOT a legitimate
+                        // payable charge merely because it exists in the ledger.
+                        // Do not silently take such money from the borrower:
+                        // require an audited adjustment of loan and GL balances.
+                        validatePenaltyAssessment(
+                                        loan.getReferenceNumber(),
+                                        loanPenaltyAssessedBeforePayment,
+                                        requiredPenaltyToDate);
+
                         // Contractual penalty uses the individual loan's saved monthly
                         // rate (legacy 10%, new loans 15%), prorated daily after
                         // the 3-day grace period. There is no separate
@@ -2412,6 +2421,20 @@ public class PaymentService {
                         LocalDate asOf) {
                 return historicalPenaltyBalanceService.assessedToDate(
                                 loan, currentOutstandingPrincipal, firstChargeableDate, asOf);
+        }
+
+        private static void validatePenaltyAssessment(
+                        String loanReference, BigDecimal previouslyAssessed,
+                        BigDecimal contractuallyDue) {
+                BigDecimal old = safeMoney(previouslyAssessed);
+                BigDecimal valid = safeMoney(contractuallyDue);
+                if (old.subtract(valid).compareTo(new BigDecimal("0.01")) > 0) {
+                        throw new IllegalStateException(
+                                        "Penalty receivable exceeds contractual daily penalty for "
+                                                        + loanReference + ": assessed=" + old
+                                                        + ", expected=" + valid
+                                                        + ". Correct historical loan and accounting balances before accepting repayment.");
+                }
         }
 
         private record OverdueFeeGap(BigDecimal interest, BigDecimal management) {}
