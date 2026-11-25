@@ -159,7 +159,7 @@ public final class HistoricalRepaymentReconciliationPlanner {
         Objects.requireNonNull(penaltyMonthlyRate, "penaltyMonthlyRate");
         Objects.requireNonNull(verifiedCharges, "verifiedCharges");
         Objects.requireNonNull(receipts, "receipts");
-        if (disbursedOn.isAfter(contractMaturity) || contractMaturity.isAfter(asOf)
+        if (disbursedOn.isAfter(contractMaturity) || disbursedOn.isAfter(asOf)
                 || originalPrincipal.signum() < 0 || penaltyMonthlyRate.signum() < 0) {
             throw new IllegalArgumentException("Invalid contract evidence");
         }
@@ -185,6 +185,14 @@ public final class HistoricalRepaymentReconciliationPlanner {
                     || t.receivedOn().isBefore(disbursedOn)
                     || t.receivedOn().isAfter(asOf)) {
                 throw new IllegalArgumentException("Missing or invalid receipt evidence");
+            }
+        }
+
+        // Duplicate immutable receipt IDs would double-count real cash.
+        java.util.Set<Long> uniqueReceiptIds = new java.util.HashSet<>();
+        for (Receipt receipt : datedReceipts) {
+            if (!uniqueReceiptIds.add(receipt.immutableTransactionId())) {
+                throw new IllegalArgumentException("Duplicate historical receipt identity");
             }
         }
 
