@@ -412,12 +412,10 @@ function NewLoanForm() {
     requiredDocuments.length > 0 &&
     missing.length === 0;
 
-  const readyToReview =
-    valid &&
-    documentsReady &&
-    !loadingBorrowers &&
-    !submitting &&
-    normalize(documents.details?.status) !== "BLACKLISTED";
+  const reviewBusy = loadingBorrowers || uploadingType !== null || submitting;
+  const borrowerBlacklisted =
+    documentsMatchBorrower &&
+    normalize(documents.details?.status) === "BLACKLISTED";
 
   async function uploadRequiredDocument(type: string, file: File | null) {
     if (!file || !validBorrowerId || uploadingType !== null) {
@@ -473,18 +471,17 @@ function NewLoanForm() {
   function reviewApplication() {
     setError("");
 
-    if (!valid) {
-      setError(
-        "Check the borrower, amount (minimum 1,000,000 RWF), " +
-          "1–6 month term and purpose (at least 10 characters).",
-      );
+    if (reviewBusy) return;
+
+    if (borrowerBlacklisted) {
+      setError("The selected borrower is blacklisted.");
       return;
     }
 
-    if (!documentsReady) {
+    if (!valid) {
       setError(
-        "Upload or update all required borrower documents " +
-          "before reviewing this application.",
+        "Check the borrower, start date, amount (minimum 1,000,000 RWF), " +
+          "1–6 month term, purpose (at least 10 characters), and any required collateral details or evidence.",
       );
       return;
     }
@@ -494,7 +491,7 @@ function NewLoanForm() {
   }
 
   async function submit() {
-    if (!valid || !confirmed || !documentsReady || submitting) {
+    if (!valid || !confirmed || !documentsReady || borrowerBlacklisted || submitting) {
       return;
     }
 
@@ -518,6 +515,10 @@ function NewLoanForm() {
         throw new Error(
           "Borrower document verification failed. Please review again.",
         );
+      }
+
+      if (normalize(profile.status) === "BLACKLISTED") {
+        throw new Error("The selected borrower is blacklisted.");
       }
 
       const latestRequired = requiredDocumentsFor(profile);
@@ -1047,7 +1048,7 @@ function NewLoanForm() {
           <div className="flex justify-end">
             <button
               className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={!readyToReview}
+              disabled={reviewBusy}
               type="submit"
             >
               {uploadingType
@@ -1146,6 +1147,19 @@ function NewLoanForm() {
             </span>
           </label>
 
+          {!documentsReady && (
+            <p className="text-sm text-amber-800" role="status">
+              {documents.loading
+                ? "Checking borrower documents…"
+                : documents.error || uploadError ||
+                  (missing.length > 0
+                    ? "Required documents missing or outdated: " +
+                      missing.map(documentLabel).join(", ") +
+                      ". Select Edit details to upload them."
+                    : "Select Edit details to complete the borrower document check before creating the application.")}
+            </p>
+          )}
+
           <div className="flex justify-end gap-3">
             <button
               type="button"
@@ -1163,7 +1177,7 @@ function NewLoanForm() {
             <button
               type="button"
               className="rounded-lg bg-slate-900 px-6 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={!confirmed || !documentsReady || submitting}
+              disabled={!confirmed || !documentsReady || borrowerBlacklisted || submitting}
               onClick={() => void submit()}
             >
               {submitting ? "Submitting..." : "Create and send for approval"}
