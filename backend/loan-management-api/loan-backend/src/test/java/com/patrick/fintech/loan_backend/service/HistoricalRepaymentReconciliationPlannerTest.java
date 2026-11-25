@@ -77,6 +77,29 @@ class HistoricalRepaymentReconciliationPlannerTest {
     }
 
     @Test
+    void fullContractReplayAllowsActiveLoanBeforeContractMaturity() {
+        var result = HistoricalRepaymentReconciliationPlanner.replayFullContract(
+                LocalDate.of(2026, 10, 26), LocalDate.of(2027, 4, 26),
+                LocalDate.of(2026, 11, 25), m("1000000.00"), m("15.00"),
+                List.of(), List.of());
+        assertEquals(m("0.00"), result.penaltyAssessed());
+    }
+
+    @Test
+    void fullContractReplayRejectsDuplicateReceipts() {
+        var receipts = List.of(
+                new HistoricalRepaymentReconciliationPlanner.Receipt(
+                        20L, LocalDate.of(2026, 10, 27), m("50000.00")),
+                new HistoricalRepaymentReconciliationPlanner.Receipt(
+                        20L, LocalDate.of(2026, 11, 1), m("50000.00")));
+        assertThrows(IllegalArgumentException.class, () ->
+                HistoricalRepaymentReconciliationPlanner.replayFullContract(
+                        LocalDate.of(2026, 10, 26), LocalDate.of(2027, 4, 26),
+                        LocalDate.of(2026, 11, 25), m("1000000.00"), m("15.00"),
+                        List.of(), receipts));
+    }
+
+    @Test
     void loan54ReceiptReclassificationUsesContractMaturityNotInstallmentDueDate() {
         var result = HistoricalRepaymentReconciliationPlanner.replay(
                 LocalDate.of(2026, 9, 26), LocalDate.of(2026, 11, 24),
