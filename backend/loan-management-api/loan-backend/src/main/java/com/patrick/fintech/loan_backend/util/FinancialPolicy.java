@@ -8,6 +8,20 @@ import java.util.function.Function;
 
 public final class FinancialPolicy {
 
+        /** First penalty date follows contractual maturity, never an installment due date. */
+        public static LocalDate firstContractPenaltyDate(
+                        com.patrick.fintech.loan_backend.model.Loan loan) {
+                if (loan == null) return null;
+                LocalDate maturity = loan.getMaturityDate();
+                if (maturity == null && loan.getDurationMonths() != null && loan.getDurationMonths() > 0) {
+                        LocalDate start = loan.getDisbursedAt() != null
+                                        ? loan.getDisbursedAt().toLocalDate() : loan.getStartDate();
+                        if (start != null) maturity = start.plusMonths(loan.getDurationMonths());
+                }
+                return maturity == null ? null : maturity.plusDays(PENALTY_GRACE_DAYS + 1L);
+        }
+
+
         public static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
 
         public static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");

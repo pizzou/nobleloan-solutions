@@ -699,9 +699,9 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                int currentlyChargeablePenaltyDays = Math.max(
-                                0,
-                                daysLate - FinancialPolicy.PENALTY_GRACE_DAYS);
+                LocalDate firstContractPenaltyDate = FinancialPolicy.firstContractPenaltyDate(loan);
+                int currentlyChargeablePenaltyDays = firstContractPenaltyDate == null || firstContractPenaltyDate.isAfter(today)
+                                ? 0 : Math.toIntExact(ChronoUnit.DAYS.between(firstContractPenaltyDate, today) + 1L);
 
                 BigDecimal newlyCalculatedPenalty = ZERO;
                 int newPenaltyDays = 0;
@@ -2288,15 +2288,8 @@ public class PaymentService {
         // ================================================================
 
         private LocalDate resolveEarliestPenaltyDate(Loan loan, LocalDate asOf) {
-                return paymentRepo.findByLoanId(loan.getId()).stream()
-                                .filter(java.util.Objects::nonNull)
-                                .filter(p -> p.getDueDate() != null)
-                                .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
-                                .map(Payment::getDueDate)
-                                .filter(d -> d.isBefore(asOf))
-                                .min(LocalDate::compareTo)
-                                .map(d -> d.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L))
-                                .orElse(null);
+                LocalDate first = FinancialPolicy.firstContractPenaltyDate(loan);
+                return first != null && !first.isAfter(asOf) ? first : null;
         }
 
         private BigDecimal calculateHistoricalPenaltyToDate(

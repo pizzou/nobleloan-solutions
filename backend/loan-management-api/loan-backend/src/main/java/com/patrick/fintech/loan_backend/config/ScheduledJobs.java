@@ -190,15 +190,7 @@ public class ScheduledJobs {
                                                                 && outstanding.compareTo(ZERO) > 0
                                                                 && !dueInstallments.isEmpty()) {
 
-                                                        LocalDate penaltyStart = dueInstallments.stream()
-                                                                        .map(Payment::getDueDate)
-                                                                        .filter(java.util.Objects::nonNull)
-                                                                        .filter(d -> d.isBefore(accrualDate))
-                                                                        .min(LocalDate::compareTo)
-                                                                        .map(d -> d.plusDays(
-                                                                                        FinancialPolicy.PENALTY_GRACE_DAYS
-                                                                                                        + 1L))
-                                                                        .orElse(null);
+                                                        LocalDate penaltyStart = FinancialPolicy.firstContractPenaltyDate(loan);
 
                                                         if (penaltyStart != null && !penaltyStart.isAfter(accrualDate)
                                                                         && loan.getStatus() != LoanStatus.WRITTEN_OFF) {
