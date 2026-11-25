@@ -444,9 +444,11 @@ public class PaymentService {
                 // OVERDUE DAYS
                 // ============================================================
 
-                long daysLateLong = ChronoUnit.DAYS.between(
-                                cycleDueDate,
-                                today);
+                LocalDate firstPenaltyDate = FinancialPolicy.firstContractPenaltyDate(loan);
+                LocalDate contractMaturity = firstPenaltyDate == null ? null
+                                : firstPenaltyDate.minusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+                long daysLateLong = contractMaturity == null ? 0L
+                                : ChronoUnit.DAYS.between(contractMaturity, today);
 
                 int daysLate = (int) Math.max(
                                 0L,
@@ -1154,17 +1156,7 @@ public class PaymentService {
                 // UPDATE LOAN DAYS OVERDUE
                 // ============================================================
 
-                if (daysLate > 0) {
-
-                        int existingLoanDaysOverdue = loan.getDaysOverdue() != null
-                                        ? loan.getDaysOverdue()
-                                        : 0;
-
-                        loan.setDaysOverdue(
-                                        Math.max(
-                                                        existingLoanDaysOverdue,
-                                                        daysLate));
-                }
+                loan.setDaysOverdue(daysLate);
 
                 // ============================================================
                 // FULLY PAID LOAN
