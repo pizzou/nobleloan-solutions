@@ -727,8 +727,8 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                // Days overdue count from contract maturity, while assessed
-                // penalty days exclude the first three full grace days.
+                // Both overdue days and penalty eligibility begin on maturity
+                // plus three full calendar grace days (day 1 is maturity + 4).
                 int currentlyChargeablePenaltyDays = (int) Math.min(
                                 Integer.MAX_VALUE,
                                 OverduePenaltyClock.chargeableDays(loan, today));
