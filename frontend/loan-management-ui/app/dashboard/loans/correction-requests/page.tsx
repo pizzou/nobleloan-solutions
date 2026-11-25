@@ -107,7 +107,7 @@ export default function BusinessOwnerCorrectionInbox() {
                   </p>
                 </div>
                 <Link
-                  href={`/dashboard/loans/${item.loanId}/corrections`}
+                  href={`/dashboard/loans/${item.loanId}/legacy-corrections#correction-request-${item.id}`}
                   className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-bold text-white hover:bg-amber-800"
                 >
                   Inspect and decide

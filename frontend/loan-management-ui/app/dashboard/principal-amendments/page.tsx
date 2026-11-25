@@ -41,7 +41,7 @@ export default function PrincipalAmendmentsInboxPage() {
               <p className="mt-1 text-sm text-slate-600">{item.correctionType.replaceAll("_", " ")}</p>
               <p className="mt-1 text-sm font-semibold">RWF {Number(item.oldPrincipal).toLocaleString()} → RWF {Number(item.correctedPrincipal).toLocaleString()}</p>
             </div>
-            <Link href={`/dashboard/loans/${item.loanId}/principal-amendments`} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Review request</Link>
+            <Link href={`/dashboard/loans/${item.loanId}/principal-amendments#correction-request-${item.id}`} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Review request</Link>
           </div>
           <p className="mt-3 text-sm text-slate-700">{item.reason}</p>
         </article>

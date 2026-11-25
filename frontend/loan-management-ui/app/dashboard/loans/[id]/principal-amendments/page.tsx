@@ -45,7 +45,7 @@ export default function PrincipalAmendmentsPage() {
   const [managementFeeRate, setManagementFeeRate] = useState("");
   const [reason, setReason] = useState("");
   const [evidence, setEvidence] = useState("");
-  const [review, setReview] = useState("");
+  const [reviews, setReviews] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -63,6 +63,13 @@ export default function PrincipalAmendmentsPage() {
   useEffect(() => {
     refresh().catch((err) => setLoadError(err instanceof Error ? err.message : "Could not load amendments"));
   }, [refresh]);
+
+  useEffect(() => {
+    const target = window.location.hash.slice(1);
+    if (target.startsWith("correction-request-")) {
+      document.getElementById(target)?.scrollIntoView({ block: "start" });
+    }
+  }, [items]);
 
   async function submit() {
     if (!loan || busy) return;
@@ -125,20 +132,23 @@ export default function PrincipalAmendmentsPage() {
 
   async function decide(id: number, approved: boolean) {
     if (!loan || busy) return;
-    if (review.trim().length < 20) {
+    const review = (reviews[id] ?? "").trim();
+    if (review.length < 20) {
       setMessage("Independent review must explain the decision in at least 20 characters.");
       return;
     }
     setBusy(true);
     try {
-      await post(`/loans/${loanId}/principal-amendments/${id}/${approved ? "approve" : "reject"}`, {
+      const result = (await post(`/loans/${loanId}/principal-amendments/${id}/${approved ? "approve" : "reject"}`, {
         confirmReference: loan.referenceNumber,
-        reason: review.trim(),
-      });
-      setReview("");
-      setMessage(approved
-        ? "Correction approved. Check the request status: APPLIED means the loan, schedules and accounting were updated; APPROVED FOR RECONCILIATION means application is still pending."
-        : "Correction rejected and recorded in the audit trail.");
+        reason: review,
+      })) as Amendment;
+      setReviews(current => ({ ...current, [id]: "" }));
+      setMessage(!approved
+        ? "Correction rejected and recorded in the audit trail."
+        : result?.status === "APPLIED"
+          ? "Correction approved and applied. The loan and accounting balances were updated."
+          : "Correction approved. Open the request to check its reconciliation status.");
       await refresh();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Review failed");
@@ -192,7 +202,7 @@ export default function PrincipalAmendmentsPage() {
         <h2 className="text-lg font-semibold">Loan correction history</h2>
         {items.length === 0 && <p className="text-sm text-slate-500">No correction requests yet.</p>}
         {items.map((item) => (
-          <article key={item.id} className="space-y-2 rounded-xl border border-slate-200 bg-white p-5">
+          <article key={item.id} id={`correction-request-${item.id}`} className="scroll-mt-6 space-y-2 rounded-xl border border-slate-200 bg-white p-5 target:border-amber-400">
             <div className="flex flex-wrap justify-between gap-2"><strong>Request #{item.id} · {item.correctionType.replaceAll("_", " ")}</strong><span className="text-sm font-semibold">{item.status.replaceAll("_", " ")}</span></div>
             <p className="text-sm">{money(item.oldPrincipal)} → {money(item.correctedPrincipal)}</p>
             {item.oldDisbursementDate !== item.correctedDisbursementDate && <p className="text-sm">Disbursement: {item.oldDisbursementDate || "Not set"} → {item.correctedDisbursementDate || "Not set"}</p>}
@@ -209,7 +219,16 @@ export default function PrincipalAmendmentsPage() {
             )}
             {isOwner && item.status === "PENDING_REVIEW" && (
               <div className="space-y-2 border-t pt-3">
-                <textarea className="w-full rounded-lg border p-3" rows={2} value={review} placeholder="Independent review justification (20+ characters)" onChange={(e) => setReview(e.target.value)} />
+                <label className="block text-sm font-medium">
+                  Independent review reason (at least 20 characters) <span className="text-red-700" aria-hidden="true">*</span>
+                  <textarea required minLength={20} maxLength={2000} className="mt-1 w-full rounded-lg border p-3"
+                    rows={2} value={reviews[item.id] ?? ""}
+                    onChange={event => {
+                      const value = event.target.value;
+                      setReviews(current => ({ ...current, [item.id]: value }));
+                    }}
+                  />
+                </label>
                 <div className="flex gap-3"><button disabled={busy} onClick={() => decide(item.id, true)} className="rounded-lg bg-green-700 px-4 py-2 text-sm text-white">Approve for reconciliation</button>
                   <button disabled={busy} onClick={() => decide(item.id, false)} className="rounded-lg bg-red-700 px-4 py-2 text-sm text-white">Reject</button></div>
               </div>

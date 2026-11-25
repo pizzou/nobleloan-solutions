@@ -118,6 +118,13 @@ export default function LegacyCorrectionPage() {
     setDuration(l.durationMonths == null ? "" : String(l.durationMonths));
   };
   useEffect(() => {
+    const target = window.location.hash.slice(1);
+    if (target.startsWith("correction-request-")) {
+      document.getElementById(target)?.scrollIntoView({ block: "start" });
+    }
+  }, [history]);
+
+  useEffect(() => {
     if (!Number.isSafeInteger(loanId) || loanId <= 0) {
       setError("Invalid loan");
       setLoading(false);
@@ -492,7 +499,8 @@ export default function LegacyCorrectionPage() {
             history.map((item) => (
               <article
                 key={item.id}
-                className="rounded-lg border border-slate-200 p-4"
+                id={`correction-request-${item.id}`}
+                className="scroll-mt-6 rounded-lg border border-slate-200 p-4 target:border-amber-400"
               >
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-bold text-slate-900">
