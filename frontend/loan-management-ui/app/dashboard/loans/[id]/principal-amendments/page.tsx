@@ -46,6 +46,7 @@ export default function PrincipalAmendmentsPage() {
   const [reason, setReason] = useState("");
   const [evidence, setEvidence] = useState("");
   const [reviews, setReviews] = useState<Record<number, string>>({});
+  const [decision, setDecision] = useState<{ id: number; text: string; error?: boolean; finished?: boolean }>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -116,43 +117,37 @@ export default function PrincipalAmendmentsPage() {
     } finally { setBusy(false); }
   }
 
-  async function applyApproved(id: number) {
+  async function decide(id: number, action: "approve" | "reject" | "apply") {
     if (!loan || busy) return;
-    setBusy(true);
-    try {
-      await post(`/loans/${loanId}/principal-amendments/${id}/apply`, {});
-      setMessage("Correction applied. The loan and accounting balances were updated.");
-      await refresh();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not apply the correction");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function decide(id: number, approved: boolean) {
-    if (!loan || busy) return;
-    const review = (reviews[id] ?? "").trim();
-    if (review.length < 20) {
-      setMessage("Independent review must explain the decision in at least 20 characters.");
+    const reason = (reviews[id] ?? "").trim();
+    if (action !== "apply" && reason.length < 20) {
+      setDecision({ id, text: "Enter a review reason of at least 20 characters.", error: true });
+      document.getElementById(`review-reason-${id}`)?.focus();
       return;
     }
     setBusy(true);
+    setDecision({ id, text: "Saving your decision…" });
     try {
-      const result = (await post(`/loans/${loanId}/principal-amendments/${id}/${approved ? "approve" : "reject"}`, {
-        confirmReference: loan.referenceNumber,
-        reason: review,
-      })) as Amendment;
-      setReviews(current => ({ ...current, [id]: "" }));
-      setMessage(!approved
-        ? "Correction rejected and recorded in the audit trail."
-        : result?.status === "APPLIED"
-          ? "Correction approved and applied. The loan and accounting balances were updated."
-          : "Correction approved. Open the request to check its reconciliation status.");
-      await refresh();
+      const result = (await post(
+        `/loans/${loanId}/principal-amendments/${id}/${action}`,
+        action === "apply" ? {} : { confirmReference: loan.referenceNumber, reason },
+      )) as Amendment;
+      const text = action === "reject"
+        ? "Correction rejected."
+        : action === "apply" || result?.status === "APPLIED"
+          ? "Correction applied. The loan and accounting balances were updated."
+          : "Correction approved for reconciliation.";
+      setDecision({ id, text, finished: true });
+      try {
+        await refresh();
+      } catch {
+        setDecision({ id, text: `${text} The history could not refresh. Reload this page to see the latest status.`, finished: true });
+      }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Review failed");
-    } finally { setBusy(false); }
+      setDecision({ id, text: err instanceof Error ? err.message : "Could not save the decision.", error: true });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -212,7 +207,7 @@ export default function PrincipalAmendmentsPage() {
             <p className="text-xs text-slate-500">Evidence: {item.evidenceReference}</p>
             {item.reviewerReason && <p className="text-sm">Review: {item.reviewerReason}</p>}
             {(isOwner || user?.role === "ACCOUNTANT") && item.status === "APPROVED_FOR_RECONCILIATION" && (
-              <button type="button" disabled={busy} onClick={() => void applyApproved(item.id)}
+              <button type="button" disabled={busy} onClick={() => void decide(item.id, "apply")}
                 className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                 Apply approved correction
               </button>
@@ -221,18 +216,27 @@ export default function PrincipalAmendmentsPage() {
               <div className="space-y-2 border-t pt-3">
                 <label className="block text-sm font-medium">
                   Independent review reason (at least 20 characters) <span className="text-red-700" aria-hidden="true">*</span>
-                  <textarea required minLength={20} maxLength={2000} className="mt-1 w-full rounded-lg border p-3"
+                  <textarea id={`review-reason-${item.id}`} aria-describedby={`review-feedback-${item.id}`} required minLength={20} maxLength={2000} className="mt-1 w-full rounded-lg border p-3"
                     rows={2} value={reviews[item.id] ?? ""}
                     onChange={event => {
+                      if (decision?.id === item.id && decision.error) setDecision(undefined);
                       const value = event.target.value;
                       setReviews(current => ({ ...current, [item.id]: value }));
                     }}
                   />
                 </label>
-                <div className="flex gap-3"><button disabled={busy} onClick={() => decide(item.id, true)} className="rounded-lg bg-green-700 px-4 py-2 text-sm text-white">Approve for reconciliation</button>
-                  <button disabled={busy} onClick={() => decide(item.id, false)} className="rounded-lg bg-red-700 px-4 py-2 text-sm text-white">Reject</button></div>
+                <div className="flex gap-3"><button type="button" disabled={busy} onClick={() => decide(item.id, "approve")} className="rounded-lg bg-green-700 px-4 py-2 text-sm text-white">Approve for reconciliation</button>
+                  <button type="button" disabled={busy} onClick={() => decide(item.id, "reject")} className="rounded-lg bg-red-700 px-4 py-2 text-sm text-white">Reject</button></div>
               </div>
             )}
+            <div id={`review-feedback-${item.id}`} role={decision?.id === item.id && decision.error ? "alert" : "status"}>
+              {decision?.id === item.id && (
+                <div className={`mt-2 rounded-lg p-3 text-sm ${decision.error ? "bg-red-50 text-red-800" : "bg-blue-50 text-blue-900"}`}>
+                  {decision.text}
+                  {decision.finished && <Link href="/dashboard/tasks" className="ml-3 font-semibold underline">Back to My Tasks</Link>}
+                </div>
+              )}
+            </div>
           </article>
         ))}
       </section>
