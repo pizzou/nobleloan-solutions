@@ -526,9 +526,11 @@ public class ScheduledJobs {
                                 if (loan == null || loan.getId() == null) {
                                         continue;
                                 }
-                                int canonicalDays = (int) Math.min(Integer.MAX_VALUE,
-                                                OverduePenaltyClock.daysOverdue(loan, today));
-                                LoanStatus expected = canonicalDays > 0 && hasOutstandingReceivable(loan)
+                                int canonicalDays = hasOutstandingReceivable(loan)
+                                                ? (int) Math.min(Integer.MAX_VALUE,
+                                                        OverduePenaltyClock.daysOverdue(loan, today))
+                                                : 0;
+                                LoanStatus expected = canonicalDays > 0
                                                 ? LoanStatus.OVERDUE : LoanStatus.ACTIVE;
                                 int storedDays = loan.getDaysOverdue() == null
                                                 ? 0 : Math.max(0, loan.getDaysOverdue());
