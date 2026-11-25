@@ -693,8 +693,8 @@ public class PaymentService {
                 // Never accelerate future charges for an unmatured loan.
                 boolean maturedLegacyWithoutFullSchedule =
                                 Boolean.TRUE.equals(loan.getImported())
-                                                && loan.getMaturityDate() != null
-                                                && !loan.getMaturityDate().isAfter(today)
+                                                && OverduePenaltyClock.contractualMaturity(loan) != null
+                                                && !OverduePenaltyClock.contractualMaturity(loan).isAfter(today)
                                                 && loanPayments.size() <= 1;
                 if (maturedLegacyWithoutFullSchedule) {
                         remainingInterestBeforePayment = remainingInterestBeforePayment.max(
