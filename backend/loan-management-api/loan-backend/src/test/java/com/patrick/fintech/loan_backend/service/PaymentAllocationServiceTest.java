@@ -88,6 +88,26 @@ class PaymentAllocationServiceTest {
     }
 
     @Test
+    void twelveMillionOneHundredThousandReclassificationPaysPenaltyAndDueMonthlyFeesBeforePrincipal() {
+        // Verified historical receipt replay for NLS-000054; one shared rule
+        // applies to all loans, not a special case for this borrower.
+        PaymentAllocationService.Allocation result = service.allocate(
+                new BigDecimal("12100000.00"),
+                new BigDecimal("5583333.33"),
+                BigDecimal.ZERO,
+                new BigDecimal("3258333.33"),
+                new BigDecimal("3258333.34"),
+                new BigDecimal("33500000.00"));
+
+        assertEquals(new BigDecimal("5583333.33"), result.penalty());
+        assertEquals(new BigDecimal("3258333.33"), result.interest());
+        assertEquals(new BigDecimal("3258333.34"), result.managementFee());
+        assertEquals(new BigDecimal("0.00"), result.extensionFee());
+        assertEquals(new BigDecimal("0.00"), result.principal());
+        assertEquals(new BigDecimal("0.00"), result.overpayment());
+    }
+
+    @Test
     void excessShareMovesToOtherFeeBeforePrincipal() {
         PaymentAllocationService.Allocation result = service.allocate(
                 new BigDecimal("100.00"),
