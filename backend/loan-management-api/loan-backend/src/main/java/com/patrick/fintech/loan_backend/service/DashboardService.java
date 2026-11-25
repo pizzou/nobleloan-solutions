@@ -90,7 +90,10 @@ public class DashboardService {
                         overduePayments = List.of();
                 }
 
-                long latePaymentsCount = overduePayments.size();
+                long latePaymentsCount = overduePayments.stream()
+                                .filter(p -> p != null && p.getLoan() != null
+                                                && OverduePenaltyClock.daysOverdue(p.getLoan(), today) > 0)
+                                .count();
 
                 // ============================================================
                 // LOAD ORGANIZATION LOANS
@@ -110,7 +113,9 @@ public class DashboardService {
                 // can be overdue without a generated overdue Payment row.
                 long overdueLoans = countOverdueLoans(loans);
                 activeLoans = loans.stream()
-                                .filter(l -> l != null && l.getStatus() == LoanStatus.ACTIVE)
+                                .filter(l -> l != null && (l.getStatus() == LoanStatus.ACTIVE
+                                                || l.getStatus() == LoanStatus.OVERDUE))
+                                .filter(l -> OverduePenaltyClock.daysOverdue(l, today) == 0)
                                 .count();
                 pendingLoans = loans.stream()
                                 .filter(l -> l != null && l.getStatus() == LoanStatus.PENDING)
