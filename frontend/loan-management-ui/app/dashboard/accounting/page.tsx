@@ -561,8 +561,7 @@ export default function AccountingPage() {
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#0B1F3A]">Accounting</h1>
 
           <p className="text-gray-500 text-sm mt-1">
-            General ledger, chart of accounts, cash management, and financial
-            reports — {currency}.
+            Ledger and financial statements · {currency}
           </p>
         </div>
 
@@ -727,29 +726,29 @@ export default function AccountingPage() {
       =================================================== */}
       {receivableDifference != null && Math.abs(receivableDifference) >= 0.01 && (
         <section role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950">
-          <h2 className="text-sm font-bold">Operational receivables and general ledger differ</h2>
+          <h2 className="text-sm font-bold">Receivables mismatch</h2>
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
             <div><dt>Operational receivables</dt><dd className="font-semibold tabular-nums">{fmt(operationalReceivables ?? 0)} {currency}</dd></div>
             <div><dt>General ledger receivables</dt><dd className="font-semibold tabular-nums">{fmt(glReceivables ?? 0)} {currency}</dd></div>
-            <div><dt>Difference (operational less GL)</dt><dd className="font-semibold tabular-nums">{fmt(receivableDifference)} {currency}</dd></div>
+            <div><dt>Difference (operational − GL)</dt><dd className="font-semibold tabular-nums">{fmt(receivableDifference)} {currency}</dd></div>
           </dl>
           <details className="mt-3">
             <summary className="cursor-pointer text-xs font-semibold">Reconciliation details</summary>
             <p className="mt-2 text-xs">GL accounts 1100, 1150, 1160, 1170, 1175 and 1180.</p>
           <p className="mt-2 text-xs">
             {comparingCurrentPortfolio
-              ? "These figures come from different accounting sources. Investigate loan-level balances, accruals and journal coverage before posting any correction."
-              : "The operational KPI is current/lifetime, while the GL statement is as of the selected date. First compare them at today's date; then investigate any remaining difference."}
-            {" "}Do not use Reconcile Imported Loans to force these amounts to agree without independently reviewing the proposed postings.
+              ? "Check loan balances, accruals and journals before posting a correction."
+              : "Compare both balances as of today before investigating the difference."}
+            {" "}Independently review proposed postings before reconciling imported loans.
           </p>
           </details>
         </section>
       )}
 
       <section aria-label="General ledger control overview" className="nls-accounting-ledger-overview">
-        <div><span>Trial balance integrity</span><strong>{trial ? (trial.balanced ? "Debits = credits" : "Out of balance") : "Unavailable"}</strong><small>Does not verify account completeness</small></div>
-        <div><span>Cash ledger · GL 1000</span><strong>{cashLedgerBalance == null ? "Unavailable" : `${fmt(Math.abs(cashLedgerBalance))} ${cashLedgerBalance < 0 ? "CR" : "DR"}`}</strong><small>Not a verified bank account balance</small></div>
-        <div><span>Statement date</span><strong>{financialPeriod.to}</strong><small>Reports use their defined date basis</small></div>
+        <div><span>Trial balance</span><strong>{trial ? (trial.balanced ? "Debits = credits" : "Out of balance") : "Unavailable"}</strong></div>
+        <div><span>Cash ledger · GL 1000</span><strong>{cashLedgerBalance == null ? "Unavailable" : `${fmt(Math.abs(cashLedgerBalance))} ${cashLedgerBalance < 0 ? "CR" : "DR"}`}</strong><small>Ledger balance only</small></div>
+        <div><span>Statement date</span><strong>{financialPeriod.to}</strong></div>
       </section>
 
       {cashLedgerBalance != null && cashLedgerBalance < 0 && (
@@ -757,25 +756,15 @@ export default function AccountingPage() {
           role="alert"
           className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950"
         >
-          <div className="text-sm font-bold">Cash funding reconciliation required</div>
+          <div className="text-sm font-bold">Cash reconciliation required</div>
           <p className="mt-2 text-sm">
             GL 1000 · {fmt(Math.abs(cashLedgerBalance))} {currency} credit · {financialPeriod.to}
           </p>
           <details className="mt-3">
             <summary className="cursor-pointer text-xs font-semibold">Cash reconciliation details</summary>
-          <p className="mt-2 text-sm leading-6">
-            Account 1000 has a credit balance of {fmt(Math.abs(cashLedgerBalance))}
-            {` as of ${financialPeriod.to}`}. This is a negative general-ledger cash
-            position, not the value of outstanding loans. Confirm that opening
-            bank/cash balances, owner funding, borrowing, transfers and all
-            disbursement and repayment entries match bank statements before
-            relying on the cash position for shareholder or external reports.
-          </p>
-          <p className="mt-2 text-xs">
-            A balanced trial balance does not prove that source-of-funds or
-            historical opening balances have been recorded. Do not post an
-            unsupported balancing journal to remove this warning.
-          </p>
+            <p className="mt-2 text-xs leading-5">
+              Verify opening balances, funding, transfers and loan cash movements against bank statements before reporting. Post corrections only when supported by records.
+            </p>
           </details>
         </section>
       )}

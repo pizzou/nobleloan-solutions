@@ -437,7 +437,7 @@ export default function ImportLegacyLoansPage() {
               </h1>
 
               <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">
-                Upload a CSV or Excel workbook, validate the records, then review the rows before importing.
+                Validate and import historical loan records.
               </p>
             </div>
 
@@ -479,97 +479,14 @@ export default function ImportLegacyLoansPage() {
           <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">
             Template requirements and repayment rules
           </summary>
-          <div className="grid gap-3 border-t border-slate-200 p-4">
-              <div className="rounded-xl border border-[#D9E3EF] bg-white">
-                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAF1F8] text-[#0B1F3A]">
-                    <svg
-                      className="h-5 w-5"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                    >
-                      <path d="M12 3 5 6v5c0 4.7 2.9 8.9 7 10 4.1-1.1 7-5.3 7-10V6l-7-3Z" />
-                      <path d="m9 12 2 2 4-4" />
-                    </svg>
-                  </div>
-
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-[#0B1F3A]">
-                      Controlled production import
-                    </p>
-
-                    <p className="mt-1 text-sm leading-6 text-gray-500">
-                      Preview validates the file without saving anything. Only the
-                      rows that pass validation can be committed. Borrowers are
-                      matched using the existing import rules, including National ID
-                      matching.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-5">
-                <p className="text-sm font-bold text-amber-950">
-                  Financial fields that must be accurate
-                </p>
-                <p className="mt-1 text-sm leading-6 text-amber-900">
-                  All legacy loans are imported with{" "}
-                  <strong>normal visibility</strong>
-                  (business_owner_only = false). Only the Business Owner can change
-                  this later from the loan list or loan details. For loans still owing
-                  money, provide the verified <strong>next_due_date</strong> and the
-                  historical paid and outstanding amounts separately. The system
-                  assigns the final unique NLS reference when each loan is saved;
-                  preview numbers are proposals only.
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
-                <h2 className="font-bold text-slate-900">
-                  How historical repayments are interpreted
-                </h2>
-                <p className="mt-2">
-                  The legacy monthly workbook uses the{" "}
-                  <strong>PRINCIPLE PAID (AA)</strong>,{" "}
-                  <strong>TOTAL PAID INTEREST (Z)</strong> and{" "}
-                  <strong>PAID MANAGEMENT FEE (X)</strong> columns as amounts actually
-                  received. It does <strong>not</strong> treat monthly scheduled
-                  interest columns (I–N) as payments.
-                </p>
-                <p className="mt-2">
-                  For a partially paid loan:{" "}
-                  <strong>
-                    principal remaining = original principal − principal paid
-                  </strong>
-                  . Unpaid interest (AC), unpaid management fees (V) and assessed
-                  unpaid penalties (AB) are separate obligations. When payments and
-                  unpaid amounts disagree, import validation blocks the row for
-                  reconciliation. The old monthly format has no separate
-                  penalties-paid column, so any AB penalty is treated as unpaid unless
-                  imported using a detailed template with penalties_paid.
-                </p>
-                <p className="mt-2 text-amber-800">
-                  These are opening historical balances, not individually dated
-                  payment receipts. Verify the original cash ledger or payment
-                  evidence before committing. A "Valid" result means the data
-                  reconciles mathematically, not that its figures have been
-                  independently verified.
-                </p>
-                <p className="mt-2 font-semibold text-amber-900">
-                  For a partially paid loan with an outstanding balance, column P is
-                  only the first scheduled due date. Add <strong>column AE</strong>{" "}
-                  (header: VERIFIED OLDEST UNPAID DUE DATE) and enter the date of the
-                  earliest installment that is still unpaid, verified against the
-                  repayment records. Without it the row is blocked rather than
-                  reporting misleading days overdue. Do not change the original
-                  contract or invent a date. For loans already imported, review and
-                  correct their due dates through an authorized, audited
-                  loan-adjustment workflow.
-                </p>
-              </div>
-          </div>
+          <ul className="list-disc space-y-2 border-t border-slate-200 py-4 pl-9 pr-5 text-sm text-slate-700">
+            <li>Preview saves nothing. Only valid rows can be imported. Borrower matching includes National ID.</li>
+            <li>Verify opening balances against payment records. Enter paid amounts and outstanding balances separately.</li>
+            <li>Workbook payments use principal paid (AA), interest paid (Z) and management fees paid (X). Columns I–N show scheduled interest.</li>
+            <li>Remaining principal equals original principal less principal paid. Unpaid charges use interest (AC), management fees (V) and penalties (AB). Use the detailed template to report penalties already paid.</li>
+            <li>For open loans, enter the verified next due date. For partially paid workbook loans, enter the verified oldest unpaid date in <strong>AE</strong> (VERIFIED OLDEST UNPAID DUE DATE). Column P is the first scheduled date.</li>
+            <li>Use the loan correction workflow to amend dates after import. The system assigns final NLS references at import, and the Business Owner controls any later visibility changes.</li>
+          </ul>
         </details>
 
         {/* ====================================================
@@ -585,7 +502,7 @@ export default function ImportLegacyLoansPage() {
                 <h2 className="text-base font-bold">Upload and validate</h2>
 
                 <p className="mt-1 text-xs text-blue-100">
-                  CSV and XLSX files · Maximum {MAX_FILE_SIZE_MB} MB · Preview before importing
+                  CSV and XLSX files · Maximum {MAX_FILE_SIZE_MB} MB
                 </p>
               </div>
 
@@ -1053,10 +970,6 @@ export default function ImportLegacyLoansPage() {
                 Import history
               </h2>
 
-              <p className="mt-1 text-xs text-gray-400">
-                Previous legacy migration batches processed by your
-                organization.
-              </p>
             </div>
 
             <span className="text-xs font-medium text-gray-400">
