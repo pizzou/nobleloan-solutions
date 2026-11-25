@@ -343,37 +343,48 @@ function NewLoanForm() {
   const principal = Number(amount);
   const duration = Number(durationMonths);
 
-  const valid =
-    validBorrowerId &&
-    Number.isFinite(principal) &&
-    principal >= 1_000_000 &&
-    Number.isInteger(duration) &&
-    duration >= 1 &&
-    duration <= 6 &&
-    Boolean(startDate) &&
-    purpose.trim().length >= 10 &&
-    (collateralType === "NONE" ||
-      (collateralDescription.trim().length > 0 &&
-        collateralValue.trim().length > 0 &&
-        Number(collateralValue) > 0)) &&
-    (collateralType !== "IMMOVABLE" || Boolean(collateralExpertise)) &&
-    (!collateralExpertise ||
-      (ALLOWED_MIME_TYPES.has(collateralExpertise.type) &&
-        collateralExpertise.size > 0 &&
-        collateralExpertise.size <= MAX_DOCUMENT_BYTES)) &&
-    (collateralExpertise?.size ?? 0) +
-      extraEvidence.reduce((sum, file) => sum + file.size, 0) <=
-      24 * 1024 * 1024 &&
-    extraEvidence.length <= 9 &&
-    extraEvidence.every(
-      (file) =>
-        ALLOWED_MIME_TYPES.has(file.type) &&
-        file.size > 0 &&
-        file.size <= MAX_DOCUMENT_BYTES,
-    ) &&
-    (!collateralValue ||
-      (Number.isFinite(Number(collateralValue)) &&
-        Number(collateralValue) >= 0));
+  const reviewIssues: string[] = [];
+  const hasCollateral = collateralType !== "NONE";
+  const needsValuation = collateralType === "IMMOVABLE";
+
+  if (!validBorrowerId) reviewIssues.push("Select a borrower.");
+  if (!Number.isSafeInteger(principal) || principal < 1_000_000) {
+    reviewIssues.push("Enter a whole principal amount of at least RWF 1,000,000.");
+  }
+  if (!Number.isInteger(duration) || duration < 1 || duration > 6) {
+    reviewIssues.push("Enter a term of 1–6 whole months.");
+  }
+  if (!startDate) reviewIssues.push("Enter the proposed start date.");
+  if (purpose.trim().length < 10) {
+    reviewIssues.push("Write a loan purpose of at least 10 characters.");
+  }
+  if (hasCollateral) {
+    if (!collateralDescription.trim()) reviewIssues.push("Describe the collateral.");
+    if (!collateralValue.trim() || !Number.isSafeInteger(Number(collateralValue)) ||
+        Number(collateralValue) <= 0) {
+      reviewIssues.push("Enter a positive whole collateral value in RWF.");
+    }
+  } else if (collateralValue && (!Number.isSafeInteger(Number(collateralValue)) ||
+      Number(collateralValue) < 0)) {
+    reviewIssues.push("Enter a valid whole collateral value in RWF.");
+  }
+  if (needsValuation && !collateralExpertise) {
+    reviewIssues.push("Upload the valuation report required for immovable collateral.");
+  }
+  const evidence = collateralExpertise ? [collateralExpertise, ...extraEvidence] : extraEvidence;
+  for (const file of evidence) {
+    if (!ALLOWED_MIME_TYPES.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
+      reviewIssues.push(`${file.name} must be a nonempty PDF, JPG, PNG or WEBP file of at most 8 MB.`);
+    }
+  }
+  if (extraEvidence.length > 9) {
+    reviewIssues.push("Keep at most nine other supporting documents.");
+  }
+  if (evidence.reduce((sum, file) => sum + file.size, 0) > 24 * 1024 * 1024) {
+    reviewIssues.push("Keep the total size of supporting files at 24 MB or less.");
+  }
+
+  const valid = reviewIssues.length === 0;
 
   const estimate = useMemo(
     () => ({
@@ -479,10 +490,7 @@ function NewLoanForm() {
     }
 
     if (!valid) {
-      setError(
-        "Check the borrower, start date, amount (minimum 1,000,000 RWF), " +
-          "1–6 month term, purpose (at least 10 characters), and any required collateral details or evidence.",
-      );
+      setError("Complete the items listed beside Review Application.");
       return;
     }
 
@@ -630,6 +638,7 @@ function NewLoanForm() {
       {!review ? (
         <form
           className="space-y-5"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             reviewApplication();
@@ -656,7 +665,7 @@ function NewLoanForm() {
             </label>
 
             <label className="mt-3 block text-sm font-medium">
-              Borrower *
+              Borrower {" "}<span className="text-red-700" aria-hidden="true">*</span>
               <select
                 required
                 className={fieldStyle}
@@ -718,7 +727,7 @@ function NewLoanForm() {
               </label>
 
               <label className="block text-sm font-medium">
-                Principal (RWF) *
+                Principal (RWF) {" "}<span className="text-red-700" aria-hidden="true">*</span>
                 <input
                   className={fieldStyle}
                   type="number"
@@ -731,7 +740,7 @@ function NewLoanForm() {
               </label>
 
               <label className="block text-sm font-medium">
-                Term (months) *
+                Term (months) {" "}<span className="text-red-700" aria-hidden="true">*</span>
                 <input
                   className={fieldStyle}
                   type="number"
@@ -745,7 +754,7 @@ function NewLoanForm() {
               </label>
 
               <label className="block text-sm font-medium">
-                Proposed start date *
+                Proposed start date {" "}<span className="text-red-700" aria-hidden="true">*</span>
                 <input
                   className={fieldStyle}
                   type="date"
@@ -757,7 +766,7 @@ function NewLoanForm() {
             </div>
 
             <label className="mt-4 block text-sm font-medium">
-              Loan purpose *
+              Loan purpose {" "}<span className="text-red-700" aria-hidden="true">*</span>
               <textarea
                 rows={3}
                 maxLength={1500}
@@ -810,10 +819,11 @@ function NewLoanForm() {
             {collateralType !== "NONE" && (
               <label className="mt-4 block text-sm font-medium">
                 Expertise / valuation report{" "}
-                {collateralType === "IMMOVABLE" ? "(required)" : "(optional)"}
+                {needsValuation ? <span className="text-red-700" aria-hidden="true">*</span> : "(optional)"}
                 <input
                   className={fieldStyle}
                   type="file"
+                  required={needsValuation}
                   accept=".pdf,.jpg,.jpeg,.png,.webp"
                   onChange={(event) =>
                     setCollateralExpertise(event.target.files?.[0] ?? null)
@@ -836,23 +846,25 @@ function NewLoanForm() {
 
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-medium">
-                Collateral value (RWF, optional)
+                Collateral value (RWF) {hasCollateral && <span className="text-red-700" aria-hidden="true">*</span>}
                 <input
                   className={fieldStyle}
                   type="number"
                   min="0"
                   step="1"
                   value={collateralValue}
+                  required={hasCollateral}
                   onChange={(event) => setCollateralValue(event.target.value)}
                 />
               </label>
 
               <label className="block text-sm font-medium">
-                Collateral description (optional)
+                Collateral description {hasCollateral && <span className="text-red-700" aria-hidden="true">*</span>}
                 <input
                   className={fieldStyle}
                   maxLength={1000}
                   value={collateralDescription}
+                  required={hasCollateral}
                   onChange={(event) =>
                     setCollateralDescription(event.target.value)
                   }
@@ -1045,10 +1057,27 @@ function NewLoanForm() {
             </p>
           </section>
 
+          <div id="review-readiness" aria-live="polite" className="text-sm text-slate-700">
+            {reviewBusy ? (
+              <p>{uploadingType ? "Waiting for the document upload." : "Waiting for the form to finish loading."}</p>
+            ) : borrowerBlacklisted ? (
+              <p className="text-red-800">The selected borrower is blacklisted.</p>
+            ) : reviewIssues.length ? (
+              <>
+                <p className="font-semibold">Complete these items to review the application</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  {reviewIssues.map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
+              </>
+            ) : (
+              <p className="text-emerald-800">Ready to review.</p>
+            )}
+          </div>
           <div className="flex justify-end">
             <button
               className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={reviewBusy}
+              aria-describedby="review-readiness"
+              disabled={reviewBusy || borrowerBlacklisted || !valid}
               type="submit"
             >
               {uploadingType
