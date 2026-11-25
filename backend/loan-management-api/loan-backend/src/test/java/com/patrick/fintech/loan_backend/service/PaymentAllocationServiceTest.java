@@ -78,8 +78,8 @@ class PaymentAllocationServiceTest {
                 new BigDecimal("5025000"), new BigDecimal("5025000"),
                 new BigDecimal("33500000"));
         assertEquals(new BigDecimal("4000000.00"), result.penalty());
-        assertEquals(new BigDecimal("5025000.00"), result.interest());
-        assertEquals(new BigDecimal("3075000.00"), result.managementFee());
+        assertEquals(new BigDecimal("3075000.00"), result.interest());
+        assertEquals(new BigDecimal("5025000.00"), result.managementFee());
         assertEquals(new BigDecimal("0.00"), result.principal());
         assertEquals(new BigDecimal("0.00"), result.overpayment());
     }

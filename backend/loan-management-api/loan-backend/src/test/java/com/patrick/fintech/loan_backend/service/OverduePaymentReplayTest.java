@@ -21,11 +21,12 @@ class OverduePaymentReplayTest {
         var result = engine.replay(opening(), START, n("10"), receipt.date(), charges, List.of(receipt));
         var a = result.receipts().get(0).allocation();
         assertEquals(n("270000.00"), a.penalty());
-        assertEquals(n("230000.00"), a.interest());
+        assertEquals(n("230000.00"), a.managementFee());
+        assertEquals(n("0.00"), a.interest());
         assertEquals(n("0.00"), a.principal());
         assertEquals(n("3000000.00"), result.principal());
-        assertEquals(n("70000.00"), result.interest());
-        assertEquals(n("300000.00"), result.management());
+        assertEquals(n("300000.00"), result.interest());
+        assertEquals(n("70000.00"), result.management());
     }
     @Test
     void noPenaltyDuringGraceAndLaterReceiptsUseReducedPrincipal() {

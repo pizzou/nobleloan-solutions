@@ -76,10 +76,10 @@ public class PaymentAllocationService {
         BigDecimal remaining = money(paymentAmount).max(ZERO);
         BigDecimal penalty = take(remaining, penaltyDue);
         remaining = remaining.subtract(penalty);
-        BigDecimal interest = take(remaining, interestDue);
-        remaining = remaining.subtract(interest);
         BigDecimal management = take(remaining, managementFeeDue);
         remaining = remaining.subtract(management);
+        BigDecimal interest = take(remaining, interestDue);
+        remaining = remaining.subtract(interest);
         BigDecimal principal = take(remaining, principalDue);
         remaining = remaining.subtract(principal);
         BigDecimal extension = take(remaining, extensionFeeDue);
