@@ -57,7 +57,11 @@ BEGIN
      OR l.interest_outstanding <> 200000
      OR l.management_fee_outstanding <> 200000
      OR l.interest_paid <> 100000
-     OR l.management_fee_paid <> 100000 THEN
+     OR l.management_fee_paid <> 100000
+     OR ROUND(l.total_repayable-l.total_paid-l.outstanding_balance-
+           l.interest_outstanding-l.management_fee_outstanding-
+           (l.penalties_assessed-l.penalties_paid)-
+           COALESCE(l.extension_fee_outstanding,0),2)<>0 THEN
     RAISE EXCEPTION 'Loan 124 snapshot or current date differs; abort';
   END IF;
 
@@ -162,7 +166,10 @@ BEGIN
       SELECT 1 FROM loans
       WHERE id=124 AND (penalties_assessed<>0 OR penalties_paid<>0
          OR days_overdue<>0 OR status<>'ACTIVE'
-         OR outstanding_balance<>2000000)) THEN
+         OR outstanding_balance<>2000000
+         OR ROUND(total_repayable-total_paid-outstanding_balance-
+               interest_outstanding-management_fee_outstanding-
+               COALESCE(extension_fee_outstanding,0),2)<>0)) THEN
     RAISE EXCEPTION 'Postcorrection subledger/GL maturity reconciliation failed';
   END IF;
   RAISE NOTICE 'NLS-000124 corrected on isolated data: penalty GL %, 9 original accrual journals retained, no cash movement. Rollback unless APPLY=true',gl_due;
