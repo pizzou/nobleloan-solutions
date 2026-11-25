@@ -2398,24 +2398,21 @@ export default function LoanDetailPage() {
 
                 <Pill label={loan.currency} color="teal" />
 
-                {loan.daysOverdue && loan.daysOverdue > 0 ? (
-                  <Pill
-                    label={
-                      <span className="inline-flex items-center gap-1">
-                        <IconAlertTriangle className="w-3 h-3" />
-                        {loan.daysOverdue}d overdue
-                      </span>
-                    }
-                    color="red"
-                  />
-                ) : null}
+                {loan.status === "OVERDUE" &&
+                  (loan.daysOverdue ?? 0) > 0 && (
+                    <Pill
+                      label={
+                        <span className="inline-flex items-center gap-1">
+                          <IconAlertTriangle className="w-3 h-3" />
+                          {loan.daysOverdue} days overdue
+                        </span>
+                      }
+                      color="red"
+                    />
+                  )}
 
                 {loan.creditQuality && (
                   <Pill label={`Credit: ${loan.creditQuality}`} color="blue" />
-                )}
-
-                {loan.arrearsStatus && (
-                  <Pill label={`Arrears: ${loan.arrearsStatus}`} color="gray" />
                 )}
 
                 {loan.collectionsStage && (
@@ -3297,7 +3294,10 @@ export default function LoanDetailPage() {
                   value={loan.collectionsStage}
                 />
 
-                <Field label="Days Overdue" value={loan.daysOverdue ?? 0} />
+                {loan.status === "OVERDUE" &&
+                  (loan.daysOverdue ?? 0) > 0 && (
+                    <Field label="Days Overdue" value={loan.daysOverdue} />
+                  )}
 
                 <Field
                   label="Classified At"

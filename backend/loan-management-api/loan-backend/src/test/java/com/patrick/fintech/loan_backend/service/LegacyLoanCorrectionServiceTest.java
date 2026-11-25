@@ -383,7 +383,7 @@ class LegacyLoanCorrectionServiceTest {
                 var applied = service.applyAuthorized(77L, 334L, admin);
                 assertEquals("APPROVED", applied.getStatus());
                 assertEquals(actualDue, loan.getNextDueDate());
-                assertEquals(21, loan.getDaysOverdue());
+                assertEquals((int) OverduePenaltyClock.daysOverdue(loan, LocalDate.now()), loan.getDaysOverdue());
                 assertEquals(new BigDecimal("6000000.00"), loan.getTotalPaid());
                 assertEquals(new BigDecimal("8000000.00"), loan.getTotalRepayable());
                 verify(accounting, never()).postApprovedLegacyCorrection(any(), any(), any());

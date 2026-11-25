@@ -4,20 +4,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class DashboardOverdueLoanCountTest {
+    private Loan loan(boolean imported, LoanStatus storedStatus, LocalDate disbursed) {
+        Loan loan = new Loan();
+        loan.setImported(imported);
+        loan.setStatus(storedStatus);
+        loan.setDisbursedAt(disbursed.atStartOfDay());
+        loan.setDurationMonths(6);
+        return loan;
+    }
+
     @Test
-    void countsImportedOverdueLoansEvenWithoutPaymentScheduleRecords() {
-        Loan imported = new Loan();
-        imported.setImported(true);
-        imported.setStatus(LoanStatus.OVERDUE);
-        Loan nativeLoan = new Loan();
-        nativeLoan.setImported(false);
-        nativeLoan.setStatus(LoanStatus.OVERDUE);
-        Loan active = new Loan();
-        active.setStatus(LoanStatus.ACTIVE);
-        assertEquals(2, DashboardService.countOverdueLoans(List.of(imported, nativeLoan, active)));
+    void countsTrueContractOverdueRegardlessOfImportedOrStaleStoredStatus() {
+        LocalDate today = LocalDate.now();
+        Loan importedOverdue = loan(true, LoanStatus.OVERDUE, today.minusMonths(6).minusDays(10));
+        Loan nativeOverdue = loan(false, LoanStatus.OVERDUE, today.minusMonths(6).minusDays(5));
+        Loan graceButFlaggedOverdue = loan(true, LoanStatus.OVERDUE, today.minusMonths(6));
+        Loan activeButActuallyOverdue = loan(true, LoanStatus.ACTIVE, today.minusMonths(6).minusDays(8));
+        assertEquals(3, DashboardService.countOverdueLoans(List.of(
+                importedOverdue, nativeOverdue, graceButFlaggedOverdue, activeButActuallyOverdue)));
     }
 }
