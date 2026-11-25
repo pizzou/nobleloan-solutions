@@ -35,13 +35,24 @@ class FinancialCalculationServiceTest {
         void legacyPaymentAllocationAppliesInterestBeforePrincipal() {
                 FinancialCalculationService.Allocation allocation = service.allocatePayment(
                                 new BigDecimal("100.00"),
-                                new BigDecimal("10.00"),
+                                new BigDecimal("0.00"),
                                 new BigDecimal("30.00"),
                                 new BigDecimal("500.00"));
 
                 assertEquals(new BigDecimal("30.00"), allocation.interestPaid());
                 assertEquals(new BigDecimal("70.00"), allocation.principalPaid());
                 assertEquals(new BigDecimal("430.00"), allocation.newPrincipalBalance());
+        }
+
+        @Test
+        void legacyAllocationRejectsPenaltyWithoutAnAuditablePenaltyComponent() {
+                org.junit.jupiter.api.Assertions.assertThrows(
+                        IllegalStateException.class,
+                        () -> service.allocatePayment(
+                                new BigDecimal("100.00"),
+                                new BigDecimal("10.00"),
+                                new BigDecimal("30.00"),
+                                new BigDecimal("500.00")));
         }
 
         @Test

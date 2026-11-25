@@ -9,12 +9,12 @@ import java.math.RoundingMode;
  * Single authoritative payment allocation order for the lending platform.
  *
  * Allocation is always:
- * interest -> management fee -> principal -> extension/restructuring fee
- * -> penalty -> overpayment.
+ * overdue penalties -> equal settlement of due interest and management fees
+ * -> extension fees -> principal -> overpayment.
  *
- * Interest and management fee are the first contractual charges. Principal
- * is reduced immediately from the remaining payment. Extension fees and
- * penalties remain separate receivables and never increase principal.
+ * Outstanding charges must be settled before principal can be reduced.
+ * The caller is responsible for supplying only valid, already-due charges;
+ * future unearned charges must not be accelerated by this method.
  *
  * This class is deliberately side-effect free. Persistence, accounting and
  * audit updates remain the responsibility of PaymentService.
@@ -36,20 +36,37 @@ public class PaymentAllocationService {
 
         BigDecimal remaining = money(paymentAmount).max(ZERO);
 
-        BigDecimal interest = take(remaining, interestDue);
-        remaining = money(remaining.subtract(interest));
+        BigDecimal penalty = take(remaining, penaltyDue);
+        remaining = money(remaining.subtract(penalty));
 
-        BigDecimal managementFee = take(remaining, managementFeeDue);
-        remaining = money(remaining.subtract(managementFee));
-
-        BigDecimal principal = take(remaining, principalDue);
-        remaining = money(remaining.subtract(principal));
+        // Interest and management fees have equal priority. Split available
+        // money evenly while both receivables remain due; if one is fully
+        // settled, use the unneeded share to clear the other before principal.
+        BigDecimal interestOutstanding = money(interestDue).max(ZERO);
+        BigDecimal managementOutstanding = money(managementFeeDue).max(ZERO);
+        BigDecimal feeBudget = remaining.min(
+                money(interestOutstanding.add(managementOutstanding)));
+        BigDecimal half = feeBudget.divide(
+                BigDecimal.valueOf(2), SCALE, RoundingMode.HALF_DOWN);
+        BigDecimal interest = half.min(interestOutstanding);
+        BigDecimal managementFee = money(feeBudget.subtract(half))
+                .min(managementOutstanding);
+        BigDecimal stillAvailable = money(
+                feeBudget.subtract(interest).subtract(managementFee));
+        BigDecimal furtherInterest = stillAvailable.min(
+                money(interestOutstanding.subtract(interest)));
+        interest = money(interest.add(furtherInterest));
+        stillAvailable = money(stillAvailable.subtract(furtherInterest));
+        BigDecimal furtherManagement = stillAvailable.min(
+                money(managementOutstanding.subtract(managementFee)));
+        managementFee = money(managementFee.add(furtherManagement));
+        remaining = money(remaining.subtract(interest).subtract(managementFee));
 
         BigDecimal extensionFee = take(remaining, extensionFeeDue);
         remaining = money(remaining.subtract(extensionFee));
 
-        BigDecimal penalty = take(remaining, penaltyDue);
-        remaining = money(remaining.subtract(penalty));
+        BigDecimal principal = take(remaining, principalDue);
+        remaining = money(remaining.subtract(principal));
 
         return new Allocation(
                 penalty,

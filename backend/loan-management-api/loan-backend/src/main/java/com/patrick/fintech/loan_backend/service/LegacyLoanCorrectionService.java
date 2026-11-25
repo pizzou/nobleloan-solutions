@@ -302,8 +302,11 @@ public class LegacyLoanCorrectionService {
         loan.setNextPaymentDate(correctedDueDate);
         BigDecimal owed = money(loan.getTotalRepayableDecimal())
                 .subtract(money(loan.getTotalPaidDecimal()));
+        // Next due date is an installment obligation, not the contract
+        // maturity used for loan delinquency classification.
         int days = owed.signum() > 0
-                ? (int) Math.max(0, ChronoUnit.DAYS.between(correctedDueDate, LocalDate.now()))
+                ? (int) Math.min(Integer.MAX_VALUE,
+                        OverduePenaltyClock.daysOverdue(loan, LocalDate.now()))
                 : 0;
         loan.setDaysOverdue(days);
         loan.setArrearsStatus(days > 0
@@ -383,7 +386,8 @@ public class LegacyLoanCorrectionService {
         l.setNextDueDate(due);
         l.setNextPaymentDate(due);
         BigDecimal owed = n(v, "totalRepayable").subtract(n(v, "totalPaid"));
-        int days = owed.signum() > 0 && due != null ? (int) Math.max(0, ChronoUnit.DAYS.between(due, LocalDate.now()))
+        int days = owed.signum() > 0
+                ? (int) Math.min(Integer.MAX_VALUE, OverduePenaltyClock.daysOverdue(l, LocalDate.now()))
                 : 0;
         l.setDaysOverdue(days);
         l.setArrearsStatus(days > 0 ? Loan.ArrearsStatus.PAST_DUE : Loan.ArrearsStatus.NOT_DUE);

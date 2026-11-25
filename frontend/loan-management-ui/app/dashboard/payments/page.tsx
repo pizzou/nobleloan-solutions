@@ -378,13 +378,21 @@ export default function PaymentsPage() {
       0,
     );
 
-    const principal = payments.reduce(
-      (total, payment) => total + num(payment.principalComponent),
+    // Schedule principal/interest components represent contractual amounts
+    // before payment, not necessarily cash collected. The immutable receipt
+    // ledger is authoritative for actual collected component totals.
+    const postedForLoan = transactions.filter(
+      (transaction) =>
+        transaction.loanId === loan?.id &&
+        transaction.status?.toUpperCase() === "POSTED" &&
+        transaction.reversed !== true,
+    );
+    const principal = postedForLoan.reduce(
+      (total, transaction) => total + num(transaction.principalComponent),
       0,
     );
-
-    const interest = payments.reduce(
-      (total, payment) => total + num(payment.interestComponent),
+    const interest = postedForLoan.reduce(
+      (total, transaction) => total + num(transaction.interestComponent),
       0,
     );
 
@@ -395,7 +403,7 @@ export default function PaymentsPage() {
       principal,
       interest,
     };
-  }, [payments]);
+  }, [payments, transactions, loan?.id]);
 
   const recordPayment = async () => {
     if (!loan) {
@@ -947,7 +955,7 @@ export default function PaymentsPage() {
 
                   <div className="bg-white p-4">
                     <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
-                      Principal
+                      Principal collected
                     </div>
                     <div className="mt-1 text-sm font-black text-slate-900">
                       {money(paymentSummary.principal, currency)}
@@ -956,7 +964,7 @@ export default function PaymentsPage() {
 
                   <div className="bg-white p-4">
                     <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
-                      Interest
+                      Interest collected
                     </div>
                     <div className="mt-1 text-sm font-black text-slate-900">
                       {money(paymentSummary.interest, currency)}

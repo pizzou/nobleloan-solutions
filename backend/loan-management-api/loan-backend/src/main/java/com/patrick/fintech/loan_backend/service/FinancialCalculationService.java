@@ -113,11 +113,16 @@ public Allocation allocatePayment(
     BigDecimal interest = nonNegative(remainingInterest);
     BigDecimal principal = nonNegative(principalBalance);
 
-    // Contractual payment order: interest first, then principal.
-    // Penalty is a separate receivable and must never reduce the amount
-    // available to settle contractual interest or principal in this
-    // legacy allocation API. The canonical PaymentAllocationService
-    // additionally handles management fee, extension fee and penalty.
+    // This four-argument compatibility API has no penalty-paid component,
+    // so it cannot safely post any penalty-bearing receipt. Reject such
+    // calls rather than silently allocating penalty money to principal.
+    // Use PaymentAllocationService for all new production repayments.
+    if (penalty.signum() > 0) {
+        throw new IllegalStateException(
+                "Penalty-bearing payments must use PaymentAllocationService "
+                + "so penalty, interest, management fee, extension fee and "
+                + "principal allocations are fully accounted for.");
+    }
     BigDecimal interestPaid =
             amount.min(interest)
                     .setScale(MoneyMath.SCALE, ROUNDING);

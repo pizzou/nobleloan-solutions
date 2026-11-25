@@ -24,9 +24,10 @@ class ImportedLoanPenaltyAccrualTest {
     private final JournalLineRepository lineRepo = mock(JournalLineRepository.class);
     private final LoanRepository loanRepo = mock(LoanRepository.class);
     private final PaymentRepository paymentRepo = mock(PaymentRepository.class);
+    private final PaymentTransactionRepository paymentTransactionRepo = mock(PaymentTransactionRepository.class);
     private final AccountingPeriodService periodService = mock(AccountingPeriodService.class);
     private final AccountingService accounting = spy(new AccountingService(
-            coaRepo, journalRepo, lineRepo, loanRepo, paymentRepo, periodService));
+            coaRepo, journalRepo, lineRepo, loanRepo, paymentRepo, paymentTransactionRepo, periodService));
 
     private Loan loan(LocalDate importedOn) {
         Loan l = new Loan();
@@ -37,6 +38,7 @@ class ImportedLoanPenaltyAccrualTest {
         l.setStatus(LoanStatus.OVERDUE);
         l.setCreatedAt(importedOn.atTime(10, 26));
         l.setNextDueDate(importedOn.minusDays(73));
+        l.setMaturityDate(importedOn.minusDays(73));
         l.setOutstandingBalance(new BigDecimal("33500000.00"));
         l.setTotalRepayable(new BigDecimal("33500000.00"));
         l.setPenaltyRate(FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE);
@@ -103,6 +105,7 @@ class ImportedLoanPenaltyAccrualTest {
         LocalDate today = LocalDate.now();
         Loan loan = loan(today.minusDays(1));
         loan.setNextDueDate(today.minusDays(74));
+        loan.setMaturityDate(today.minusDays(74));
         when(paymentRepo.findByLoanId(54L)).thenReturn(List.of());
         when(loanRepo.countRecordedPaymentTransactions(54L)).thenReturn(0L);
         when(lineRepo.sumPostedPenaltyAccrualSinceImport(eq(1L), eq("54-%"), eq(today.minusDays(1))))
