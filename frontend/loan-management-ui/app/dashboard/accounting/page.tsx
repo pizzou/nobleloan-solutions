@@ -6,6 +6,7 @@ import {
   bankAccountApi,
   branchApi,
   loanApi,
+  get,
 } from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
@@ -182,6 +183,17 @@ type Tab = (typeof TABS)[number];
 /* =========================================================
    MAIN ACCOUNTING PAGE
 ========================================================= */
+
+type ReceivableReconciliation = {
+  asOf: string;
+  subledger: Record<string, {
+    accountCode: string;
+    accountName: string | null;
+    operationalBalance: number;
+    glBalance: number;
+    reconciles: boolean;
+  }>;
+};
 
 export default function AccountingPage() {
   const { currency } = useAuth();
@@ -515,31 +527,31 @@ export default function AccountingPage() {
     (account) => account.code === "1000",
   )?.balance;
 
-  // These GL accounts represent outstanding receivables, not lifetime cash
-  // collections or historical loan volumes. Preserve signed debit-credit
-  // balances so a negative receivable cannot be silently hidden.
-  const receivableCodes = new Set(["1100", "1150", "1160", "1170", "1175", "1180"]);
-  const glReceivables = trial
-    ? trial.accounts
-        .filter((account) => receivableCodes.has(account.code))
-        .reduce(
-          (sum, account) =>
-            sum + Number(account.debit ?? 0) - Number(account.credit ?? 0),
-          0,
-        )
-    : null;
-  const operationalReceivables =
-    controlTotals?.totalReceivables != null &&
-    controlTotals.totalReceivables !== "" &&
-    Number.isFinite(Number(controlTotals.totalReceivables))
-      ? Number(controlTotals.totalReceivables)
-      : null;
-  const receivableDifference =
-    glReceivables != null && operationalReceivables != null
-      ? operationalReceivables - glReceivables
-      : null;
-  const comparingCurrentPortfolio = financialPeriod.to ===
-    new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Kigali" });
+  const comparisonDate = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Kigali" });
+  const canCompareReceivables = financialPeriod.to === comparisonDate;
+  const [receivableReport, setReceivableReport] = useState<ReceivableReconciliation | null>(null);
+  const [checkingReceivables, setCheckingReceivables] = useState(false);
+  const [receivableError, setReceivableError] = useState("");
+  const receivableRows = receivableReport?.asOf === comparisonDate
+    ? Object.values(receivableReport.subledger)
+    : [];
+
+  async function checkReceivables() {
+    setCheckingReceivables(true);
+    setReceivableError("");
+    setReceivableReport(null);
+    try {
+      const report = await get(`/accounting/reconciliation?asOf=${comparisonDate}`) as ReceivableReconciliation;
+      if (report?.asOf !== comparisonDate || !Object.keys(report.subledger ?? {}).length) {
+        throw new Error("The reconciliation returned no account balances.");
+      }
+      setReceivableReport(report);
+    } catch (error) {
+      setReceivableError(error instanceof Error ? error.message : "Receivables check failed.");
+    } finally {
+      setCheckingReceivables(false);
+    }
+  }
 
   if (loading) {
     return <PageSpinner />;
@@ -724,26 +736,52 @@ export default function AccountingPage() {
       {/* ===================================================
           OPERATIONAL CONTROL TOTALS
       =================================================== */}
-      {receivableDifference != null && Math.abs(receivableDifference) >= 0.01 && (
-        <section role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950">
-          <h2 className="text-sm font-bold">Receivables mismatch</h2>
-          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
-            <div><dt>Operational receivables</dt><dd className="font-semibold tabular-nums">{fmt(operationalReceivables ?? 0)} {currency}</dd></div>
-            <div><dt>General ledger receivables</dt><dd className="font-semibold tabular-nums">{fmt(glReceivables ?? 0)} {currency}</dd></div>
-            <div><dt>Difference (operational − GL)</dt><dd className="font-semibold tabular-nums">{fmt(receivableDifference)} {currency}</dd></div>
-          </dl>
-          <details className="mt-3">
-            <summary className="cursor-pointer text-xs font-semibold">Reconciliation details</summary>
-            <p className="mt-2 text-xs">GL accounts 1100, 1150, 1160, 1170, 1175 and 1180.</p>
-          <p className="mt-2 text-xs">
-            {comparingCurrentPortfolio
-              ? "Check loan balances, accruals and journals before posting a correction."
-              : "Compare both balances as of today before investigating the difference."}
-            {" "}Independently review proposed postings before reconciling imported loans.
-          </p>
-          </details>
-        </section>
-      )}
+      <section className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-slate-900">Receivables reconciliation</h2>
+          {canCompareReceivables && (
+            <button type="button" disabled={checkingReceivables} onClick={() => void checkReceivables()}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 disabled:opacity-60">
+              {checkingReceivables ? "Checking…" : "Check balances"}
+            </button>
+          )}
+        </div>
+        <p className="mt-2 text-sm text-slate-600">
+          {canCompareReceivables
+            ? "Compares accrued charges and historical opening balances with the ledger. Portfolio totals include scheduled charges."
+            : "Select today as the statement date to reconcile the current loan subledger."}
+        </p>
+        {canCompareReceivables && receivableError && <p role="alert" className="mt-3 text-sm text-red-700">{receivableError}</p>}
+        {canCompareReceivables && receivableRows.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <p role="status" className="mb-2 text-sm font-semibold text-slate-800">
+              {receivableRows.every(row => row.reconciles) ? "All receivable accounts reconcile." : "Review the account differences below."}
+            </p>
+            <table className="w-full text-sm">
+              <thead className="border-b bg-slate-50 text-slate-700">
+                <tr>
+                  <th scope="col" className="p-2 text-left">Account</th>
+                  <th scope="col" className="p-2 text-right">Subledger</th>
+                  <th scope="col" className="p-2 text-right">General ledger</th>
+                  <th scope="col" className="p-2 text-right">Difference</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receivableRows.map(row => (
+                  <tr key={row.accountCode} className="border-b">
+                    <th scope="row" className="p-2 text-left font-medium">{row.accountCode} {row.accountName}</th>
+                    <td className="p-2 text-right">{fmt(Number(row.operationalBalance))}</td>
+                    <td className="p-2 text-right">{fmt(Number(row.glBalance))}</td>
+                    <td className={`p-2 text-right ${row.reconciles ? "" : "font-semibold text-amber-800"}`}>
+                      {fmt(Number(row.operationalBalance) - Number(row.glBalance))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section aria-label="General ledger control overview" className="nls-accounting-ledger-overview">
         <div><span>Trial balance</span><strong>{trial ? (trial.balanced ? "Debits = credits" : "Out of balance") : "Unavailable"}</strong></div>
@@ -782,7 +820,7 @@ export default function AccountingPage() {
               ["Lifetime gross disbursed", controlTotals.totalDisbursed],
               ["Lifetime recorded collections", controlTotals.totalCollected],
               ["Current outstanding principal", controlTotals.outstandingBalance],
-              ["Current operational receivables", controlTotals.totalReceivables],
+              ["Contractual receivables", controlTotals.totalReceivables],
               ["Lifetime application fees paid", controlTotals.applicationFeesCollected],
             ].map(([label, value]) => (
               <div
