@@ -22,6 +22,21 @@ public final class FinancialPolicy {
         }
 
 
+        public static int contractDaysOverdue(
+                        com.patrick.fintech.loan_backend.model.Loan loan, LocalDate asOf) {
+                LocalDate firstOverdueDate = firstContractPenaltyDate(loan);
+                return firstOverdueDate == null ? 0 : daysAfterGrace(firstOverdueDate.minusDays(1), asOf);
+        }
+
+        public static int contractDaysOverdue(LocalDate maturity, LocalDate asOf) {
+                return maturity == null ? 0 : daysAfterGrace(maturity.plusDays(PENALTY_GRACE_DAYS), asOf);
+        }
+
+        private static int daysAfterGrace(LocalDate graceEnd, LocalDate asOf) {
+                return (int) Math.min(Integer.MAX_VALUE, Math.max(0L,
+                                java.time.temporal.ChronoUnit.DAYS.between(graceEnd, asOf)));
+        }
+
         public static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
 
         public static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");

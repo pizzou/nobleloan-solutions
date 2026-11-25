@@ -17,7 +17,7 @@ import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import java.util.*;
 
 @Service
@@ -303,7 +303,7 @@ public class LegacyLoanCorrectionService {
         BigDecimal owed = money(loan.getTotalRepayableDecimal())
                 .subtract(money(loan.getTotalPaidDecimal()));
         int days = owed.signum() > 0
-                ? (int) Math.max(0, ChronoUnit.DAYS.between(correctedDueDate, LocalDate.now()))
+                ? FinancialPolicy.contractDaysOverdue(loan, LocalDate.now())
                 : 0;
         loan.setDaysOverdue(days);
         loan.setArrearsStatus(days > 0
@@ -383,7 +383,7 @@ public class LegacyLoanCorrectionService {
         l.setNextDueDate(due);
         l.setNextPaymentDate(due);
         BigDecimal owed = n(v, "totalRepayable").subtract(n(v, "totalPaid"));
-        int days = owed.signum() > 0 && due != null ? (int) Math.max(0, ChronoUnit.DAYS.between(due, LocalDate.now()))
+        int days = owed.signum() > 0 ? FinancialPolicy.contractDaysOverdue(l, LocalDate.now())
                 : 0;
         l.setDaysOverdue(days);
         l.setArrearsStatus(days > 0 ? Loan.ArrearsStatus.PAST_DUE : Loan.ArrearsStatus.NOT_DUE);

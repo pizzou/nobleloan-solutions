@@ -30,7 +30,6 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Component
@@ -299,118 +298,18 @@ public class ScheduledJobs {
 
                         int flagged = 0;
 
-                        List<Payment> overdue = paymentRepo.findByPaidFalseAndDueDateBefore(today);
+                        List<Loan> openLoans = loanRepo.findByStatusIn(List.of(
+                                        LoanStatus.ACTIVE, LoanStatus.OVERDUE,
+                                        LoanStatus.DEFAULTED, LoanStatus.RESTRUCTURED));
 
-                        if (overdue == null) {
-                                overdue = List.of();
-                        }
-
-                        for (Payment payment : overdue) {
-
-                                if (payment == null) {
-                                        continue;
-                                }
-
-                                Loan loan = payment.getLoan();
-
-                                if (loan == null) {
-                                        continue;
-                                }
-
-                                if (payment.getDueDate() == null) {
-                                        continue;
-                                }
-
-                                if (loan.getStatus() != LoanStatus.ACTIVE) {
-                                        continue;
-                                }
-
-                                int daysOverdue = calculateDaysOverdue(
-                                                payment.getDueDate(),
-                                                today);
-
-                                loan.setStatus(LoanStatus.OVERDUE);
-
-                                Integer currentDays = loan.getDaysOverdue();
-
-                                int previousDays = currentDays == null
-                                                ? 0
-                                                : Math.max(
-                                                                0,
-                                                                currentDays);
-
-                                loan.setDaysOverdue(
-                                                Math.max(
-                                                                previousDays,
-                                                                daysOverdue));
-
-                                loanRepo.save(loan);
-
-                                flagged++;
-
-                                try {
-
-                                        smsService.sendLoanOverdue(
-                                                        loan,
-                                                        loan.getDaysOverdue());
-
-                                } catch (Exception e) {
-
-                                        log.warn(
-                                                        "[Scheduler] Overdue SMS failed for loan {}: {}",
-                                                        loan.getId(),
-                                                        e.getMessage());
-                                }
-
-                                try {
-
-                                        mailService.sendOverdueReminder(
-                                                        loan,
-                                                        loan.getDaysOverdue());
-
-                                } catch (Exception e) {
-
-                                        log.warn(
-                                                        "[Scheduler] Overdue email failed for loan {}: {}",
-                                                        loan.getId(),
-                                                        e.getMessage());
-                                }
-                        }
-
-                        // Legacy imports contain a loan-level next_due_date and
-                        // historical balances, but do not synthesize operational
-                        // Payment rows because loan-level totals are insufficient
-                        // to reconstruct payment history safely. The regular loop
-                        // above cannot see such loans, so refresh them from the
-                        // imported loan due date only when no real schedule exists.
-                        List<Loan> importedOpenLoans = loanRepo.findByStatusIn(
-                                        List.of(
-                                                        LoanStatus.ACTIVE,
-                                                        LoanStatus.OVERDUE,
-                                                        LoanStatus.DEFAULTED,
-                                                        LoanStatus.RESTRUCTURED));
-
-                        if (importedOpenLoans != null) {
-                                for (Loan loan : importedOpenLoans) {
-                                        if (loan == null
-                                                        || loan.getId() == null
-                                                        || !Boolean.TRUE.equals(loan.getImported())) {
+                        if (openLoans != null) {
+                                for (Loan loan : openLoans) {
+                                        if (loan == null || loan.getId() == null) {
                                                 continue;
                                         }
 
-                                        List<Payment> operationalSchedule = paymentRepo.findByLoanId(loan.getId());
-                                        if (operationalSchedule != null && !operationalSchedule.isEmpty()) {
-                                                continue;
-                                        }
-
-                                        LocalDate dueDate = loan.getNextDueDate() != null
-                                                        ? loan.getNextDueDate()
-                                                        : loan.getNextPaymentDate();
-                                        if (dueDate == null || !hasOutstandingReceivable(loan)) {
-                                                continue;
-                                        }
-
-                                        int daysOverdue = calculateDaysOverdue(dueDate, today);
+                                        int daysOverdue = hasOutstandingReceivable(loan)
+                                                        ? FinancialPolicy.contractDaysOverdue(loan, today) : 0;
                                         LoanStatus previousStatus = loan.getStatus();
                                         int previousDaysOverdue = loan.getDaysOverdue() == null
                                                         ? 0
@@ -424,7 +323,7 @@ public class ScheduledJobs {
                                                                 : LoanStatus.ACTIVE;
                                         }
 
-                                        // Avoid unnecessary writes when this imported loan's
+                                        // Avoid unnecessary writes when this loan's
                                         // overdue state has not changed since the last run.
                                         if (previousDaysOverdue == daysOverdue
                                                         && previousStatus == recalculatedStatus) {
@@ -442,14 +341,14 @@ public class ScheduledJobs {
                                                         smsService.sendLoanOverdue(loan, daysOverdue);
                                                 } catch (Exception e) {
                                                         log.warn(
-                                                                        "[Scheduler] Legacy imported loan overdue SMS failed for loan {}: {}",
+                                                                        "[Scheduler] Loan overdue SMS failed for loan {}: {}",
                                                                         loan.getId(), e.getMessage());
                                                 }
                                                 try {
                                                         mailService.sendOverdueReminder(loan, daysOverdue);
                                                 } catch (Exception e) {
                                                         log.warn(
-                                                                        "[Scheduler] Legacy imported loan overdue email failed for loan {}: {}",
+                                                                        "[Scheduler] Loan overdue email failed for loan {}: {}",
                                                                         loan.getId(), e.getMessage());
                                                 }
                                         }
@@ -767,28 +666,6 @@ public class ScheduledJobs {
                 }
 
                 return FinancialPolicy.dailyRateFraction(rate, LocalDate.now());
-        }
-
-        private int calculateDaysOverdue(
-                        LocalDate dueDate,
-                        LocalDate today) {
-
-                if (dueDate == null
-                                || today == null) {
-                        return 0;
-                }
-
-                long days = ChronoUnit.DAYS.between(
-                                dueDate,
-                                today);
-
-                if (days <= 0) {
-                        return 0;
-                }
-
-                return days > Integer.MAX_VALUE
-                                ? Integer.MAX_VALUE
-                                : (int) days;
         }
 
         private boolean hasOutstandingReceivable(Loan loan) {

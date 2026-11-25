@@ -1163,7 +1163,7 @@ public class LegacyLoanImportRowService {
 
                         int importedDaysOverdue = calculateImportedDaysOverdue(
                                         status,
-                                        nextDueDate,
+                                        maturityDate,
                                         remainingReceivableForClassification);
 
                         if ((status == LoanStatus.ACTIVE || status == LoanStatus.OVERDUE)
@@ -2526,28 +2526,14 @@ public class LegacyLoanImportRowService {
         }
 
         private int calculateImportedDaysOverdue(
-                        LoanStatus status,
-                        LocalDate nextDueDate,
-                        BigDecimal remainingReceivable) {
-
-                if (status == null
-                                || nextDueDate == null
-                                || remainingReceivable == null
-                                || remainingReceivable.compareTo(ZERO) <= 0
-                                || status == LoanStatus.PAID
-                                || status == LoanStatus.CLOSED
-                                || status == LoanStatus.REJECTED
-                                || status == LoanStatus.CANCELLED) {
+                        LoanStatus status, LocalDate maturityDate, BigDecimal remainingReceivable) {
+                if (remainingReceivable == null || remainingReceivable.signum() <= 0 || status == null
+                                || !java.util.Set.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE,
+                                                LoanStatus.DEFAULTED, LoanStatus.RESTRUCTURED).contains(status)) {
                         return 0;
                 }
 
-                LocalDate today = LocalDate.now();
-                if (!today.isAfter(nextDueDate)) {
-                        return 0;
-                }
-
-                long days = java.time.temporal.ChronoUnit.DAYS.between(nextDueDate, today);
-                return (int) Math.min(days, Integer.MAX_VALUE);
+                return FinancialPolicy.contractDaysOverdue(maturityDate, LocalDate.now());
         }
 
         private boolean optBoolean(

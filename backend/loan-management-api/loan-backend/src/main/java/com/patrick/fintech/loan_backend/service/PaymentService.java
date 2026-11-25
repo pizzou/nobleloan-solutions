@@ -444,15 +444,7 @@ public class PaymentService {
                 // OVERDUE DAYS
                 // ============================================================
 
-                LocalDate firstPenaltyDate = FinancialPolicy.firstContractPenaltyDate(loan);
-                LocalDate contractMaturity = firstPenaltyDate == null ? null
-                                : firstPenaltyDate.minusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
-                long daysLateLong = contractMaturity == null ? 0L
-                                : ChronoUnit.DAYS.between(contractMaturity, today);
-
-                int daysLate = (int) Math.max(
-                                0L,
-                                daysLateLong);
+                int daysLate = FinancialPolicy.contractDaysOverdue(loan, today);
 
                 boolean isLate = daysLate > 0;
 
@@ -695,15 +687,7 @@ public class PaymentService {
                 // NEW PENALTY DAYS
                 // ============================================================
 
-                int existingDaysLate = installment.getDaysLate() != null
-                                ? Math.max(
-                                                0,
-                                                installment.getDaysLate())
-                                : 0;
-
-                LocalDate firstContractPenaltyDate = FinancialPolicy.firstContractPenaltyDate(loan);
-                int currentlyChargeablePenaltyDays = firstContractPenaltyDate == null || firstContractPenaltyDate.isAfter(today)
-                                ? 0 : Math.toIntExact(ChronoUnit.DAYS.between(firstContractPenaltyDate, today) + 1L);
+                int currentlyChargeablePenaltyDays = daysLate;
 
                 BigDecimal newlyCalculatedPenalty = ZERO;
                 int newPenaltyDays = 0;
@@ -990,12 +974,10 @@ public class PaymentService {
                                 remainingManagementFeeAfterPayment);
 
                 installment.setLate(
-                                isLate || installment.isLate());
+                                isLate);
 
                 installment.setDaysLate(
-                                Math.max(
-                                                existingDaysLate,
-                                                daysLate));
+                                daysLate);
 
                 installment.setPaymentMethod(
                                 method);
@@ -1875,73 +1857,13 @@ public class PaymentService {
 
                 LocalDate today = LocalDate.now();
 
-                List<Payment> overduePayments = paymentRepo
-                                .findByOrganization_IdAndPaidFalseAndDueDateBefore(
-                                                orgId,
-                                                today);
+                List<Loan> loans = loanRepo.findByOrganization_IdAndStatusIn(
+                                orgId, List.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE));
 
-                if (overduePayments == null
-                                || overduePayments.isEmpty()) {
-
-                        return;
-                }
-
-                for (Payment payment : overduePayments) {
-
-                        if (payment == null) {
-                                continue;
-                        }
-
-                        Loan loan = payment.getLoan();
-
-                        if (loan == null) {
-                                continue;
-                        }
-
-                        if (loan.getOrganization() == null
-                                        || loan.getOrganization().getId() == null
-                                        || !orgId.equals(
-                                                        loan.getOrganization().getId())) {
-
-                                continue;
-                        }
-
-                        if (loan.getStatus() == LoanStatus.ACTIVE) {
-
-                                loan.setStatus(
-                                                LoanStatus.OVERDUE);
-                        }
-
-                        if (payment.getDueDate() != null) {
-
-                                int days = Math.max(
-                                                0,
-                                                (int) ChronoUnit.DAYS.between(
-                                                                payment.getDueDate(),
-                                                                today));
-
-                                int existingDays = payment.getDaysLate() != null
-                                                ? payment.getDaysLate()
-                                                : 0;
-
-                                payment.setLate(
-                                                true);
-
-                                payment.setDaysLate(
-                                                Math.max(
-                                                                existingDays,
-                                                                days));
-
-                                loan.setDaysOverdue(
-                                                Math.max(
-                                                                loan.getDaysOverdue() != null
-                                                                                ? loan.getDaysOverdue()
-                                                                                : 0,
-                                                                days));
-
-                                paymentRepo.save(
-                                                payment);
-                        }
+                for (Loan loan : loans) {
+                        int days = FinancialPolicy.contractDaysOverdue(loan, today);
+                        loan.setStatus(days > 0 ? LoanStatus.OVERDUE : LoanStatus.ACTIVE);
+                        loan.updateDaysOverdue(days);
 
                         loanRepo.save(
                                         loan);

@@ -45,7 +45,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -2185,54 +2184,13 @@ public class LoanService {
                                 daysOverdue);
         }
 
-        /**
-         * Calculates actual delinquency from the loan's next due date.
-         *
-         * The stored daysOverdue value is only used as a fallback when
-         * there is no due date available.
-         */
-        private int calculateLoanDaysOverdue(
-                        Loan loan) {
-
-                if (loan == null) {
+        private int calculateLoanDaysOverdue(Loan loan) {
+                if (loan == null || !java.util.Set.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE,
+                                LoanStatus.DEFAULTED, LoanStatus.RESTRUCTURED).contains(loan.getStatus())) {
                         return 0;
                 }
 
-                if (loan.getStatus() != LoanStatus.ACTIVE
-                                && loan.getStatus() != LoanStatus.OVERDUE
-                                && loan.getStatus() != LoanStatus.DEFAULTED) {
-
-                        return 0;
-                }
-
-                LocalDate dueDate = loan.getNextDueDate();
-
-                if (dueDate == null) {
-
-                        dueDate = loan.getNextPaymentDate();
-                }
-
-                if (dueDate == null) {
-
-                        return Math.max(
-                                        loan.getDaysOverdue() != null
-                                                        ? loan.getDaysOverdue()
-                                                        : 0,
-                                        0);
-                }
-
-                LocalDate today = LocalDate.now();
-
-                if (!today.isAfter(dueDate)) {
-
-                        return 0;
-                }
-
-                return Math.max(
-                                (int) ChronoUnit.DAYS.between(
-                                                dueDate,
-                                                today),
-                                0);
+                return FinancialPolicy.contractDaysOverdue(loan, LocalDate.now());
         }
 
         // ================================================================
