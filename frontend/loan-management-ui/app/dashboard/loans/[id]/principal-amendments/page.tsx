@@ -159,17 +159,18 @@ export default function PrincipalAmendmentsPage() {
               </label>
               <p className="ml-7 mt-1 text-xs text-slate-500">Current: {field.current || "Not recorded"}</p>
               {selected.includes(field.key) && <label className="ml-7 mt-3 block text-sm font-medium text-slate-700">
-                Corrected value
-                <input type={field.type} min={field.type === "number" ? field.key === "amount" ? 0.01 : 0 : undefined} max={field.key === "interest" || field.key === "management" ? 5 : undefined} step={field.type === "number" ? "0.01" : undefined} className="mt-1 block w-full rounded-lg border border-slate-300 p-3" value={field.value} onChange={e => field.setter(e.target.value)} />
+                Corrected value <span className="text-red-700" aria-hidden="true">*</span>
+                <input required type={field.type} min={field.type === "number" ? field.key === "amount" ? 0.01 : 0 : undefined} max={field.key === "interest" || field.key === "management" ? 5 : undefined} step={field.type === "number" ? "0.01" : undefined} className="mt-1 block w-full rounded-lg border border-slate-300 p-3" value={field.value} onChange={e => field.setter(e.target.value)} />
               </label>}
             </div>
           ))}
-          <label className="block text-sm font-medium">Reason for correction
-            <textarea className="mt-1 block w-full rounded-lg border p-3" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <label className="block text-sm font-medium">Reason for correction <span className="text-red-700" aria-hidden="true">*</span>
+            <textarea required minLength={30} className="mt-1 block w-full rounded-lg border p-3" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
           </label>
-          <label className="block text-sm font-medium">Supporting document reference
-            <input className="mt-1 block w-full rounded-lg border p-3" value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+          <label className="block text-sm font-medium">Supporting document reference <span className="text-red-700" aria-hidden="true">*</span>
+            <input required minLength={8} className="mt-1 block w-full rounded-lg border p-3" value={evidence} onChange={(e) => setEvidence(e.target.value)} />
           </label>
+          {!selected.length && <p className="text-sm text-slate-600">Choose at least one field to correct.</p>}
           <button disabled={busy || !selected.length} onClick={submit} className="rounded-lg bg-slate-900 px-5 py-3 font-semibold text-white disabled:opacity-50">Submit to Business Owner</button>
         </section>
       )}

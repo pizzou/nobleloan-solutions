@@ -141,7 +141,7 @@ export default function ResetPasswordPage() {
                 className="mb-1 block text-sm font-semibold text-slate-700"
               >
                 New password
-              </label>
+              {" "}<span className="text-red-700" aria-hidden="true">*</span></label>
               <input
                 id="new-password"
                 name="newPassword"
@@ -161,7 +161,7 @@ export default function ResetPasswordPage() {
                 className="mb-1 block text-sm font-semibold text-slate-700"
               >
                 Confirm new password
-              </label>
+              {" "}<span className="text-red-700" aria-hidden="true">*</span></label>
               <input
                 id="confirm-password"
                 name="confirmPassword"

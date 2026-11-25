@@ -1139,7 +1139,7 @@ export default function UsersPage() {
                     htmlFor="user-reset-current-password"
                   >
                     Current Password
-                  </label>
+                  {" "}<span className="text-red-700" aria-hidden="true">*</span></label>
                   <input
                     id="user-reset-current-password"
                     type="password"

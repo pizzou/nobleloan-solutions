@@ -1908,7 +1908,7 @@ function AddBankAccountModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Account Name *
+            Account Name <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <input
@@ -1931,7 +1931,7 @@ function AddBankAccountModal({
           <>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                Bank Name *
+                Bank Name <span className="text-red-700" aria-hidden="true">*</span>
               </label>
 
               <input
@@ -2224,7 +2224,7 @@ function BankTransactionModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Amount *
+            Amount <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <div className="relative">
@@ -2249,7 +2249,7 @@ function BankTransactionModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Counter GL Account *
+            Counter GL Account <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <select
@@ -2515,7 +2515,7 @@ function TransferModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Destination Account *
+            Destination Account <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <select
@@ -2549,7 +2549,7 @@ function TransferModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Transfer Amount *
+            Transfer Amount <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <div className="relative">

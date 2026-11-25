@@ -381,7 +381,7 @@ export default function ContactPage() {
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
                     Full name
-                  </span>
+                  {" "}<span className="text-red-700" aria-hidden="true">*</span></span>
                   <input
                     required
                     maxLength={120}
@@ -394,7 +394,7 @@ export default function ContactPage() {
                 </label>
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
-                    Email address *
+                    Email address <span className="text-red-700" aria-hidden="true">*</span>
                   </span>
                   <input
                     type="email"
@@ -419,7 +419,7 @@ export default function ContactPage() {
               <div className="grid gap-5 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
-                    Phone number (10 digits) *
+                    Phone number (10 digits) <span className="text-red-700" aria-hidden="true">*</span>
                   </span>
                   <input
                     required
@@ -478,7 +478,7 @@ export default function ContactPage() {
                 )}
                 <label className="block">
                   <span className="text-xs font-bold text-slate-700">
-                    Six-digit code received by email *
+                    Six-digit code received by email <span className="text-red-700" aria-hidden="true">*</span>
                   </span>
                   <input
                     required
@@ -503,7 +503,7 @@ export default function ContactPage() {
               <label className="block">
                 <span className="text-xs font-black text-slate-700">
                   Your message
-                </span>
+                {" "}<span className="text-red-700" aria-hidden="true">*</span></span>
                 <textarea
                   required
                   minLength={5}

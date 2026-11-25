@@ -1286,7 +1286,7 @@ export default function TrackPage() {
                   className="mb-2 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500"
                 >
                   Application reference
-                </label>
+                {" "}<span className="text-red-700" aria-hidden="true">*</span></label>
                 <div className="relative">
                   <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     <Icon name="file" size={17} />
@@ -1309,7 +1309,7 @@ export default function TrackPage() {
                   className="mb-2 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500"
                 >
                   Phone number
-                </label>
+                {" "}<span className="text-red-700" aria-hidden="true">*</span></label>
                 <div className="relative">
                   <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     <Icon name="phone" size={17} />

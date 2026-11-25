@@ -726,7 +726,7 @@ function AddExpenseModal({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className={labelClass}>Expense Date *</label>
+                <label className={labelClass}>Expense Date <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <input
                   type="date"
@@ -738,7 +738,7 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Expense Category *</label>
+                <label className={labelClass}>Expense Category <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <select
                   required
@@ -755,7 +755,7 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Amount *</label>
+                <label className={labelClass}>Amount <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <input
                   type="number"
@@ -771,7 +771,7 @@ function AddExpenseModal({
 
               <div>
                 <label className={labelClass}>
-                  Approved Financial Approval ID *
+                  Approved Financial Approval ID <span className="text-red-700" aria-hidden="true">*</span>
                 </label>
 
                 <input
@@ -826,7 +826,7 @@ function AddExpenseModal({
 
             <div className="space-y-4">
               <div>
-                <label className={labelClass}>Paid From Account *</label>
+                <label className={labelClass}>Paid From Account <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <select
                   required
@@ -856,7 +856,7 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Payment Method *</label>
+                <label className={labelClass}>Payment Method <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <select
                   required
@@ -922,7 +922,7 @@ function AddExpenseModal({
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className={labelClass}>Transaction Reference *</label>
+                  <label className={labelClass}>Transaction Reference <span className="text-red-700" aria-hidden="true">*</span></label>
 
                   <input
                     type="text"
@@ -986,7 +986,7 @@ function AddExpenseModal({
                 </div>
 
                 <div>
-                  <label className={labelClass}>MoMo Pay Code *</label>
+                  <label className={labelClass}>MoMo Pay Code <span className="text-red-700" aria-hidden="true">*</span></label>
 
                   <input
                     type="text"
@@ -1027,7 +1027,7 @@ function AddExpenseModal({
 
               <div>
                 <label className={labelClass}>
-                  Bank Transaction Reference *
+                  Bank Transaction Reference <span className="text-red-700" aria-hidden="true">*</span>
                 </label>
 
                 <input
@@ -1074,7 +1074,7 @@ function AddExpenseModal({
                 </div>
 
                 <div>
-                  <label className={labelClass}>Last 4 Digits *</label>
+                  <label className={labelClass}>Last 4 Digits <span className="text-red-700" aria-hidden="true">*</span></label>
 
                   <input
                     type="text"
@@ -1136,7 +1136,7 @@ function AddExpenseModal({
               </h4>
 
               <div>
-                <label className={labelClass}>Cheque Number *</label>
+                <label className={labelClass}>Cheque Number <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <input
                   type="text"
