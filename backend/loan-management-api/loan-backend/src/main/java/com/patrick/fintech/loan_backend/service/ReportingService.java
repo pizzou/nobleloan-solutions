@@ -467,9 +467,8 @@ public class ReportingService {
                                         ? borrowerName(loan)
                                         : "";
 
-                        long daysOverdue = ChronoUnit.DAYS.between(
-                                        payment.getDueDate(),
-                                        today);
+                        long daysOverdue = payment.getLoan() == null ? 0L :
+                                        OverduePenaltyClock.daysOverdue(payment.getLoan(), today);
 
                         csv.append(
                                         csvField(
@@ -1218,9 +1217,8 @@ public class ReportingService {
                                                 ? borrowerName(loan)
                                                 : "";
 
-                                long daysOverdue = ChronoUnit.DAYS.between(
-                                                payment.getDueDate(),
-                                                today);
+                                long daysOverdue = payment.getLoan() == null ? 0L :
+                                        OverduePenaltyClock.daysOverdue(payment.getLoan(), today);
 
                                 setCell(
                                                 row,
