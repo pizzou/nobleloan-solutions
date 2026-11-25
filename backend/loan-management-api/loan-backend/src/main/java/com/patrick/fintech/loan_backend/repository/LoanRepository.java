@@ -1433,6 +1433,32 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     @Query(value = "SELECT COUNT(*) FROM payment_transactions WHERE loan_id = :loanId", nativeQuery = true)
     long countRecordedPaymentTransactions(@Param("loanId") Long loanId);
 
+    /**
+     * Reconstruct the imported opening principal only from unambiguous,
+     * matching receipt and installment records recorded after the import day.
+     */
+    @Query(value = """
+            SELECT SUM(t.principal_component)
+            FROM payment_transactions t
+            JOIN payments p ON p.id = t.installment_id AND p.loan_id = t.loan_id
+            WHERE t.loan_id = :loanId
+              AND t.status = 'POSTED' AND NOT COALESCE(t.reversed, false)
+              AND p.paid_date > :importDate
+              AND CAST(t.created_at AS date) = p.paid_date
+              AND t.amount = p.amount_paid
+              AND t.principal_component = p.principal_component
+              AND COALESCE(t.penalty_component, 0) = 0
+              AND COALESCE(p.penalty_paid, 0) = 0
+              AND (SELECT COUNT(*) FROM payment_transactions x
+                   WHERE x.installment_id = t.installment_id) = 1
+            HAVING COUNT(*) = (SELECT COUNT(*) FROM payment_transactions y WHERE y.loan_id = :loanId)
+               AND COUNT(*) = (SELECT COUNT(*) FROM payments q WHERE q.loan_id = :loanId
+                               AND COALESCE(q.amount_paid, 0) > 0)
+            """, nativeQuery = true)
+    java.math.BigDecimal sumVerifiedPostImportPrincipal(
+            @Param("loanId") Long loanId, @Param("importDate") java.time.LocalDate importDate);
+
+
     // ============================================================
     // EXISTS
     // ============================================================

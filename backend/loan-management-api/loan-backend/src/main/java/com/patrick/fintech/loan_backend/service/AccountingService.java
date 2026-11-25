@@ -2528,10 +2528,10 @@ public class AccountingService {
                                                 .compareTo(FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE) != 0)
                         return null;
 
-                // A post-import payment changes the balance used for historical
-                // estimation. Never reconstruct it from a newer balance.
-                if (!paymentRepo.findByLoanId(loan.getId()).isEmpty()
-                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0) {
+                boolean hasPaymentHistory = !paymentRepo.findByLoanId(loan.getId()).isEmpty()
+                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0;
+                BigDecimal openingPrincipal = hasPaymentHistory ? verifiedOpeningPrincipal(loan) : principal;
+                if (openingPrincipal == null) {
                         log.warn("Skipping historical penalty opening for {}: payment activity requires review",
                                         loan.getReferenceNumber());
                         return null;
@@ -2543,8 +2543,8 @@ public class AccountingService {
                                 org.getId(), "LEGACY_PENALTY_OPENING", sourceId).orElse(null);
 
                 BigDecimal historicalEstimate = FinancialPolicy.historicalDailyPenalty(
-                                principal, firstChargeable, lastHistoricalDay,
-                                loan.getPenaltyRateDecimal(), day -> principal);
+                                openingPrincipal, firstChargeable, lastHistoricalDay,
+                                loan.getPenaltyRateDecimal(), day -> openingPrincipal);
                 BigDecimal postImportAssessed = money(lineRepo.sumPostedPenaltyAccrualSinceImport(
                                 org.getId(), loan.getId() + "-%", importDate));
                 BigDecimal historicalAlreadyAssessed = money(
@@ -2552,9 +2552,9 @@ public class AccountingService {
                 BigDecimal additionalHistorical = money(historicalEstimate.subtract(historicalAlreadyAssessed));
                 if (additionalHistorical.signum() < 0 && openingJournal != null) {
                         return creditVerifiedHistoricalPenaltyOpening(loan, openingJournal,
-                                        historicalAlreadyAssessed, additionalHistorical, asOf);
+                                        historicalAlreadyAssessed, additionalHistorical, asOf, openingPrincipal);
                 }
-                if (openingJournal != null || additionalHistorical.signum() <= 0
+                if (hasPaymentHistory || openingJournal != null || additionalHistorical.signum() <= 0
                                 || loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE)
                         return null;
 
@@ -2578,19 +2578,35 @@ public class AccountingService {
                 return entry;
         }
 
+        private BigDecimal verifiedOpeningPrincipal(Loan loan) {
+                BigDecimal paid = loanRepo.sumVerifiedPostImportPrincipal(
+                                loan.getId(), loan.getCreatedAt().toLocalDate());
+                if (paid == null || paid.signum() < 0
+                                || money(paid).compareTo(money(loan.getPrincipalPaidDecimal())) != 0) {
+                        return null;
+                }
+                BigDecimal principal = money(loan.getOutstandingBalanceDecimal().add(paid));
+                return principal.compareTo(money(loan.getAmountDecimal())) == 0 ? principal : null;
+        }
+
         private JournalEntry creditVerifiedHistoricalPenaltyOpening(
                         Loan loan, JournalEntry openingJournal, BigDecimal historicalAssessed,
-                        BigDecimal delta, LocalDate asOf) {
-                // Opening principal must be provably unchanged. Existing receipts and
-                // previously collected penalties need a separate cash-allocation reconciliation.
+                        BigDecimal delta, LocalDate asOf, BigDecimal openingPrincipal) {
                 if (loanRepo.findByIdForUpdate(loan.getId()).isEmpty()
-                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0
-                                || !paymentRepo.findByLoanId(loan.getId()).isEmpty()
-                                || money(loan.getPrincipalPaidDecimal()).signum() != 0
                                 || money(loan.getPenaltiesPaidDecimal()).signum() != 0
-                                || money(loan.getOutstandingBalanceDecimal()).compareTo(money(loan.getAmountDecimal())) != 0
                                 || (loan.getExtensionCount() != null && loan.getExtensionCount() > 0)
                                 || Boolean.TRUE.equals(openingJournal.getReversed())) {
+                        return null;
+                }
+
+                boolean hasPaymentHistory = !paymentRepo.findByLoanId(loan.getId()).isEmpty()
+                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0;
+                BigDecimal confirmedPrincipal = hasPaymentHistory ? verifiedOpeningPrincipal(loan)
+                                : money(loan.getOutstandingBalanceDecimal());
+                if (confirmedPrincipal == null
+                                || confirmedPrincipal.compareTo(openingPrincipal) != 0
+                                || confirmedPrincipal.compareTo(money(loan.getAmountDecimal())) != 0
+                                || (!hasPaymentHistory && money(loan.getPrincipalPaidDecimal()).signum() != 0)) {
                         return null;
                 }
 
