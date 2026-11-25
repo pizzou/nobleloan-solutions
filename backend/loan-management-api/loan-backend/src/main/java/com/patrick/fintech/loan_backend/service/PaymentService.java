@@ -689,6 +689,7 @@ public class PaymentService {
 
                 int currentlyChargeablePenaltyDays = daysLate;
 
+                BigDecimal requiredPenaltyToDate = ZERO;
                 BigDecimal newlyCalculatedPenalty = ZERO;
                 int newPenaltyDays = 0;
 
@@ -696,7 +697,7 @@ public class PaymentService {
                                 && currentlyChargeablePenaltyDays > 0) {
 
                         LocalDate earliestPenaltyDate = resolveEarliestPenaltyDate(loan, today);
-                        BigDecimal requiredPenaltyToDate = earliestPenaltyDate == null
+                        requiredPenaltyToDate = earliestPenaltyDate == null
                                         ? ZERO
                                         : calculateHistoricalPenaltyToDate(
                                                         loan, currentBalance, earliestPenaltyDate, today);
@@ -740,6 +741,17 @@ public class PaymentService {
                 // ============================================================
                 // Penalty -> management fee -> interest -> principal -> extension fee.
                 // Fees and penalties stay separate and never increase principal.
+
+                // Imported opening assessments can exceed the contract-based replay.
+                // Stop before saving the receipt or its cash journal while the allocation is disputed.
+                if (Boolean.TRUE.equals(loan.getImported()) && penaltyRemainingBeforePayment.signum() > 0) {
+                        BigDecimal penaltyPaidOnLoan = roundMoney(safe(loan.getPenaltiesPaidDecimal()));
+                        BigDecimal formulaUnpaid = requiredPenaltyToDate.subtract(penaltyPaidOnLoan).max(ZERO);
+                        if (penaltyRemainingBeforePayment.subtract(formulaUnpaid).compareTo(ONE_CENT) > 0) {
+                                throw new IllegalStateException(
+                                                "Payment was not posted. The imported penalty balance requires reconciliation.");
+                        }
+                }
 
                 PaymentAllocationService.Allocation allocation = paymentAllocationService.allocate(
                                 amount,
