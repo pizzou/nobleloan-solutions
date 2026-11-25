@@ -3,6 +3,37 @@
 **No automatic production changes.** The finance correction SQL is not a
 Flyway migration and does not execute when the Spring Boot backend starts.
 
+## Applying the policy to ALL existing payments
+
+The reconciliation target includes **all already-recorded payments**, not only
+new payments or one named borrower. The original cash receipt amount, date and
+identity are evidence and must never be changed. Each loan is replayed in date
+order from actual disbursement, with three full grace days after contractual
+maturity. On each receipt, funds settle assessed overdue penalty first, then
+**all due** interest and management fee obligations with equal priority, then
+due extension fee and finally principal.
+
+The platform now has a side-effect-free `HistoricalRepaymentReconciliationPlanner.replayFullContract`
+which accepts verified dated interest, management and extension obligations
+plus immutable dated receipts. It outputs an expected per-receipt allocation and
+ending loan balances. It is **not** an automatic live balance migration. The
+historical ledger and accounting journal reclassification still require a
+separate guarded posting step and independent reconciliation.
+
+Run these read-only audits against the existing production database before
+authorizing any posting:
+
+- `audits/portfolio-contract-maturity-overdue-read-only.sql`
+- `audits/portfolio-maturity-penalty-recalculation-candidates-read-only.sql`
+- `audits/portfolio-historical-payment-evidence-and-gl-read-only.sql`
+
+Stop any auto-mass-correction where an import has unexplained paid principal,
+missing receipt dates, undated legacy fees, a stale GL balance, duplicate
+receipt identifiers, a closed accounting period, or source records inconsistent
+with actual disbursement. The output must distinguish **REPLAY_READY** from
+**EVIDENCE_REQUIRED**. Bank-grade migration cannot fabricate repayment dates
+or revenue recognition and cannot post a second cash receipt.
+
 ## What has been implemented
 
 - Institution-wide maturity-based penalty and repayment algorithm, with
