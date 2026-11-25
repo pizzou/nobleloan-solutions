@@ -31,7 +31,6 @@ SET LOCAL statement_timeout='60s';
 DO $$
 DECLARE
   l RECORD;
-  a RECORD;
   n INTEGER;
   accrual_count INTEGER;
   accrual_amount NUMERIC(19,2);
