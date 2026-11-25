@@ -71,4 +71,38 @@ class PaymentAllocationServiceTest {
         assertEquals(new BigDecimal("0.00"), result.penalty());
         assertEquals(new BigDecimal("0.00"), result.overpayment());
     }
+    @Test
+    void overduePaymentSettlesPenaltyAndAllDueChargesBeforePrincipal() {
+        var result = service.allocateOverdue(new BigDecimal("12100000"),
+                new BigDecimal("4000000"), BigDecimal.ZERO,
+                new BigDecimal("5025000"), new BigDecimal("5025000"),
+                new BigDecimal("33500000"));
+        assertEquals(new BigDecimal("4000000.00"), result.penalty());
+        assertEquals(new BigDecimal("5025000.00"), result.interest());
+        assertEquals(new BigDecimal("3075000.00"), result.managementFee());
+        assertEquals(new BigDecimal("0.00"), result.principal());
+        assertEquals(new BigDecimal("0.00"), result.overpayment());
+    }
+
+    @Test
+    void overduePaymentSmallerThanPenaltyDoesNotReducePrincipal() {
+        var result = service.allocateOverdue(new BigDecimal("100"),
+                new BigDecimal("200"), BigDecimal.ZERO, new BigDecimal("50"),
+                new BigDecimal("50"), new BigDecimal("500"));
+        assertEquals(new BigDecimal("100.00"), result.penalty());
+        assertEquals(new BigDecimal("0.00"), result.interest());
+        assertEquals(new BigDecimal("0.00"), result.managementFee());
+        assertEquals(new BigDecimal("0.00"), result.principal());
+    }
+
+    @Test
+    void overduePaymentPreservesCashAndExtensionPriority() {
+        var result = service.allocateOverdue(new BigDecimal("1000"),
+                new BigDecimal("100"), new BigDecimal("20"), new BigDecimal("200"),
+                new BigDecimal("150"), new BigDecimal("400"));
+        assertEquals(new BigDecimal("130.00"), result.overpayment());
+        assertEquals(new BigDecimal("1000.00"), result.penalty().add(result.interest())
+                .add(result.managementFee()).add(result.principal())
+                .add(result.extensionFee()).add(result.overpayment()));
+    }
 }

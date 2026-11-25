@@ -8,7 +8,7 @@ import java.math.RoundingMode;
 /**
  * Single authoritative payment allocation order for the lending platform.
  *
- * Allocation is always:
+ * The existing non-overdue allocation is:
  * interest -> management fee -> principal -> extension/restructuring fee
  * -> penalty -> overpayment.
  *
@@ -58,6 +58,33 @@ public class PaymentAllocationService {
                 managementFee,
                 principal,
                 remaining.max(ZERO));
+    }
+
+    /**
+     * Overdue-only waterfall. Caller supplies all verified due charges as of
+     * the actual receipt date, not today's balances or future installments.
+     * Extension fee retains its existing priority after principal.
+     * No side effects: historical replay can use the same calculation.
+     */
+    public Allocation allocateOverdue(
+            BigDecimal paymentAmount,
+            BigDecimal penaltyDue,
+            BigDecimal extensionFeeDue,
+            BigDecimal interestDue,
+            BigDecimal managementFeeDue,
+            BigDecimal principalDue) {
+        BigDecimal remaining = money(paymentAmount).max(ZERO);
+        BigDecimal penalty = take(remaining, penaltyDue);
+        remaining = remaining.subtract(penalty);
+        BigDecimal interest = take(remaining, interestDue);
+        remaining = remaining.subtract(interest);
+        BigDecimal management = take(remaining, managementFeeDue);
+        remaining = remaining.subtract(management);
+        BigDecimal principal = take(remaining, principalDue);
+        remaining = remaining.subtract(principal);
+        BigDecimal extension = take(remaining, extensionFeeDue);
+        remaining = remaining.subtract(extension);
+        return new Allocation(penalty, extension, interest, management, principal, remaining);
     }
 
     private BigDecimal take(BigDecimal available, BigDecimal due) {
