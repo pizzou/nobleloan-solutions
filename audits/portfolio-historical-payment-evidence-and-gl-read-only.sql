@@ -54,7 +54,7 @@ WITH open_loans AS (
  GROUP BY loan_id
 )
 SELECT l.id,l.reference_number,l.status,l.imported,l.contractual_maturity,
-       GREATEST(0,CURRENT_DATE-l.contractual_maturity) AS expected_days_overdue,
+       GREATEST(0,CURRENT_DATE-l.contractual_maturity-3) AS expected_days_overdue,
        l.principal_paid AS lifetime_principal_paid,
        COALESCE(p.posted_count,0) AS posted_transaction_count,
        COALESCE(p.receipt_total,0) AS posted_cash,
