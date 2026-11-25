@@ -23,6 +23,7 @@ import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +53,10 @@ public class ScheduledJobs {
         private final OrganizationRepository organizationRepo;
         private final SchedulerLockService lockService;
 
+        /** Financial accruals are deliberately paused on deployment until legacy balances reconcile. */
+        @Value("${app.scheduler.financial-accrual-enabled:false}")
+        private boolean financialAccrualEnabled;
+
         private static final int MONEY_SCALE = 2;
         private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
 
@@ -76,6 +81,11 @@ public class ScheduledJobs {
         @Scheduled(cron = "${app.scheduler.eod-cron:0 30 1 * * *}")
         @Transactional
         public void runEndOfDayAccruals() {
+
+                if (!financialAccrualEnabled) {
+                        log.warn("[Scheduler] Financial EOD accrual DISABLED pending historical portfolio reconciliation");
+                        return;
+                }
 
                 if (!lockService.tryAcquire(
                                 "eod-accrual",
@@ -248,6 +258,11 @@ public class ScheduledJobs {
         @Scheduled(initialDelay = 180_000, fixedDelay = 86_400_000)
         @Transactional
         public void catchUpImportedHistoricalPenaltiesAfterStartup() {
+
+                if (!financialAccrualEnabled) {
+                        log.warn("[Scheduler] Imported penalty startup catch-up DISABLED pending reconciliation");
+                        return;
+                }
                 if (!lockService.tryAcquire("eod-accrual", Duration.ofHours(2))) {
                         log.info("[Scheduler] Historical imported penalty startup pass deferred: EOD lock held");
                         return;
