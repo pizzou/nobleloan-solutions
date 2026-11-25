@@ -126,6 +126,123 @@ public final class HistoricalRepaymentReconciliationPlanner {
                 interestDue, managementDue, List.copyOf(allocations));
     }
 
+    /**
+     * Full-contract historical replay, including receipts BEFORE contractual
+     * maturity. The principal at origination, every dated earned charge and
+     * every real receipt must be independently verified. The method is
+     * calculation-only: it never edits transaction, loan or GL records.
+     *
+     * Each Charge is effective at its due date, not accelerated at disbursement.
+     * Extension charges can be added using the matching dated obligation.
+     */
+    public record DatedCharge(LocalDate dueOn, BigDecimal interest,
+                              BigDecimal management, BigDecimal extension) {}
+    public record FullAllocation(Long immutableTransactionId, LocalDate receivedOn,
+                                 BigDecimal cash, BigDecimal penalty, BigDecimal interest,
+                                 BigDecimal management, BigDecimal extension,
+                                 BigDecimal principal, BigDecimal unapplied,
+                                 BigDecimal principalAfter) {}
+    public record FullResult(BigDecimal penaltyAssessed, BigDecimal penaltyPaid,
+                             BigDecimal penaltyOutstanding, BigDecimal principalOutstanding,
+                             BigDecimal interestOutstanding, BigDecimal managementOutstanding,
+                             BigDecimal extensionOutstanding,
+                             List<FullAllocation> allocations) {}
+
+    public static FullResult replayFullContract(
+            LocalDate disbursedOn, LocalDate contractMaturity, LocalDate asOf,
+            BigDecimal originalPrincipal, BigDecimal penaltyMonthlyRate,
+            List<DatedCharge> verifiedCharges, List<Receipt> receipts) {
+        Objects.requireNonNull(disbursedOn, "disbursedOn");
+        Objects.requireNonNull(contractMaturity, "contractMaturity");
+        Objects.requireNonNull(asOf, "asOf");
+        Objects.requireNonNull(originalPrincipal, "originalPrincipal");
+        Objects.requireNonNull(penaltyMonthlyRate, "penaltyMonthlyRate");
+        Objects.requireNonNull(verifiedCharges, "verifiedCharges");
+        Objects.requireNonNull(receipts, "receipts");
+        if (disbursedOn.isAfter(contractMaturity) || contractMaturity.isAfter(asOf)
+                || originalPrincipal.signum() < 0 || penaltyMonthlyRate.signum() < 0) {
+            throw new IllegalArgumentException("Invalid contract evidence");
+        }
+
+        List<DatedCharge> charges = verifiedCharges.stream()
+                .sorted(Comparator.comparing(DatedCharge::dueOn)).toList();
+        List<Receipt> datedReceipts = receipts.stream()
+                .sorted(Comparator.comparing(Receipt::receivedOn)
+                        .thenComparing(Receipt::immutableTransactionId)).toList();
+        for (DatedCharge c : charges) {
+            if (c == null || c.dueOn() == null || c.interest() == null
+                    || c.management() == null || c.extension() == null
+                    || c.dueOn().isBefore(disbursedOn) || c.dueOn().isAfter(asOf)
+                    || c.interest().signum() < 0 || c.management().signum() < 0
+                    || c.extension().signum() < 0) {
+                throw new IllegalArgumentException("Missing or invalid dated charge evidence");
+            }
+        }
+        for (Receipt t : datedReceipts) {
+            if (t == null || t.immutableTransactionId() == null
+                    || t.receivedOn() == null || t.amount() == null
+                    || t.amount().signum() <= 0
+                    || t.receivedOn().isBefore(disbursedOn)
+                    || t.receivedOn().isAfter(asOf)) {
+                throw new IllegalArgumentException("Missing or invalid receipt evidence");
+            }
+        }
+
+        BigDecimal principal = money(originalPrincipal);
+        BigDecimal accruedUnroundedPenalty = ZERO;
+        BigDecimal paidPenalty = ZERO;
+        BigDecimal interestDue = ZERO;
+        BigDecimal managementDue = ZERO;
+        BigDecimal extensionDue = ZERO;
+        int ci = 0, ri = 0;
+        LocalDate firstPenaltyDay = OverduePenaltyClock.firstChargeableDay(contractMaturity);
+        PaymentAllocationService waterfall = new PaymentAllocationService();
+        List<FullAllocation> result = new ArrayList<>();
+        for (LocalDate date = disbursedOn; !date.isAfter(asOf); date = date.plusDays(1)) {
+            while (ci < charges.size() && !charges.get(ci).dueOn().isAfter(date)) {
+                DatedCharge charge = charges.get(ci++);
+                interestDue = money(interestDue.add(charge.interest()));
+                managementDue = money(managementDue.add(charge.management()));
+                extensionDue = money(extensionDue.add(charge.extension()));
+            }
+            if (!date.isBefore(firstPenaltyDay) && principal.signum() > 0) {
+                accruedUnroundedPenalty = accruedUnroundedPenalty.add(
+                        principal.multiply(FinancialPolicy.dailyRateFraction(
+                                penaltyMonthlyRate, date)));
+            }
+            while (ri < datedReceipts.size()
+                    && datedReceipts.get(ri).receivedOn().equals(date)) {
+                Receipt receipt = datedReceipts.get(ri++);
+                BigDecimal duePenalty = money(accruedUnroundedPenalty)
+                        .subtract(paidPenalty).max(ZERO);
+                PaymentAllocationService.Allocation allocation = waterfall.allocate(
+                        receipt.amount(), duePenalty, extensionDue,
+                        interestDue, managementDue, principal);
+                paidPenalty = money(paidPenalty.add(allocation.penalty()));
+                interestDue = money(interestDue.subtract(allocation.interest()));
+                managementDue = money(managementDue.subtract(allocation.managementFee()));
+                extensionDue = money(extensionDue.subtract(allocation.extensionFee()));
+                principal = money(principal.subtract(allocation.principal()));
+                BigDecimal allocated = allocation.penalty()
+                        .add(allocation.interest()).add(allocation.managementFee())
+                        .add(allocation.extensionFee()).add(allocation.principal())
+                        .add(allocation.overpayment());
+                if (money(allocated).compareTo(money(receipt.amount())) != 0) {
+                    throw new IllegalStateException("Historical allocation must equal original receipt");
+                }
+                result.add(new FullAllocation(receipt.immutableTransactionId(), date,
+                        money(receipt.amount()), allocation.penalty(),
+                        allocation.interest(), allocation.managementFee(),
+                        allocation.extensionFee(), allocation.principal(),
+                        allocation.overpayment(), principal));
+            }
+        }
+        BigDecimal assessed = money(accruedUnroundedPenalty);
+        return new FullResult(assessed, paidPenalty,
+                money(assessed.subtract(paidPenalty)), principal,
+                interestDue, managementDue, extensionDue, List.copyOf(result));
+    }
+
     private static BigDecimal money(BigDecimal amount) {
         return amount.setScale(2, RoundingMode.HALF_UP);
     }
