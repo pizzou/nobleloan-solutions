@@ -516,6 +516,32 @@ public class ScheduledJobs {
                                 }
                         }
 
+                        // Final canonical refresh of ALL active/open overdue loans,
+                        // independent of imported status, repayment schedule, or
+                        // oldest installment due date. This also clears stale
+                        // OVERDUE flags during the three full grace days.
+                        List<Loan> allOpenLoans = loanRepo.findByStatusIn(
+                                        List.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE));
+                        for (Loan loan : allOpenLoans) {
+                                if (loan == null || loan.getId() == null) {
+                                        continue;
+                                }
+                                int canonicalDays = hasOutstandingReceivable(loan)
+                                                ? (int) Math.min(Integer.MAX_VALUE,
+                                                        OverduePenaltyClock.daysOverdue(loan, today))
+                                                : 0;
+                                LoanStatus expected = canonicalDays > 0
+                                                ? LoanStatus.OVERDUE : LoanStatus.ACTIVE;
+                                int storedDays = loan.getDaysOverdue() == null
+                                                ? 0 : Math.max(0, loan.getDaysOverdue());
+                                if (storedDays != canonicalDays || loan.getStatus() != expected) {
+                                        loan.updateDaysOverdue(canonicalDays);
+                                        loan.setStatus(expected);
+                                        loanRepo.save(loan);
+                                        flagged++;
+                                }
+                        }
+
                         log.info(
                                         "[Scheduler] Overdue check done: {} loan(s) classification refreshed",
                                         flagged);
