@@ -102,6 +102,25 @@ class PaymentAllocationServiceTest {
     }
 
     @Test
+    void overduePaymentSettlesPenaltyAndEveryDueFeeBeforeReducingPrincipal() {
+        // Applicable penalty is assessed from overdue days and outstanding
+        // principal BEFORE this receipt reaches the allocation waterfall.
+        PaymentAllocationService.Allocation result = service.allocate(
+                new BigDecimal("12100000.00"),
+                new BigDecimal("1000000.00"),
+                new BigDecimal("100000.00"),
+                new BigDecimal("2500000.00"),
+                new BigDecimal("2500000.00"),
+                new BigDecimal("20000000.00"));
+        assertEquals(new BigDecimal("1000000.00"), result.penalty());
+        assertEquals(new BigDecimal("2500000.00"), result.interest());
+        assertEquals(new BigDecimal("2500000.00"), result.managementFee());
+        assertEquals(new BigDecimal("100000.00"), result.extensionFee());
+        assertEquals(new BigDecimal("6000000.00"), result.principal());
+        assertEquals(new BigDecimal("0.00"), result.overpayment());
+    }
+
+    @Test
     void nullAndNegativeInputsCannotCreateNegativeAllocations() {
         PaymentAllocationService.Allocation result = service.allocate(
                 new BigDecimal("-1.00"),

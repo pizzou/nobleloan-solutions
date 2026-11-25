@@ -717,6 +717,33 @@ public class PaymentService {
                                 loanPayments, installment, today, false,
                                 remainingManagementFeeBeforePayment);
 
+                // Once the contractual loan is overdue, ALL its remaining
+                // contractual interest and management charges are due, not
+                // merely charges represented by the selected installment.
+                // This applies to system-created and imported loans alike.
+                // Reconcile loan-level receivables with the dated schedule
+                // before the canonical penalty/fees/principal waterfall.
+                OverdueFeeGap overdueGap = overdueFeeGap(
+                                isLate,
+                                allDueInterest,
+                                allDueManagementFees,
+                                safe(loan.getInterestOutstandingDecimal()),
+                                safe(loan.getManagementFeeOutstandingDecimal()),
+                                cycleDueDate, today);
+                if (overdueGap.interest().signum() > 0
+                                || overdueGap.management().signum() > 0) {
+                        remainingInterestBeforePayment = roundMoney(
+                                        remainingInterestBeforePayment.add(overdueGap.interest()));
+                        remainingManagementFeeBeforePayment = roundMoney(
+                                        remainingManagementFeeBeforePayment.add(overdueGap.management()));
+                        totalCycleInterestDue = roundMoney(
+                                        totalCycleInterestDue.add(overdueGap.interest()));
+                        totalCycleManagementFeeDue = roundMoney(
+                                        totalCycleManagementFeeDue.add(overdueGap.management()));
+                        allDueInterest = roundMoney(allDueInterest.add(overdueGap.interest()));
+                        allDueManagementFees = roundMoney(allDueManagementFees.add(overdueGap.management()));
+                }
+
                 // ============================================================
                 // NEW PENALTY DAYS
                 // ============================================================
@@ -727,8 +754,8 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                // Days overdue count from contract maturity, while assessed
-                // penalty days exclude the first three full grace days.
+                // Overdue days and penalty days both begin after three full
+                // grace days following contractual maturity.
                 int currentlyChargeablePenaltyDays = (int) Math.min(
                                 Integer.MAX_VALUE,
                                 OverduePenaltyClock.chargeableDays(loan, today));
@@ -744,6 +771,15 @@ public class PaymentService {
                                         ? ZERO
                                         : calculateHistoricalPenaltyToDate(
                                                         loan, currentBalance, earliestPenaltyDate, today);
+
+                        // A previously over-assessed penalty is NOT a legitimate
+                        // payable charge merely because it exists in the ledger.
+                        // Do not silently take such money from the borrower:
+                        // require an audited adjustment of loan and GL balances.
+                        validatePenaltyAssessment(
+                                        loan.getReferenceNumber(),
+                                        loanPenaltyAssessedBeforePayment,
+                                        requiredPenaltyToDate);
 
                         // Contractual penalty uses the individual loan's saved monthly
                         // rate (legacy 10%, new loans 15%), prorated daily after
@@ -2385,6 +2421,67 @@ public class PaymentService {
                         LocalDate asOf) {
                 return historicalPenaltyBalanceService.assessedToDate(
                                 loan, currentOutstandingPrincipal, firstChargeableDate, asOf);
+        }
+
+        private static void validatePenaltyAssessment(
+                        String loanReference, BigDecimal previouslyAssessed,
+                        BigDecimal contractuallyDue) {
+                BigDecimal old = safeMoney(previouslyAssessed);
+                BigDecimal valid = safeMoney(contractuallyDue);
+                if (old.subtract(valid).compareTo(new BigDecimal("0.01")) > 0) {
+                        throw new IllegalStateException(
+                                        "Penalty receivable exceeds contractual daily penalty for "
+                                                        + loanReference + ": assessed=" + old
+                                                        + ", expected=" + valid
+                                                        + ". Correct historical loan and accounting balances before accepting repayment.");
+                }
+        }
+
+        private record OverdueFeeGap(BigDecimal interest, BigDecimal management) {}
+
+        /**
+         * On contractual delinquency, every remaining loan-level monthly fee
+         * is payable. The schedule may be incomplete for imported OR native
+         * loans. Never silently divert those unscheduled fees to principal.
+         *
+         * A disagreement where schedules exceed loan-level totals (or the
+         * selected cycle is in the future) is a financial evidence error:
+         * reject the transaction instead of guessing/relabeling cash.
+         */
+        private static OverdueFeeGap overdueFeeGap(
+                        boolean contractOverdue,
+                        BigDecimal scheduledInterestDue,
+                        BigDecimal scheduledManagementDue,
+                        BigDecimal interestOutstanding,
+                        BigDecimal managementOutstanding,
+                        LocalDate selectedDueDate,
+                        LocalDate asOf) {
+                if (!contractOverdue) {
+                        return new OverdueFeeGap(ZERO, ZERO);
+                }
+                BigDecimal scheduledInterest = safeMoney(scheduledInterestDue);
+                BigDecimal scheduledManagement = safeMoney(scheduledManagementDue);
+                BigDecimal totalInterest = safeMoney(interestOutstanding);
+                BigDecimal totalManagement = safeMoney(managementOutstanding);
+                if (scheduledInterest.compareTo(totalInterest) > 0
+                                || scheduledManagement.compareTo(totalManagement) > 0) {
+                        throw new IllegalStateException(
+                                        "Due installment fees exceed loan-level outstanding fees; reconcile before payment.");
+                }
+                BigDecimal interestGap = totalInterest.subtract(scheduledInterest);
+                BigDecimal managementGap = totalManagement.subtract(scheduledManagement);
+                if ((interestGap.signum() > 0 || managementGap.signum() > 0)
+                                && (selectedDueDate == null || asOf == null
+                                        || selectedDueDate.isAfter(asOf))) {
+                        throw new IllegalStateException(
+                                        "Overdue loan has unrepresented contractual fees but no due payment cycle.");
+                }
+                return new OverdueFeeGap(interestGap, managementGap);
+        }
+
+        private static BigDecimal safeMoney(BigDecimal amount) {
+                return (amount == null ? ZERO : amount.max(ZERO))
+                                .setScale(2, RoundingMode.HALF_UP);
         }
 
         private BigDecimal totalDueCharge(
