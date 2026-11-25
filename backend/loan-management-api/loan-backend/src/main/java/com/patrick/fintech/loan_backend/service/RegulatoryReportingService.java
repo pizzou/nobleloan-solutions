@@ -2043,11 +2043,9 @@ public class RegulatoryReportingService {
                                         ||
                                         loan.getStatus() == LoanStatus.PAID;
 
-                        int daysPastDue = loan.getDaysOverdue() == null
-                                        ? 0
-                                        : Math.max(
-                                                        0,
-                                                        loan.getDaysOverdue());
+                        int daysPastDue = closed ? 0 : (int) Math.min(
+                                        Integer.MAX_VALUE,
+                                        OverduePenaltyClock.daysOverdue(loan, LocalDate.now()));
 
                         // ====================================================
                         // CRB CLASSIFICATION
