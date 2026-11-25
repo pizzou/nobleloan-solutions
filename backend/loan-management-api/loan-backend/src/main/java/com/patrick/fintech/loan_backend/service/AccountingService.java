@@ -985,6 +985,41 @@ public class AccountingService {
                                 LocalDate.now(), lines);
         }
 
+        /**
+         * Posts a receipt allocation adjustment with no cash movement. The caller
+         * must persist the effective allocation and loan balances in the same transaction.
+         */
+        @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+        public JournalEntry postHistoricalReceiptReclassification(
+                        Loan loan, Long receiptId, Map<String, BigDecimal> signedDebits) {
+                if (loan == null || loan.getId() == null || loan.getOrganization() == null
+                                || receiptId == null || receiptId <= 0 || signedDebits == null) {
+                        throw new IllegalArgumentException("An originating loan and receipt are required");
+                }
+
+                Set<String> allowed = Set.of("1100", "1150", "1160", "1170", "1175", "2100");
+                if (!allowed.containsAll(signedDebits.keySet()) || signedDebits.values().stream().anyMatch(
+                                amount -> amount == null || amount.compareTo(money(amount)) != 0)) {
+                        throw new IllegalArgumentException("Invalid receipt reclassification account or amount");
+                }
+                if (signedDebits.values().stream().reduce(ZERO, BigDecimal::add).signum() != 0) {
+                        throw new IllegalArgumentException("Receipt reclassification must balance");
+                }
+
+                Organization organization = loan.getOrganization();
+                List<JournalLine> lines = new ArrayList<>();
+                signedDebits.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(
+                                change -> addSignedLine(lines, organization, change.getKey(), change.getValue(),
+                                                "Reclassify original receipt " + receiptId));
+                if (lines.isEmpty()) {
+                        return null;
+                }
+                return postAtDate(organization, loan.getBranch(), "HISTORICAL_RECEIPT_REALLOCATION",
+                                "LOAN:" + loan.getId() + ":RECEIPT:" + receiptId,
+                                loan.getReferenceNumber(), "Reclassify historical receipt " + receiptId,
+                                LocalDate.now(), lines, loan);
+        }
+
         private void addSignedLine(List<JournalLine> lines, Organization org,
                                    String code, BigDecimal signedDebit, String description) {
                 BigDecimal value = money(signedDebit);
