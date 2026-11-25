@@ -209,7 +209,9 @@ public class DashboardService {
                                  * old/non-financial pipeline rows from inflating
                                  * PAR.
                                  */
-                                boolean atRisk = status == LoanStatus.OVERDUE
+                                boolean atRisk = ((status == LoanStatus.OVERDUE
+                                                || status == LoanStatus.ACTIVE)
+                                                && OverduePenaltyClock.daysOverdue(loan, today) > 0)
                                                 || status == LoanStatus.DEFAULTED
                                                 || status == LoanStatus.RESTRUCTURED;
 
@@ -533,8 +535,11 @@ public class DashboardService {
          * timestamp.
          */
         static long countOverdueLoans(List<Loan> loans) {
+                LocalDate asOf = LocalDate.now();
                 return loans == null ? 0 : loans.stream()
-                                .filter(l -> l != null && l.getStatus() == LoanStatus.OVERDUE)
+                                .filter(l -> l != null && (l.getStatus() == LoanStatus.ACTIVE
+                                                || l.getStatus() == LoanStatus.OVERDUE))
+                                .filter(l -> OverduePenaltyClock.daysOverdue(l, asOf) > 0)
                                 .count();
         }
 
