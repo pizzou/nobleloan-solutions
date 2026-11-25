@@ -46,7 +46,7 @@ WITH portfolio AS (
  GROUP BY p.id
 )
 SELECT p.id,p.reference_number,p.status,p.imported,p.maturity,
-       GREATEST(0,CURRENT_DATE-p.maturity) AS days_past_maturity,
+       GREATEST(0,CURRENT_DATE-p.maturity-3) AS days_overdue_after_grace,
        GREATEST(0,CURRENT_DATE-p.maturity-3) AS penalty_days,
        p.original_principal,p.principal_paid,p.principal_outstanding,
        p.current_assessed,p.current_paid,
