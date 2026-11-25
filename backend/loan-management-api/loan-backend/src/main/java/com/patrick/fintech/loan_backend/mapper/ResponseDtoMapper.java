@@ -2,12 +2,14 @@ package com.patrick.fintech.loan_backend.mapper;
 
 import com.patrick.fintech.loan_backend.dto.*;
 import com.patrick.fintech.loan_backend.model.*;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import org.hibernate.Hibernate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.Page;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.time.LocalDate;
 import java.time.temporal.Temporal;
 import java.util.*;
 
@@ -39,6 +41,18 @@ public final class ResponseDtoMapper {
                                 "loanOfficer",
                                 "legacyAmountDouble",
                                 "internalNotes");
+
+                LoanStatus status = source.getStatus();
+                if (status == LoanStatus.ACTIVE || status == LoanStatus.OVERDUE
+                                || status == LoanStatus.DEFAULTED || status == LoanStatus.RESTRUCTURED) {
+                        int daysOverdue = FinancialPolicy.contractDaysOverdue(source, LocalDate.now());
+                        target.setDaysOverdue(daysOverdue);
+                        target.setCreditQuality(Loan.classifyCreditQuality(daysOverdue));
+                        target.setArrearsStatus(Loan.classifyArrearsStatus(daysOverdue));
+                        if (status == LoanStatus.OVERDUE && daysOverdue == 0) {
+                                target.setStatus(LoanStatus.ACTIVE);
+                        }
+                }
 
                 if (source.getOrganization() != null) {
                         target.setOrganizationId(
