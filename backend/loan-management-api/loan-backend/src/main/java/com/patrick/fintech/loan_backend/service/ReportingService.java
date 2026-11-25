@@ -446,6 +446,8 @@ public class ReportingService {
                                 .filter(
                                                 payment -> payment.getDueDate()
                                                                 .isBefore(today))
+                                .filter(payment -> payment.getLoan() != null
+                                                && OverduePenaltyClock.daysOverdue(payment.getLoan(), today) > 0)
                                 .toList();
 
                 StringBuilder csv = new StringBuilder(
@@ -1167,6 +1169,8 @@ public class ReportingService {
                                 .filter(
                                                 payment -> payment.getDueDate()
                                                                 .isBefore(today))
+                                .filter(payment -> payment.getLoan() != null
+                                                && OverduePenaltyClock.daysOverdue(payment.getLoan(), today) > 0)
                                 .toList();
 
                 try (
