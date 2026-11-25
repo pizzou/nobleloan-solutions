@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Regression coverage for cross-installment due-charge aggregation.
@@ -58,6 +59,51 @@ class PaymentServiceDueChargeTest {
 
         assertEquals(new BigDecimal("3350000.00"), interest);
         assertEquals(new BigDecimal("3350000.00"), management);
+    }
+
+    @Test
+    void contractOverdueRecoversAllMissingMonthlyFeesForNativeAndImportedLoans() {
+        LocalDate asOf = LocalDate.of(2026, 11, 25);
+        // Only a single month is present in the schedule, but a matured
+        // six-month contract has RWF 6.3m of remaining interest and fees each.
+        Object gap = ReflectionTestUtils.invokeMethod(service,
+                "overdueFeeGap", true,
+                new BigDecimal("1675000.00"),
+                new BigDecimal("1675000.00"),
+                new BigDecimal("6300000.00"),
+                new BigDecimal("6300000.00"),
+                LocalDate.of(2026, 9, 26), asOf);
+        BigDecimal extraInterest = ReflectionTestUtils.invokeMethod(gap, "interest");
+        BigDecimal extraManagement = ReflectionTestUtils.invokeMethod(gap, "management");
+        assertEquals(new BigDecimal("4625000.00"), extraInterest);
+        assertEquals(new BigDecimal("4625000.00"), extraManagement);
+    }
+
+    @Test
+    void nonOverdueLoanDoesNotAccelerateFutureFeeBalances() {
+        Object gap = ReflectionTestUtils.invokeMethod(service,
+                "overdueFeeGap", false,
+                new BigDecimal("100000.00"),
+                new BigDecimal("100000.00"),
+                new BigDecimal("600000.00"),
+                new BigDecimal("600000.00"),
+                LocalDate.of(2026, 12, 26), LocalDate.of(2026, 11, 25));
+        BigDecimal interest = ReflectionTestUtils.invokeMethod(gap, "interest");
+        BigDecimal management = ReflectionTestUtils.invokeMethod(gap, "management");
+        assertEquals(new BigDecimal("0.00"), interest);
+        assertEquals(new BigDecimal("0.00"), management);
+    }
+
+    @Test
+    void mismatchedOverdueFeeEvidenceFailsInsteadOfTakingPrincipal() {
+        assertThrows(IllegalStateException.class, () ->
+                ReflectionTestUtils.invokeMethod(service,
+                        "overdueFeeGap", true,
+                        new BigDecimal("800000.00"),
+                        new BigDecimal("200000.00"),
+                        new BigDecimal("700000.00"),
+                        new BigDecimal("200000.00"),
+                        LocalDate.of(2026, 9, 26), LocalDate.of(2026, 11, 25)));
     }
 
     @Test
