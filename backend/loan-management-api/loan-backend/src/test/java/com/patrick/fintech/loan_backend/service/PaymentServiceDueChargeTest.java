@@ -107,6 +107,21 @@ class PaymentServiceDueChargeTest {
     }
 
     @Test
+    void cannotCollectPenaltyPreviouslyOverstatedAgainstDailyPrincipalRule() {
+        assertThrows(IllegalStateException.class, () ->
+                ReflectionTestUtils.invokeMethod(service,
+                        "validatePenaltyAssessment", "NLS-000054",
+                        new BigDecimal("8870000.00"),
+                        new BigDecimal("6141666.67")));
+        // No adjustment is necessary when the recorded penalty equals or
+        // is below the correctly calculated chargeable daily penalty.
+        ReflectionTestUtils.invokeMethod(service,
+                "validatePenaltyAssessment", "NLS-000054",
+                new BigDecimal("6141666.67"),
+                new BigDecimal("6141666.67"));
+    }
+
+    @Test
     void includesNewUnsavedLegacyCycleWithoutDoubleCounting() {
         LocalDate asOf = LocalDate.of(2026, 11, 25);
         Payment unsaved = Payment.builder()
