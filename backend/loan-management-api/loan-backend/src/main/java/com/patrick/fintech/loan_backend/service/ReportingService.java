@@ -446,6 +446,8 @@ public class ReportingService {
                                 .filter(
                                                 payment -> payment.getDueDate()
                                                                 .isBefore(today))
+                                .filter(payment -> payment.getLoan() != null
+                                                && OverduePenaltyClock.daysOverdue(payment.getLoan(), today) > 0)
                                 .toList();
 
                 StringBuilder csv = new StringBuilder(
@@ -467,9 +469,8 @@ public class ReportingService {
                                         ? borrowerName(loan)
                                         : "";
 
-                        long daysOverdue = ChronoUnit.DAYS.between(
-                                        payment.getDueDate(),
-                                        today);
+                        long daysOverdue = payment.getLoan() == null ? 0L :
+                                        OverduePenaltyClock.daysOverdue(payment.getLoan(), today);
 
                         csv.append(
                                         csvField(
@@ -1168,6 +1169,8 @@ public class ReportingService {
                                 .filter(
                                                 payment -> payment.getDueDate()
                                                                 .isBefore(today))
+                                .filter(payment -> payment.getLoan() != null
+                                                && OverduePenaltyClock.daysOverdue(payment.getLoan(), today) > 0)
                                 .toList();
 
                 try (
@@ -1218,9 +1221,8 @@ public class ReportingService {
                                                 ? borrowerName(loan)
                                                 : "";
 
-                                long daysOverdue = ChronoUnit.DAYS.between(
-                                                payment.getDueDate(),
-                                                today);
+                                long daysOverdue = payment.getLoan() == null ? 0L :
+                                        OverduePenaltyClock.daysOverdue(payment.getLoan(), today);
 
                                 setCell(
                                                 row,
