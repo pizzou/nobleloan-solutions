@@ -429,27 +429,15 @@ export default function ImportLegacyLoansPage() {
             PAGE HEADER
             ==================================================== */}
 
-        <div className="mb-7">
+        <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="mb-3 flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full bg-[#E8EEF6] px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#0B1F3A]">
-                  Data Migration
-                </span>
-
-                <span className="text-xs text-gray-400">
-                  Legacy Loan Import
-                </span>
-              </div>
-
               <h1 className="text-2xl font-extrabold tracking-tight text-[#0B1F3A] sm:text-3xl">
                 Import Legacy Loans
               </h1>
 
               <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">
-                Safely migrate historical borrower and loan records into Noble
-                Loan Solutions. Files are validated before any production data
-                is created.
+                Upload a CSV or Excel workbook, validate the records, then review the rows before importing.
               </p>
             </div>
 
@@ -475,160 +463,114 @@ export default function ImportLegacyLoansPage() {
           </div>
         </div>
 
-        {/* ====================================================
-            SECURITY / PROCESS NOTICE
-            ==================================================== */}
+        <ol aria-label="Import progress" className="mb-4 grid grid-cols-3 overflow-hidden divide-x divide-slate-200 rounded-xl border border-slate-200 bg-white">
+          {["Select file", "Validate", "Review and import"].map((label, index) => {
+            const current = index === (preview ? 2 : file ? 1 : 0);
+            return (
+              <li key={label} aria-current={current ? "step" : undefined}
+                className={`px-3 py-3 text-center text-xs font-semibold sm:text-sm ${current ? "bg-slate-900 text-white" : "text-slate-600"}`}>
+                {label}
+              </li>
+            );
+          })}
+        </ol>
 
-        <div className="mb-6 rounded-2xl border border-[#D9E3EF] bg-white shadow-sm">
-          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAF1F8] text-[#0B1F3A]">
-              <svg
-                className="h-5 w-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="M12 3 5 6v5c0 4.7 2.9 8.9 7 10 4.1-1.1 7-5.3 7-10V6l-7-3Z" />
-                <path d="m9 12 2 2 4-4" />
-              </svg>
-            </div>
+        <details className="mb-4 rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">
+            Template requirements and repayment rules
+          </summary>
+          <div className="grid gap-3 border-t border-slate-200 p-4">
+              <div className="rounded-xl border border-[#D9E3EF] bg-white">
+                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAF1F8] text-[#0B1F3A]">
+                    <svg
+                      className="h-5 w-5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    >
+                      <path d="M12 3 5 6v5c0 4.7 2.9 8.9 7 10 4.1-1.1 7-5.3 7-10V6l-7-3Z" />
+                      <path d="m9 12 2 2 4-4" />
+                    </svg>
+                  </div>
 
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-[#0B1F3A]">
-                Controlled production import
-              </p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-[#0B1F3A]">
+                      Controlled production import
+                    </p>
 
-              <p className="mt-1 text-sm leading-6 text-gray-500">
-                Preview validates the file without saving anything. Only the
-                rows that pass validation can be committed. Borrowers are
-                matched using the existing import rules, including National ID
-                matching.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
-          <p className="text-sm font-bold text-amber-950">
-            Financial fields that must be accurate
-          </p>
-          <p className="mt-1 text-sm leading-6 text-amber-900">
-            All legacy loans are imported with{" "}
-            <strong>normal visibility</strong>
-            (business_owner_only = false). Only the Business Owner can change
-            this later from the loan list or loan details. For loans still owing
-            money, provide the verified <strong>next_due_date</strong> and the
-            historical paid and outstanding amounts separately. The system
-            assigns the final unique NLS reference when each loan is saved;
-            preview numbers are proposals only.
-          </p>
-        </div>
-
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700 shadow-sm">
-          <h2 className="font-bold text-slate-900">
-            How historical repayments are interpreted
-          </h2>
-          <p className="mt-2">
-            The legacy monthly workbook uses the{" "}
-            <strong>PRINCIPLE PAID (AA)</strong>,{" "}
-            <strong>TOTAL PAID INTEREST (Z)</strong> and{" "}
-            <strong>PAID MANAGEMENT FEE (X)</strong> columns as amounts actually
-            received. It does <strong>not</strong> treat monthly scheduled
-            interest columns (I–N) as payments.
-          </p>
-          <p className="mt-2">
-            For a partially paid loan:{" "}
-            <strong>
-              principal remaining = original principal − principal paid
-            </strong>
-            . Unpaid interest (AC), unpaid management fees (V) and assessed
-            unpaid penalties (AB) are separate obligations. When payments and
-            unpaid amounts disagree, import validation blocks the row for
-            reconciliation. The old monthly format has no separate
-            penalties-paid column, so any AB penalty is treated as unpaid unless
-            imported using a detailed template with penalties_paid.
-          </p>
-          <p className="mt-2 text-amber-800">
-            These are opening historical balances, not individually dated
-            payment receipts. Verify the original cash ledger or payment
-            evidence before committing. A "Valid" result means the data
-            reconciles mathematically, not that its figures have been
-            independently verified.
-          </p>
-          <p className="mt-2 font-semibold text-amber-900">
-            For a partially paid loan with an outstanding balance, column P is
-            only the first scheduled due date. Add <strong>column AE</strong>{" "}
-            (header: VERIFIED OLDEST UNPAID DUE DATE) and enter the date of the
-            earliest installment that is still unpaid, verified against the
-            repayment records. Without it the row is blocked rather than
-            reporting misleading days overdue. Do not change the original
-            contract or invent a date. For loans already imported, review and
-            correct their due dates through an authorized, audited
-            loan-adjustment workflow.
-          </p>
-        </div>
-
-        {/* ====================================================
-            THREE STEP PROCESS
-            ==================================================== */}
-
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
-          {[
-            {
-              number: "01",
-              title: "Prepare",
-              description:
-                "Download the approved template and populate your legacy records.",
-              active: !file,
-            },
-            {
-              number: "02",
-              title: "Validate",
-              description:
-                "Upload the file and run a preview before anything is saved.",
-              active: !!file && !preview,
-            },
-            {
-              number: "03",
-              title: "Commit",
-              description:
-                "Review every result, then safely create the valid records.",
-              active: !!preview,
-            },
-          ].map((step) => (
-            <div
-              key={step.number}
-              className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
-                step.active
-                  ? "border-[#C7D5E5] ring-1 ring-[#E8EEF6]"
-                  : "border-gray-200"
-              }`}
-            >
-              <div className="flex items-start gap-4">
-                <div
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-extrabold ${
-                    step.active
-                      ? "bg-[#0B1F3A] text-white"
-                      : "bg-gray-100 text-gray-400"
-                  }`}
-                >
-                  {step.number}
-                </div>
-
-                <div>
-                  <p className="text-sm font-bold text-gray-900">
-                    {step.title}
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-gray-500">
-                    {step.description}
-                  </p>
+                    <p className="mt-1 text-sm leading-6 text-gray-500">
+                      Preview validates the file without saving anything. Only the
+                      rows that pass validation can be committed. Borrowers are
+                      matched using the existing import rules, including National ID
+                      matching.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-5">
+                <p className="text-sm font-bold text-amber-950">
+                  Financial fields that must be accurate
+                </p>
+                <p className="mt-1 text-sm leading-6 text-amber-900">
+                  All legacy loans are imported with{" "}
+                  <strong>normal visibility</strong>
+                  (business_owner_only = false). Only the Business Owner can change
+                  this later from the loan list or loan details. For loans still owing
+                  money, provide the verified <strong>next_due_date</strong> and the
+                  historical paid and outstanding amounts separately. The system
+                  assigns the final unique NLS reference when each loan is saved;
+                  preview numbers are proposals only.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
+                <h2 className="font-bold text-slate-900">
+                  How historical repayments are interpreted
+                </h2>
+                <p className="mt-2">
+                  The legacy monthly workbook uses the{" "}
+                  <strong>PRINCIPLE PAID (AA)</strong>,{" "}
+                  <strong>TOTAL PAID INTEREST (Z)</strong> and{" "}
+                  <strong>PAID MANAGEMENT FEE (X)</strong> columns as amounts actually
+                  received. It does <strong>not</strong> treat monthly scheduled
+                  interest columns (I–N) as payments.
+                </p>
+                <p className="mt-2">
+                  For a partially paid loan:{" "}
+                  <strong>
+                    principal remaining = original principal − principal paid
+                  </strong>
+                  . Unpaid interest (AC), unpaid management fees (V) and assessed
+                  unpaid penalties (AB) are separate obligations. When payments and
+                  unpaid amounts disagree, import validation blocks the row for
+                  reconciliation. The old monthly format has no separate
+                  penalties-paid column, so any AB penalty is treated as unpaid unless
+                  imported using a detailed template with penalties_paid.
+                </p>
+                <p className="mt-2 text-amber-800">
+                  These are opening historical balances, not individually dated
+                  payment receipts. Verify the original cash ledger or payment
+                  evidence before committing. A "Valid" result means the data
+                  reconciles mathematically, not that its figures have been
+                  independently verified.
+                </p>
+                <p className="mt-2 font-semibold text-amber-900">
+                  For a partially paid loan with an outstanding balance, column P is
+                  only the first scheduled due date. Add <strong>column AE</strong>{" "}
+                  (header: VERIFIED OLDEST UNPAID DUE DATE) and enter the date of the
+                  earliest installment that is still unpaid, verified against the
+                  repayment records. Without it the row is blocked rather than
+                  reporting misleading days overdue. Do not change the original
+                  contract or invent a date. For loans already imported, review and
+                  correct their due dates through an authorized, audited
+                  loan-adjustment workflow.
+                </p>
+              </div>
+          </div>
+        </details>
 
         {/* ====================================================
             IMPORT WORKSPACE
@@ -640,10 +582,10 @@ export default function ImportLegacyLoansPage() {
           <div className="border-b border-gray-100 bg-gradient-to-r from-[#07152A] via-[#0B1F3A] to-[#16365F] px-5 py-5 text-white sm:px-7">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-base font-bold">Import workspace</h2>
+                <h2 className="text-base font-bold">Upload and validate</h2>
 
                 <p className="mt-1 text-xs text-blue-100">
-                  CSV and XLSX files · Maximum {MAX_FILE_SIZE_MB} MB
+                  CSV and XLSX files · Maximum {MAX_FILE_SIZE_MB} MB · Preview before importing
                 </p>
               </div>
 

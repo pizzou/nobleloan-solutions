@@ -557,8 +557,8 @@ export default function AccountingPage() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Finance / Financial control</p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#0B1F3A]">Accounting &amp; Financial Control</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Finance</p>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#0B1F3A]">Accounting</h1>
 
           <p className="text-gray-500 text-sm mt-1">
             General ledger, chart of accounts, cash management, and financial
@@ -725,48 +725,24 @@ export default function AccountingPage() {
       {/* ===================================================
           OPERATIONAL CONTROL TOTALS
       =================================================== */}
-      {controlTotals ? (
-        <section aria-label="Operational portfolio totals" className="nls-accounting-kpis mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {[
-            ["Lifetime gross disbursed", controlTotals.totalDisbursed],
-            ["Lifetime recorded collections", controlTotals.totalCollected],
-            ["Current outstanding principal", controlTotals.outstandingBalance],
-            ["Current operational receivables", controlTotals.totalReceivables],
-            ["Lifetime application fees paid", controlTotals.applicationFeesCollected],
-          ].map(([label, value]) => (
-            <div
-              key={String(label)}
-              className="nls-accounting-kpi rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
-            >
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
-                {label as string}
-              </div>
-              <div className="mt-2 text-xl font-black text-gray-950">
-                {value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "Unavailable" : fmt(Number(value))}
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                {currency} · Lifetime/current loan records; not filtered by the statement period and not a GL cash balance.
-              </div>
-            </div>
-          ))}
-        </section>
-      ) : null}
-
       {receivableDifference != null && Math.abs(receivableDifference) >= 0.01 && (
         <section role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950">
           <h2 className="text-sm font-bold">Operational receivables and general ledger differ</h2>
-          <p className="mt-2 text-sm leading-6">
-            Operational loan receivables: {fmt(operationalReceivables ?? 0)} {currency}.
-            GL 1100, 1150, 1160, 1170, 1175 and 1180 net receivables:
-            {" "}{fmt(glReceivables ?? 0)} {currency}.
-            Signed difference (operational minus GL): {fmt(receivableDifference)} {currency}.
-          </p>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <div><dt>Operational receivables</dt><dd className="font-semibold tabular-nums">{fmt(operationalReceivables ?? 0)} {currency}</dd></div>
+            <div><dt>General ledger receivables</dt><dd className="font-semibold tabular-nums">{fmt(glReceivables ?? 0)} {currency}</dd></div>
+            <div><dt>Difference (operational less GL)</dt><dd className="font-semibold tabular-nums">{fmt(receivableDifference)} {currency}</dd></div>
+          </dl>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-semibold">Reconciliation details</summary>
+            <p className="mt-2 text-xs">GL accounts 1100, 1150, 1160, 1170, 1175 and 1180.</p>
           <p className="mt-2 text-xs">
             {comparingCurrentPortfolio
               ? "These figures come from different accounting sources. Investigate loan-level balances, accruals and journal coverage before posting any correction."
               : "The operational KPI is current/lifetime, while the GL statement is as of the selected date. First compare them at today's date; then investigate any remaining difference."}
             {" "}Do not use Reconcile Imported Loans to force these amounts to agree without independently reviewing the proposed postings.
           </p>
+          </details>
         </section>
       )}
 
@@ -782,6 +758,11 @@ export default function AccountingPage() {
           className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950"
         >
           <div className="text-sm font-bold">Cash funding reconciliation required</div>
+          <p className="mt-2 text-sm">
+            GL 1000 · {fmt(Math.abs(cashLedgerBalance))} {currency} credit · {financialPeriod.to}
+          </p>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-semibold">Cash reconciliation details</summary>
           <p className="mt-2 text-sm leading-6">
             Account 1000 has a credit balance of {fmt(Math.abs(cashLedgerBalance))}
             {` as of ${financialPeriod.to}`}. This is a negative general-ledger cash
@@ -795,8 +776,41 @@ export default function AccountingPage() {
             historical opening balances have been recorded. Do not post an
             unsupported balancing journal to remove this warning.
           </p>
+          </details>
         </section>
       )}
+
+      {controlTotals ? (
+        <details className="rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">
+            Portfolio totals <span className="ml-2 font-normal text-slate-600">{currency} · Current and lifetime</span>
+          </summary>
+          <p className="border-t border-slate-200 px-5 pt-3 text-xs text-slate-600">
+            These figures reflect current and lifetime loan records regardless of the selected statement period.
+          </p>
+          <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              ["Lifetime gross disbursed", controlTotals.totalDisbursed],
+              ["Lifetime recorded collections", controlTotals.totalCollected],
+              ["Current outstanding principal", controlTotals.outstandingBalance],
+              ["Current operational receivables", controlTotals.totalReceivables],
+              ["Lifetime application fees paid", controlTotals.applicationFeesCollected],
+            ].map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="nls-accounting-kpi rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
+              >
+                <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                  {label as string}
+                </div>
+                <div className="mt-2 break-words text-lg font-semibold tabular-nums text-slate-950">
+                  {value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "Unavailable" : fmt(Number(value))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       {/* ===================================================
           TABS
