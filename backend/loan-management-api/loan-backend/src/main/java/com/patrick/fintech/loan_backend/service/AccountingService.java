@@ -2540,9 +2540,8 @@ public class AccountingService {
 
                 Organization org = loan.getOrganization();
                 String sourceId = "LOAN:" + loan.getId() + ":HISTORICAL-PENALTY";
-                if (journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(), "LEGACY_PENALTY_OPENING", sourceId).isPresent())
-                        return null;
+                JournalEntry openingJournal = journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                org.getId(), "LEGACY_PENALTY_OPENING", sourceId).orElse(null);
 
                 BigDecimal historicalEstimate = FinancialPolicy.historicalDailyPenalty(
                                 principal, firstChargeable, lastHistoricalDay,
@@ -2551,9 +2550,12 @@ public class AccountingService {
                                 org.getId(), loan.getId() + "-%", importDate));
                 BigDecimal historicalAlreadyAssessed = money(
                                 loan.getPenaltiesAssessedDecimal().subtract(postImportAssessed).max(ZERO));
-                BigDecimal additionalHistorical = money(
-                                historicalEstimate.subtract(historicalAlreadyAssessed).max(ZERO));
-                if (additionalHistorical.signum() <= 0)
+                BigDecimal additionalHistorical = money(historicalEstimate.subtract(historicalAlreadyAssessed));
+                if (additionalHistorical.signum() < 0 && openingJournal != null) {
+                        return creditVerifiedHistoricalPenaltyOpening(loan, openingJournal,
+                                        historicalAlreadyAssessed, additionalHistorical, asOf);
+                }
+                if (openingJournal != null || additionalHistorical.signum() <= 0)
                         return null;
 
                 JournalEntry entry = postAtDate(org, loan.getBranch(), "LEGACY_PENALTY_OPENING", sourceId,
@@ -2574,6 +2576,58 @@ public class AccountingService {
                 loan.setPenaltiesAssessed(money(loan.getPenaltiesAssessedDecimal().add(additionalHistorical)));
                 loan.setTotalRepayable(money(money(loan.getTotalRepayableDecimal()).add(additionalHistorical)));
                 return entry;
+        }
+
+        private JournalEntry creditVerifiedHistoricalPenaltyOpening(
+                        Loan loan, JournalEntry openingJournal, BigDecimal historicalAssessed,
+                        BigDecimal delta, LocalDate asOf) {
+                // Opening principal must be provably unchanged. Existing receipts and
+                // previously collected penalties need a separate cash-allocation reconciliation.
+                if (loanRepo.findByIdForUpdate(loan.getId()).isEmpty()
+                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0
+                                || !paymentRepo.findByLoanId(loan.getId()).isEmpty()
+                                || money(loan.getPrincipalPaidDecimal()).signum() != 0
+                                || money(loan.getPenaltiesPaidDecimal()).signum() != 0
+                                || money(loan.getOutstandingBalanceDecimal()).compareTo(money(loan.getAmountDecimal())) != 0
+                                || (loan.getExtensionCount() != null && loan.getExtensionCount() > 0)
+                                || Boolean.TRUE.equals(openingJournal.getReversed())) {
+                        return null;
+                }
+
+                List<JournalLine> openingLines = lineRepo.findByJournalEntry_Id(openingJournal.getId());
+                if (openingLines.size() != 2
+                                || openingLines.stream().noneMatch(line -> "1175".equals(line.getAccount().getCode())
+                                                && money(line.getDebitDecimal()).compareTo(historicalAssessed) == 0
+                                                && money(line.getCreditDecimal()).signum() == 0)
+                                || openingLines.stream().noneMatch(line -> "3010".equals(line.getAccount().getCode())
+                                                && money(line.getCreditDecimal()).compareTo(historicalAssessed) == 0
+                                                && money(line.getDebitDecimal()).signum() == 0)) {
+                        return null;
+                }
+
+                Organization org = loan.getOrganization();
+                String sourceType = "LEGACY_PENALTY_OPENING_ADJUSTMENT";
+                String sourceId = "LOAN:" + loan.getId() + ":PENALTY-OPENING:" + openingJournal.getId();
+                if (journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                org.getId(), sourceType, sourceId).isPresent()) {
+                        return null;
+                }
+                if (loanSpecificAccountBalance(loan, "1175")
+                                .compareTo(money(loan.getPenaltiesAssessedDecimal())) != 0) {
+                        log.warn("Skipping historical penalty credit for {}: penalty ledger does not reconcile",
+                                        loan.getReferenceNumber());
+                        return null;
+                }
+
+                List<JournalLine> lines = new ArrayList<>();
+                addSignedLine(lines, org, "1175", delta, "Correct historical penalty receivable");
+                addSignedLine(lines, org, "3010", delta.negate(), "Correct historical migration equity");
+                JournalEntry adjustment = postAtDate(org, loan.getBranch(), sourceType, sourceId,
+                                loan.getReferenceNumber(), "Correct historical penalty opening #" + openingJournal.getId(),
+                                asOf, lines, loan);
+                loan.setPenaltiesAssessed(money(loan.getPenaltiesAssessedDecimal().add(delta)));
+                loan.setTotalRepayable(money(loan.getTotalRepayableDecimal().add(delta)));
+                return adjustment;
         }
 
         /**
