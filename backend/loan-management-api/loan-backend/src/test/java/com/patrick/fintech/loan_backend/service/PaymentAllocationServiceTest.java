@@ -37,7 +37,7 @@ class PaymentAllocationServiceTest {
     }
 
     @Test
-    void partialPaymentSettlesInterestThenManagementFeeThenPrincipal() {
+    void partialPaymentSettlesPenaltyThenManagementFeeThenInterest() {
         PaymentAllocationService.Allocation result = service.allocate(
                 new BigDecimal("125.00"),
                 new BigDecimal("30.00"),
@@ -46,11 +46,11 @@ class PaymentAllocationServiceTest {
                 new BigDecimal("50.00"),
                 new BigDecimal("500.00"));
 
-        assertEquals(new BigDecimal("50.00"), result.interest());
+        assertEquals(new BigDecimal("45.00"), result.interest());
         assertEquals(new BigDecimal("50.00"), result.managementFee());
-        assertEquals(new BigDecimal("25.00"), result.principal());
+        assertEquals(new BigDecimal("0.00"), result.principal());
         assertEquals(new BigDecimal("0.00"), result.extensionFee());
-        assertEquals(new BigDecimal("0.00"), result.penalty());
+        assertEquals(new BigDecimal("30.00"), result.penalty());
         assertEquals(new BigDecimal("0.00"), result.overpayment());
     }
 
