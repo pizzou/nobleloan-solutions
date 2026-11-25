@@ -2029,6 +2029,10 @@ public class RegulatoryReportingService {
                 loans = safeLoans(
                                 loans);
 
+                // Match overdue calculation to the requested report cutoff.
+                // Do not classify a historical reporting period using today's clock.
+                LocalDate reportAsOf = to != null ? to : (from != null ? from : LocalDate.now());
+
                 List<CreditBureauRecord> output = new ArrayList<>();
 
                 for (Loan loan : loans) {
@@ -2045,7 +2049,7 @@ public class RegulatoryReportingService {
 
                         int daysPastDue = closed ? 0 : (int) Math.min(
                                         Integer.MAX_VALUE,
-                                        OverduePenaltyClock.daysOverdue(loan, LocalDate.now()));
+                                        OverduePenaltyClock.daysOverdue(loan, reportAsOf));
 
                         // ====================================================
                         // CRB CLASSIFICATION
