@@ -752,18 +752,38 @@ public class PaymentService {
                 // ============================================================
                 // PAYMENT ALLOCATION — CANONICAL ORDER
                 // ============================================================
-                // Interest -> management fee -> principal -> extension fee -> penalty.
-                // Interest and management fee are the first contractual charges.
-                // Principal is then reduced from the remaining payment. Extension
-                // fees and penalties stay separate and never increase principal.
+                // Use contractual maturity, not installment lateness, to select
+                // the overdue waterfall. Keep the existing on-time path intact.
+                LocalDate maturity = firstContractPenaltyDate == null ? null
+                                : firstContractPenaltyDate.minusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+                boolean contractOverdue = maturity != null && today.isAfter(maturity);
 
-                PaymentAllocationService.Allocation allocation = paymentAllocationService.allocate(
-                                amount,
-                                penaltyRemainingBeforePayment,
-                                safe(loan.getExtensionFeeOutstandingDecimal()),
-                                remainingInterestBeforePayment,
-                                remainingManagementFeeBeforePayment,
-                                currentBalance);
+                // At maturity all contractual scheduled charges have fallen due.
+                // The loan-level receivables are authoritative and include prior
+                // unpaid cycles, including verified imported opening balances.
+                // Do not add the current cycle again to these totals.
+                if (contractOverdue) {
+                        remainingInterestBeforePayment = roundMoney(
+                                        safe(loan.getTotalInterestDecimal())
+                                                        .subtract(safe(loan.getInterestPaidDecimal())).max(ZERO));
+                        remainingManagementFeeBeforePayment = roundMoney(
+                                        safe(loan.getManagementFeeDecimal())
+                                                        .subtract(safe(loan.getManagementFeePaidDecimal())).max(ZERO));
+                        totalCycleInterestDue = interestAlreadyPaidThisCycle.add(remainingInterestBeforePayment);
+                        totalCycleManagementFeeDue = managementFeeAlreadyPaidThisCycle.add(remainingManagementFeeBeforePayment);
+                }
+
+                PaymentAllocationService.Allocation allocation = contractOverdue
+                                ? paymentAllocationService.allocateOverdue(
+                                                amount, penaltyRemainingBeforePayment,
+                                                safe(loan.getExtensionFeeOutstandingDecimal()),
+                                                remainingInterestBeforePayment,
+                                                remainingManagementFeeBeforePayment, currentBalance)
+                                : paymentAllocationService.allocate(
+                                                amount, penaltyRemainingBeforePayment,
+                                                safe(loan.getExtensionFeeOutstandingDecimal()),
+                                                remainingInterestBeforePayment,
+                                                remainingManagementFeeBeforePayment, currentBalance);
 
                 BigDecimal penaltyPaidThisPayment = roundMoney(allocation.penalty());
 
@@ -1257,6 +1277,7 @@ public class PaymentService {
                 // the entire loan is paid would leave the future schedule
                 // calculated from an old balance.
                 if (principalPaidThisPayment.compareTo(ZERO) > 0
+                                && !contractOverdue
                                 && !loan.getStatus().equals(LoanStatus.PAID)) {
                         refreshFutureInstallments(
                                         loan,
