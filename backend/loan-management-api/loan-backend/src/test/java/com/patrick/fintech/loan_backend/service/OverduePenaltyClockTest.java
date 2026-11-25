@@ -22,10 +22,31 @@ class OverduePenaltyClockTest {
                 OverduePenaltyClock.contractualMaturity(loan));
         assertEquals(LocalDate.of(2026, 9, 23),
                 OverduePenaltyClock.firstChargeableDay(loan));
-        assertEquals(3L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 22)));
-        assertEquals(4L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 23)));
-        assertEquals(67L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 11, 25)));
+        assertEquals(0L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 22)));
+        assertEquals(1L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 23)));
+        assertEquals(64L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 11, 25)));
         assertEquals(64L, OverduePenaltyClock.chargeableDays(loan, LocalDate.of(2026, 11, 25)));
+    }
+
+    @Test
+    void marchTwentySixSixMonthLoanGraceEndsSeptemberTwentyNine() {
+        Loan loan = loan(LocalDate.of(2026, 3, 26), 6);
+        assertEquals(LocalDate.of(2026, 9, 26), OverduePenaltyClock.contractualMaturity(loan));
+        assertEquals(LocalDate.of(2026, 9, 30), OverduePenaltyClock.firstChargeableDay(loan));
+        for (int day = 26; day <= 29; day++) {
+            assertEquals(0L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, day)));
+            assertEquals(0L, OverduePenaltyClock.chargeableDays(loan, LocalDate.of(2026, 9, day)));
+        }
+        assertEquals(1L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 9, 30)));
+        assertEquals(2L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 10, 1)));
+        assertEquals(57L, OverduePenaltyClock.daysOverdue(loan, LocalDate.of(2026, 11, 25)));
+        assertEquals(57L, OverduePenaltyClock.chargeableDays(loan, LocalDate.of(2026, 11, 25)));
+    }
+
+    @Test
+    void dateAfterMaturityBeforeGraceEndsIsNotOverdue() {
+        assertEquals(0L, OverduePenaltyClock.daysOverdue(
+                LocalDate.of(2026, 11, 24), LocalDate.of(2026, 11, 25)));
     }
 
     @Test
