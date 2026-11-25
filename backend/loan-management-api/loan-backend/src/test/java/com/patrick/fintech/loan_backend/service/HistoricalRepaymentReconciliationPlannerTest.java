@@ -10,6 +10,73 @@ class HistoricalRepaymentReconciliationPlannerTest {
     private static BigDecimal m(String value) { return new BigDecimal(value); }
 
     @Test
+    void fullContractReplayKeepsOriginalCashAndAllocatesAcrossAllEarnedFees() {
+        // First payment occurs before contract maturity; the later receipt
+        // must settle all due arrears and chargeable penalties before principal.
+        var result = HistoricalRepaymentReconciliationPlanner.replayFullContract(
+                LocalDate.of(2026, 3, 26),
+                LocalDate.of(2026, 9, 26),
+                LocalDate.of(2026, 11, 25),
+                m("33500000.00"), m("10.00"),
+                List.of(
+                        new HistoricalRepaymentReconciliationPlanner.DatedCharge(
+                                LocalDate.of(2026, 4, 26), m("1675000.00"), m("1675000.00"), m("0.00")),
+                        new HistoricalRepaymentReconciliationPlanner.DatedCharge(
+                                LocalDate.of(2026, 9, 26), m("1675000.00"), m("1675000.00"), m("0.00"))),
+                List.of(
+                        new HistoricalRepaymentReconciliationPlanner.Receipt(
+                                1L, LocalDate.of(2026, 4, 26), m("3350000.00")),
+                        new HistoricalRepaymentReconciliationPlanner.Receipt(
+                                2L, LocalDate.of(2026, 11, 19), m("12100000.00"))));
+        assertEquals(2, result.allocations().size());
+        var early = result.allocations().get(0);
+        assertEquals(m("0.00"), early.penalty());
+        assertEquals(m("1675000.00"), early.interest());
+        assertEquals(m("1675000.00"), early.management());
+        assertEquals(m("0.00"), early.principal());
+        var later = result.allocations().get(1);
+        assertTrue(later.penalty().signum() > 0);
+        assertEquals(m("1675000.00"), later.interest());
+        assertEquals(m("1675000.00"), later.management());
+        assertEquals(m("0.00"), later.extension());
+        assertEquals(m("0.00"), later.principal());
+        assertEquals(m("12100000.00"), later.penalty().add(later.interest())
+                .add(later.management()).add(later.principal())
+                .add(later.extension()).add(later.unapplied()));
+        assertEquals(m("33500000.00"), result.principalOutstanding());
+    }
+
+    @Test
+    void fullContractReplaySplitsPartialFeePaymentEquallyAndRespectsExtension() {
+        var result = HistoricalRepaymentReconciliationPlanner.replayFullContract(
+                LocalDate.of(2026, 3, 26), LocalDate.of(2026, 9, 26),
+                LocalDate.of(2026, 9, 29), m("1000000.00"), m("10.00"),
+                List.of(new HistoricalRepaymentReconciliationPlanner.DatedCharge(
+                        LocalDate.of(2026, 9, 26), m("200000.00"), m("200000.00"), m("50000.00"))),
+                List.of(new HistoricalRepaymentReconciliationPlanner.Receipt(
+                        20L, LocalDate.of(2026, 9, 29), m("300000.00"))));
+        var receipt = result.allocations().get(0);
+        assertEquals(m("0.00"), receipt.penalty());
+        assertEquals(m("150000.00"), receipt.interest());
+        assertEquals(m("150000.00"), receipt.management());
+        assertEquals(m("0.00"), receipt.extension());
+        assertEquals(m("0.00"), receipt.principal());
+        assertEquals(m("50000.00"), result.extensionOutstanding());
+        assertEquals(m("0.00"), result.penaltyAssessed());
+    }
+
+    @Test
+    void fullContractReplayRejectsReceiptsWithoutVerifiedDates() {
+        assertThrows(IllegalArgumentException.class, () ->
+                HistoricalRepaymentReconciliationPlanner.replayFullContract(
+                        LocalDate.of(2026, 3, 26), LocalDate.of(2026, 9, 26),
+                        LocalDate.of(2026, 11, 25), m("1000000.00"), m("10.00"),
+                        List.of(),
+                        List.of(new HistoricalRepaymentReconciliationPlanner.Receipt(
+                                1L, LocalDate.of(2026, 3, 25), m("100000.00")))));
+    }
+
+    @Test
     void loan54ReceiptReclassificationUsesContractMaturityNotInstallmentDueDate() {
         var result = HistoricalRepaymentReconciliationPlanner.replay(
                 LocalDate.of(2026, 9, 26), LocalDate.of(2026, 11, 24),
