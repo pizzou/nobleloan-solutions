@@ -10,13 +10,15 @@ FROM maven:3.9.11-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 
+ARG MAVEN_PROFILE
+
 COPY pom.xml .
 
-RUN mvn dependency:go-offline -q
+RUN mvn ${MAVEN_PROFILE:+-P"${MAVEN_PROFILE}"} dependency:go-offline -q
 
 COPY src ./src
 
-RUN mvn clean verify -q
+RUN mvn ${MAVEN_PROFILE:+-P"${MAVEN_PROFILE}"} clean verify -q
 
 
 # ------------------------------------------------------------
