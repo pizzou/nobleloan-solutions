@@ -13,10 +13,14 @@ public final class FinancialPolicy {
                         com.patrick.fintech.loan_backend.model.Loan loan) {
                 if (loan == null) return null;
                 LocalDate maturity = loan.getMaturityDate();
-                if (maturity == null && loan.getDurationMonths() != null && loan.getDurationMonths() > 0) {
-                        LocalDate start = loan.getDisbursedAt() != null
-                                        ? loan.getDisbursedAt().toLocalDate() : loan.getStartDate();
-                        if (start != null) maturity = start.plusMonths(loan.getDurationMonths());
+                if (loan.getDurationMonths() != null && loan.getDurationMonths() > 0) {
+                        LocalDate start = loan.getDisbursedAt() == null ? null : loan.getDisbursedAt().toLocalDate();
+                        if (start == null && maturity == null) start = loan.getStartDate();
+                        if (start != null) {
+                                LocalDate termEnd = start.plusMonths(loan.getDurationMonths());
+                                // An extension or approved payment pause can move maturity later.
+                                if (maturity == null || maturity.isBefore(termEnd)) maturity = termEnd;
+                        }
                 }
                 return maturity == null ? null : maturity.plusDays(PENALTY_GRACE_DAYS + 1L);
         }

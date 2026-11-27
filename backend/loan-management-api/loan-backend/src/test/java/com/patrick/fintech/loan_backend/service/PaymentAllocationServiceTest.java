@@ -55,6 +55,14 @@ class PaymentAllocationServiceTest {
     }
 
     @Test
+    void oddCentGoesToInterestWhenBothChargesAreDue() {
+        var result = service.allocate(new BigDecimal("100.01"), new BigDecimal("20.00"), null,
+                new BigDecimal("100.00"), new BigDecimal("100.00"), new BigDecimal("500.00"));
+        assertEquals(new BigDecimal("40.01"), result.interest());
+        assertEquals(new BigDecimal("40.00"), result.managementFee());
+    }
+
+    @Test
     void redirectsAnUnusedShareToTheOtherChargeBeforePrincipal() {
         var result = service.allocate(new BigDecimal("95.01"), null, null,
                 new BigDecimal("100.00"), new BigDecimal("20.00"), new BigDecimal("500.00"));

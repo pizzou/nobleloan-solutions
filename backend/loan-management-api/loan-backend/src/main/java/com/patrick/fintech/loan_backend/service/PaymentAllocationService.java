@@ -66,7 +66,7 @@ public class PaymentAllocationService {
         BigDecimal chargePayment = remaining.min(interestBalance.add(managementBalance));
         BigDecimal managementShare = historicalManagementFirst
                 ? chargePayment
-                : chargePayment.divide(BigDecimal.TWO, SCALE, ROUNDING);
+                : chargePayment.divide(BigDecimal.TWO, SCALE, RoundingMode.DOWN);
         // Apply any unused share to the other charge before reducing principal.
         BigDecimal managementFee = managementShare.max(chargePayment.subtract(interestBalance))
                 .min(managementBalance);
