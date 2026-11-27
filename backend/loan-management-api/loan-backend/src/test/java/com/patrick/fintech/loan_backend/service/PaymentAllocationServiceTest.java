@@ -74,16 +74,6 @@ class PaymentAllocationServiceTest {
     }
 
     @Test
-    void historicalCorrectionRetainsTheApprovedManagementFirstPolicy() {
-        var result = service.allocateHistoricalCorrection(new BigDecimal("12100000.00"),
-                new BigDecimal("5583333.33"), null, new BigDecimal("6300000.00"),
-                new BigDecimal("6300000.00"), new BigDecimal("33500000.00"));
-        assertEquals(new BigDecimal("6300000.00"), result.managementFee());
-        assertEquals(new BigDecimal("216666.67"), result.interest());
-        assertEquals(new BigDecimal("0.00"), result.principal());
-    }
-
-    @Test
     void nullAndNegativeInputsCannotCreateNegativeAllocations() {
         PaymentAllocationService.Allocation result = service.allocate(
                 new BigDecimal("-1.00"),

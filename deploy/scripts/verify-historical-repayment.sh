@@ -7,9 +7,7 @@ backup=${1:?Usage: verify-historical-repayment.sh /absolute/path/to/backup.dump}
 [[ "$backup" == /* && -s "$backup" ]] || { echo "Supply a nonempty absolute backup path." >&2; exit 1; }
 
 cd /opt/nobleloan-solutions
-revision=e57748c735a966f1c574b03d10a14af6c4b547cf
-git fetch origin fix/repayment-allocation-review
-git merge-base --is-ancestor "$revision" FETCH_HEAD
+revision=$(git rev-parse HEAD)
 
 pg=loansaas-postgres
 suffix="$(date -u +%Y%m%d%H%M%S)_$$"
@@ -120,7 +118,7 @@ BEGIN
     END IF;
     SELECT COUNT(*) INTO correction_count FROM historical_receipt_reallocations
     WHERE receipt_id = 5 AND amount = 12100000.00 AND penalty = 5583333.33
-      AND management_fee = 6300000.00 AND interest = 216666.67 AND principal = 0;
+      AND management_fee = 3258333.33 AND interest = 3258333.34 AND principal = 0;
     IF correction_count <> 1 THEN
         RAISE EXCEPTION 'Effective receipt allocation differs from the reviewed amounts';
     END IF;

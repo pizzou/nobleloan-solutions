@@ -35,13 +35,6 @@ public class HistoricalRepaymentCorrectionService {
                 || loans.countRecordedPaymentTransactions(loanId) != 1 || loan.getDeletedAt() != null) {
             throw new IllegalStateException("The verified receipt and loan snapshot no longer match");
         }
-        var previous = jdbc.queryForList(
-                "SELECT journal_entry_id FROM historical_receipt_reallocations WHERE receipt_id = ?",
-                Long.class, receiptId);
-        if (!previous.isEmpty()) {
-            return previous.getFirst();
-        }
-
         var row = receipt.getInstallment();
         LocalDate paidOn = row.getPaidDate();
         var before = new PaymentAllocationService.Allocation(
@@ -52,6 +45,23 @@ public class HistoricalRepaymentCorrectionService {
                 List.of(new HistoricalRepaymentCalculation.Receipt(receiptId, paidOn, receipt.getAmount())), cutoff);
         var corrected = result.allocations().getFirst();
         var after = corrected.components();
+        var previous = jdbc.queryForList(
+                "SELECT journal_entry_id FROM historical_receipt_reallocations WHERE receipt_id = ?",
+                Long.class, receiptId);
+        if (!previous.isEmpty()) {
+            Boolean matches = jdbc.queryForObject("""
+                    SELECT EXISTS (SELECT 1 FROM historical_receipt_reallocations
+                    WHERE receipt_id = ? AND as_of_date = ? AND amount = ? AND penalty = ? AND management_fee = ?
+                      AND interest = ? AND principal = ? AND extension_fee = ? AND unapplied = ?)
+                    """, Boolean.class, receiptId, cutoff, receipt.getAmount(), after.penalty(),
+                    after.managementFee(), after.interest(), after.principal(), after.extensionFee(), after.overpayment());
+            if (!Boolean.TRUE.equals(matches)) {
+                throw new IllegalStateException("An existing receipt correction uses a different allocation. "
+                        + "Review the existing journal before posting a further adjustment.");
+            }
+            return previous.getFirst();
+        }
+
         BigDecimal revisedAssessed = opening.penalty().add(result.penaltyAccrued());
         BigDecimal assessmentDelta = revisedAssessed.subtract(expectedPostedAssessment);
         if (historicalOpeningCutoff == null || historicalOpeningCutoff.isBefore(opening.asOf())
@@ -83,6 +93,9 @@ public class HistoricalRepaymentCorrectionService {
                 receipt.getAmount(), before);
         var original = new HistoricalRepaymentCalculation.Allocation(receiptId, paidOn, receipt.getAmount(), before);
         var debits = calculation.receiptReclassification(original, corrected);
+        if (debtsUnchanged(debits) && openingAssessmentDelta.signum() == 0 && incomeAssessmentDelta.signum() == 0) {
+            return 0L;
+        }
         accounting.postHistoricalPenaltyRestatement(loan, receiptId,
                 openingAssessmentDelta, incomeAssessmentDelta);
         var journal = accounting.postHistoricalReceiptReclassification(loan, receiptId, debits);
@@ -194,6 +207,10 @@ public class HistoricalRepaymentCorrectionService {
             throw new IllegalStateException("Penalty journal totals do not reconcile");
         }
         return receivable;
+    }
+
+    private static boolean debtsUnchanged(java.util.Map<String, BigDecimal> changes) {
+        return changes.values().stream().allMatch(value -> value.signum() == 0);
     }
 
     private static BigDecimal zero(BigDecimal value) {

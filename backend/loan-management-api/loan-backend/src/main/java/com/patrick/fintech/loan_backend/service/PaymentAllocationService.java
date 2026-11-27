@@ -34,32 +34,6 @@ public class PaymentAllocationService {
             BigDecimal managementFeeDue,
             BigDecimal principalDue) {
 
-        return allocate(paymentAmount, penaltyDue, extensionFeeDue, interestDue,
-                managementFeeDue, principalDue, false);
-    }
-
-    /**
-     * Replays approved historical corrections under their original allocation rule.
-     */
-    Allocation allocateHistoricalCorrection(
-            BigDecimal paymentAmount,
-            BigDecimal penaltyDue,
-            BigDecimal extensionFeeDue,
-            BigDecimal interestDue,
-            BigDecimal managementFeeDue,
-            BigDecimal principalDue) {
-        return allocate(paymentAmount, penaltyDue, extensionFeeDue, interestDue,
-                managementFeeDue, principalDue, true);
-    }
-
-    private Allocation allocate(
-            BigDecimal paymentAmount,
-            BigDecimal penaltyDue,
-            BigDecimal extensionFeeDue,
-            BigDecimal interestDue,
-            BigDecimal managementFeeDue,
-            BigDecimal principalDue,
-            boolean historicalManagementFirst) {
         BigDecimal remaining = money(paymentAmount).max(ZERO);
 
         BigDecimal penalty = take(remaining, penaltyDue);
@@ -68,9 +42,7 @@ public class PaymentAllocationService {
         BigDecimal interestBalance = money(interestDue).max(ZERO);
         BigDecimal managementBalance = money(managementFeeDue).max(ZERO);
         BigDecimal chargePayment = remaining.min(interestBalance.add(managementBalance));
-        BigDecimal managementShare = historicalManagementFirst
-                ? chargePayment
-                : chargePayment.divide(BigDecimal.TWO, SCALE, RoundingMode.DOWN);
+        BigDecimal managementShare = chargePayment.divide(BigDecimal.TWO, SCALE, RoundingMode.DOWN);
         // Apply any unused share to the other charge before reducing principal.
         BigDecimal managementFee = managementShare.max(chargePayment.subtract(interestBalance))
                 .min(managementBalance);

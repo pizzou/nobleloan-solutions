@@ -25,8 +25,8 @@ class HistoricalRepaymentCalculationTest {
         var allocation = result.allocations().getFirst().components();
 
         assertEquals(new BigDecimal("5583333.33"), allocation.penalty());
-        assertEquals(new BigDecimal("6300000.00"), allocation.managementFee());
-        assertEquals(new BigDecimal("216666.67"), allocation.interest());
+        assertEquals(new BigDecimal("3258333.33"), allocation.managementFee());
+        assertEquals(new BigDecimal("3258333.34"), allocation.interest());
         assertEquals(new BigDecimal("0.00"), allocation.principal());
         assertEquals(new BigDecimal("33500000.00"), result.principal());
         assertEquals(new BigDecimal("6141666.67"), result.penaltyAccrued());
@@ -38,8 +38,8 @@ class HistoricalRepaymentCalculationTest {
                         new BigDecimal("8750000.00"), BigDecimal.ZERO));
         var adjustment = calculator.receiptReclassification(original, result.allocations().getFirst());
         assertEquals(new BigDecimal("8750000.00"), adjustment.get("1100"));
-        assertEquals(new BigDecimal("1458333.33"), adjustment.get("1150"));
-        assertEquals(new BigDecimal("-4625000.00"), adjustment.get("1160"));
+        assertEquals(new BigDecimal("-1583333.34"), adjustment.get("1150"));
+        assertEquals(new BigDecimal("-1583333.33"), adjustment.get("1160"));
         assertEquals(new BigDecimal("-5583333.33"), adjustment.get("1175"));
         assertEquals(new BigDecimal("0.00"), adjustment.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add));
         assertEquals(false, adjustment.containsKey("1000"));

@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -63,7 +64,9 @@ class HistoricalRepaymentCorrectionServiceTest {
         when(loans.countRecordedPaymentTransactions(54L)).thenReturn(1L);
         when(receipts.findByOrganization_IdAndId(1L, 5L)).thenReturn(Optional.of(receipt));
         when(jdbc.queryForList(contains("historical_receipt_reallocations"), eq(Long.class), eq(5L)))
-                .thenReturn(List.of(), List.of(410L));
+                .thenReturn(List.of(), List.of(410L), List.of(410L));
+        when(jdbc.queryForObject(contains("SELECT EXISTS"), eq(Boolean.class), any(Object[].class)))
+                .thenReturn(true, false);
         when(jdbc.queryForList(contains("source_id IN"), eq(Long.class),
                 eq(1L), eq("PAYTX:5"), eq("29"), eq(paidOn))).thenReturn(List.of(306L));
         when(jdbc.queryForList(contains("entry.source_type = ?"),
@@ -85,14 +88,16 @@ class HistoricalRepaymentCorrectionServiceTest {
         assertThat(loan.getPenaltiesPaidDecimal()).isEqualByComparingTo("5583333.33");
         assertThat(loan.getPenaltiesAssessedDecimal().subtract(loan.getPenaltiesPaidDecimal()))
                 .isEqualByComparingTo("670000.00");
-        assertThat(loan.getManagementFeeOutstandingDecimal()).isEqualByComparingTo("0.00");
-        assertThat(loan.getInterestOutstandingDecimal()).isEqualByComparingTo("6083333.33");
+        assertThat(loan.getManagementFeeOutstandingDecimal()).isEqualByComparingTo("3041666.67");
+        assertThat(loan.getInterestOutstandingDecimal()).isEqualByComparingTo("3041666.66");
         assertThat(receipt.getPrincipalComponent()).isEqualByComparingTo("8750000.00");
         assertThat(receipt.getAmount()).isEqualByComparingTo("12100000.00");
         assertThat(row.getPrincipalComponentDecimal()).isEqualByComparingTo("0.00");
 
         assertThat(service.applyVerifiedSingleReceipt(54L, 5L, opening, List.of(), cutoff,
                 openingCutoff, money("8870000.00"))).isEqualTo(410L);
+        assertThatThrownBy(() -> service.applyVerifiedSingleReceipt(54L, 5L, opening, List.of(), cutoff,
+                openingCutoff, money("8870000.00"))).hasMessageContaining("uses a different allocation");
         verify(accounting, times(1)).postHistoricalReceiptReclassification(eq(loan), eq(5L), anyMap());
         verify(accounting, times(1)).postHistoricalPenaltyRestatement(
                 loan, 5L, money("-2903333.33"), money("286666.66"));

@@ -86,7 +86,7 @@ public class HistoricalRepaymentCalculation {
             }
             while (r < orderedReceipts.size() && orderedReceipts.get(r).date().equals(day)) {
                 Receipt receipt = orderedReceipts.get(r++);
-                var allocation = allocator.allocateHistoricalCorrection(receipt.amount(), penalty, extension, interest, management, principal);
+                var allocation = allocator.allocate(receipt.amount(), penalty, extension, interest, management, principal);
                 penalty = penalty.subtract(allocation.penalty());
                 management = management.subtract(allocation.managementFee());
                 interest = interest.subtract(allocation.interest());
