@@ -196,7 +196,11 @@ type ReceivableReconciliation = {
 };
 
 export default function AccountingPage() {
-  const { currency } = useAuth();
+  const { currency, user } = useAuth();
+  const canOpenPostingPeriod = user?.role === "ADMIN" || user?.role === "ACCOUNTANT";
+  const [postingMonth, setPostingMonth] = useState("");
+  const [postingPeriodBusy, setPostingPeriodBusy] = useState(false);
+  const [postingPeriodError, setPostingPeriodError] = useState("");
 
   const [tab, setTab] = useState<Tab>("Trial Balance");
 
@@ -597,6 +601,59 @@ export default function AccountingPage() {
         value={financialPeriod}
         onApply={setFinancialPeriod}
       /></div>
+
+      {canOpenPostingPeriod && (
+        <form
+          id="posting-period"
+          className="rounded-xl border border-slate-200 bg-white p-4"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(postingMonth)) {
+              setPostingPeriodError("Enter a posting month in YYYY-MM format.");
+              return;
+            }
+            if (!window.confirm(`Open ${postingMonth} for ledger posting?`)) return;
+            const [year, month] = postingMonth.split("-").map(Number);
+            setPostingPeriodError("");
+            setPostingPeriodBusy(true);
+            try {
+              await accountingApi.openPeriod(year, month);
+              toast("success", `Accounting period ${postingMonth} is open for posting.`);
+            } catch (error) {
+              setPostingPeriodError(error instanceof Error ? error.message : "Could not open the accounting period.");
+            } finally {
+              setPostingPeriodBusy(false);
+            }
+          }}
+        >
+          <label htmlFor="posting-month" className="block text-sm font-semibold text-slate-800">
+            Open a posting month
+          </label>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              id="posting-month"
+              type="month"
+              required
+              placeholder="YYYY-MM"
+              value={postingMonth}
+              disabled={postingPeriodBusy}
+              onChange={(event) => setPostingMonth(event.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={postingPeriodBusy}
+              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {postingPeriodBusy ? "Opening…" : "Open period"}
+            </button>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">
+            Select the month of the actual transaction. A closed month requires a controlled adjustment.
+          </p>
+          {postingPeriodError && <p role="alert" className="mt-2 text-sm text-red-700">{postingPeriodError}</p>}
+        </form>
+      )}
 
       {reconciliationSummary && (
         <div

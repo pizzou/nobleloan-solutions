@@ -24,11 +24,16 @@ public class AccountingPeriodService {
                 .orElseThrow(() -> new IllegalArgumentException("Organization not found: " + orgId));
         AccountingPeriod p = periodRepository.findByOrganization_IdAndYearAndMonthForUpdate(orgId, year, month)
                 .orElseGet(() -> AccountingPeriod.builder().organization(org).year(year).month(month).build());
+        if (p.getStatus() == AccountingPeriod.PeriodStatus.CLOSED) {
+            throw new IllegalStateException("Accounting period " + java.time.YearMonth.of(year, month)
+                    + " is closed. Use the controlled accounting adjustment process.");
+        }
+        if (p.getOpenedAt() != null) {
+            return p;
+        }
         p.setStatus(AccountingPeriod.PeriodStatus.OPEN);
         p.setOpenedAt(LocalDateTime.now());
         p.setOpenedBy(actor);
-        p.setClosedAt(null);
-        p.setClosedBy(null);
         return periodRepository.save(p);
     }
 
@@ -63,7 +68,7 @@ public class AccountingPeriodService {
             } else if (sourceType != null && (sourceType.startsWith("LEGACY_") || sourceType.startsWith("MIGRATION_") || "OPENING_BALANCE".equals(sourceType))) {
                 return;
             } else {
-                throw new IllegalStateException("Accounting period " + y + "-" + String.format("%02d", m) + " is not open for posting");
+                throw new IllegalStateException("Accounting period " + y + "-" + String.format("%02d", m) + " is not open for posting. Ask an administrator or accountant to open that month in Accounting, then retry with the original transaction date.");
             }
         }
         if (p.getStatus() == AccountingPeriod.PeriodStatus.CLOSED) {

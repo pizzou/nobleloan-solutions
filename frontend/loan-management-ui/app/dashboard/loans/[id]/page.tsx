@@ -4095,8 +4095,9 @@ export default function LoanDetailPage() {
                 <p className="text-xs text-amber-900">
                   The repayment schedule and accounting entry will use this
                   date. The system separately audits the date and time you
-                  record the disbursement. A closed accounting period may
-                  prevent backdating.
+                  record the disbursement. Ask an administrator or accountant
+                  to open a missing posting month. A closed month requires a
+                  controlled accounting adjustment.
                 </p>
               </div>
             )}

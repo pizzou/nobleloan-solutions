@@ -965,6 +965,9 @@ export const esignatureApi = {
  */
 
 export const accountingApi = {
+  openPeriod: (year: number, month: number) =>
+    post("/accounting/periods/open", { year, month }),
+
   chartOfAccounts: () => get("/accounting/chart-of-accounts"),
 
   createAccount: (data: {
