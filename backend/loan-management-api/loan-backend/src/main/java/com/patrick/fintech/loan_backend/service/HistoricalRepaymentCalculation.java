@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Deterministic financial replay from a verified opening position.
@@ -23,7 +24,7 @@ public class HistoricalRepaymentCalculation {
         this.allocator = allocator;
     }
 
-    public record Opening(LocalDate asOf, LocalDate maturity, boolean imported,
+    public record Opening(LocalDate asOf, LocalDate maturity, BigDecimal monthlyPenaltyRate,
             BigDecimal principal, BigDecimal penalty, BigDecimal interest,
             BigDecimal management, BigDecimal extension) {}
     public record Charge(LocalDate date, BigDecimal interest, BigDecimal management) {}
@@ -46,7 +47,10 @@ public class HistoricalRepaymentCalculation {
         BigDecimal extension = nonNegative(opening.extension());
         BigDecimal accrued = ZERO;
         BigDecimal exactAccrual = BigDecimal.ZERO;
-        BigDecimal rate = FinancialPolicy.penaltyRateFor(opening.imported());
+        BigDecimal rate = opening.monthlyPenaltyRate();
+        if (rate == null || rate.signum() < 0) {
+            throw new IllegalArgumentException("Verified monthly penalty rate is required");
+        }
         LocalDate firstPenalty = opening.maturity().plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
         List<Charge> orderedCharges = new ArrayList<>(charges);
         List<Receipt> orderedReceipts = new ArrayList<>(receipts);
@@ -92,6 +96,37 @@ public class HistoricalRepaymentCalculation {
             }
         }
         return new Result(principal, penalty, interest, management, extension, accrued, List.copyOf(allocations));
+    }
+
+    /**
+     * Signed debits required to reclassify one previously posted receipt.
+     * Cash already posted for the original receipt and is never part of this plan.
+     */
+    public Map<String, BigDecimal> receiptReclassification(
+            Allocation original, Allocation corrected) {
+        if (original.receiptId() != corrected.receiptId()
+                || !original.date().equals(corrected.date())
+                || nonNegative(original.amount()).compareTo(nonNegative(corrected.amount())) != 0
+                || allocationTotal(original.components()).compareTo(original.amount()) != 0
+                || allocationTotal(corrected.components()).compareTo(corrected.amount()) != 0) {
+            throw new IllegalArgumentException("Both allocations must reconcile to the same original receipt");
+        }
+
+        var before = original.components();
+        var after = corrected.components();
+        return Map.of(
+                "1100", before.principal().subtract(after.principal()),
+                "1150", before.interest().subtract(after.interest()),
+                "1160", before.managementFee().subtract(after.managementFee()),
+                "1170", before.extensionFee().subtract(after.extensionFee()),
+                "1175", before.penalty().subtract(after.penalty()),
+                "2100", before.overpayment().subtract(after.overpayment()));
+    }
+
+    private static BigDecimal allocationTotal(PaymentAllocationService.Allocation allocation) {
+        return nonNegative(allocation.principal()).add(nonNegative(allocation.interest()))
+                .add(nonNegative(allocation.managementFee())).add(nonNegative(allocation.extensionFee()))
+                .add(nonNegative(allocation.penalty())).add(nonNegative(allocation.overpayment()));
     }
 
     private static void validateDate(LocalDate date, LocalDate opening, LocalDate asOf) {
