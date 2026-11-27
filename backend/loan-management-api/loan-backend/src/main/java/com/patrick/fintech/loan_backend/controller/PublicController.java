@@ -37,7 +37,11 @@ import com.patrick.fintech.loan_backend.service.BorrowerFileService;
 import com.patrick.fintech.loan_backend.service.FlutterwaveService;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.patrick.fintech.loan_backend.service.LoanService;
+import com.patrick.fintech.loan_backend.service.LoanContractService;
+import com.patrick.fintech.loan_backend.service.LoanApplicationSnapshotWriter;
 import com.patrick.fintech.loan_backend.service.MailService;
+import com.patrick.fintech.loan_backend.service.ContactEmailVerificationService;
+import com.patrick.fintech.loan_backend.service.ContactIpLocationService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.NotificationService;
 import com.patrick.fintech.loan_backend.service.PaymentService;
@@ -97,10 +101,15 @@ public class PublicController {
         private final LoanRepository loanRepo;
 
         private final LoanService loanService;
+        private final LoanContractService loanContractService;
+        private final LoanApplicationSnapshotWriter loanApplicationSnapshotWriter;
         private final BorrowerFileService fileService;
+        private final com.patrick.fintech.loan_backend.service.BorrowerDocumentReuseVerificationService borrowerReuseVerificationService;
         private final SmsService smsService;
         private final NotificationService notificationService;
         private final MailService mailService;
+        private final ContactEmailVerificationService contactEmailVerificationService;
+        private final ContactIpLocationService contactIpLocationService;
         private final AuditService auditService;
 
         private final ObjectMapper objectMapper;
@@ -122,7 +131,7 @@ public class PublicController {
         // PLATFORM RULES
         // ============================================================
 
-        private static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("500000.00");
+        private static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("1000000.00");
 
         private static final int MIN_LOAN_DURATION_MONTHS = 1;
 
@@ -143,8 +152,10 @@ public class PublicController {
         // ============================================================
 
         @PostMapping("/contact")
-        public ResponseEntity<ApiResponse<String>> submitContact(
-                        @RequestBody Map<String, Object> body) {
+        @org.springframework.transaction.annotation.Transactional
+        public ResponseEntity<ApiResponse<Object>> submitContact(
+                        @RequestBody Map<String, Object> body,
+                        jakarta.servlet.http.HttpServletRequest httpRequest) {
 
                 String slug = str(
                                 body.get("tenantSlug"));
@@ -157,6 +168,13 @@ public class PublicController {
                                         "We couldn't identify this lender. Please refresh and try again.");
                 }
 
+                if ("REQUEST_EMAIL_CODE".equals(str(body.get("action")))) {
+                        String address = ContactEmailVerificationService.email(str(body.get("email")));
+                        java.util.UUID id = contactEmailVerificationService.start(address, httpRequest);
+                        return ResponseEntity.ok(ApiResponse.<Object>ok("Verification code requested",
+                                        Map.<String, Object>of("challengeId", id.toString())));
+                }
+
                 String name = str(body.get("name"));
 
                 String subject = str(body.get("subject"));
@@ -165,13 +183,25 @@ public class PublicController {
 
                 String email = str(body.get("email"));
 
-                String phone = str(body.get("phone"));
+                email = ContactEmailVerificationService.email(email);
+                String phone = ContactEmailVerificationService.phone(str(body.get("phone")));
+                contactEmailVerificationService.consume(str(body.get("emailChallengeId")), email,
+                                str(body.get("emailVerificationCode")));
 
-                if (name == null || message == null) {
-
-                        throw new RuntimeException(
-                                        "Name and message are required");
+                if (name == null || name.isBlank() || message == null || message.isBlank()) {
+                        throw new IllegalArgumentException("Full name and message are required");
                 }
+                name = name.trim().replaceAll("\\s+", " ");
+                if (name.length() > 120 || name.split(" ").length < 2) {
+                        throw new IllegalArgumentException(
+                                        "Enter your full name (at least two names, maximum 120 characters).");
+                }
+                if (message.length() > 3000) {
+                        throw new IllegalArgumentException("Message must not exceed 3000 characters.");
+                }
+
+                com.patrick.fintech.loan_backend.util.ContactVisitorMetadata details = com.patrick.fintech.loan_backend.util.ContactVisitorMetadata
+                                .from(httpRequest, body);
 
                 contactMessageRepo.save(
                                 ContactMessage.builder()
@@ -181,6 +211,16 @@ public class PublicController {
                                                 .phone(phone)
                                                 .subject(subject)
                                                 .message(message)
+                                                .ipAddress(details.ipAddress())
+                                                .deviceType(details.deviceType())
+                                                .operatingSystem(details.operatingSystem())
+                                                .browserName(details.browserName())
+                                                .timeZone(details.timeZone())
+                                                .userAgent(details.userAgent())
+                                                .approximateLocation(details.approximateLocation() != null
+                                                                ? details.approximateLocation()
+                                                                : contactIpLocationService.lookup(details.ipAddress()))
+                                                .locationConsent(details.locationConsent())
                                                 .build());
 
                 List<User> staff = userRepo.findByOrganization(org)
@@ -219,9 +259,36 @@ public class PublicController {
                                 org.getId().toString(),
                                 "Contact form submitted by " + name);
 
-                return ResponseEntity.ok(
-                                ApiResponse.ok(
-                                                "Message received — we'll get back to you within 24 hours"));
+                return ResponseEntity.ok(ApiResponse.ok(
+                                "Message received — we'll get back to you within 24 hours", (Object) null));
+        }
+
+        // Public reuse challenge: no borrower details or documents are returned.
+        @PostMapping("/borrower/document-reuse/start")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> startDocumentReuse(
+                        @RequestBody Map<String, Object> body) {
+                Organization org = resolveOrg(str(body.get("tenantSlug")));
+                String challengeId = borrowerReuseVerificationService
+                                .start(org, str(body.get("phone")), str(body.get("nationalId"))).toString();
+                return ResponseEntity.ok(ApiResponse.ok(
+                                "If the provided details match a borrower account, a verification code will be emailed.",
+                                Map.of("challengeId", challengeId)));
+        }
+
+        @PostMapping("/borrower/document-reuse/verify")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> verifyDocumentReuse(
+                        @RequestBody Map<String, Object> body) {
+                java.util.UUID id;
+                try {
+                        id = java.util.UUID.fromString(str(body.get("challengeId")));
+                } catch (Exception e) {
+                        throw new IllegalArgumentException("Invalid verification code or challenge.");
+                }
+                String proof = borrowerReuseVerificationService.verify(id, str(body.get("otp")));
+                if (proof == null)
+                        throw new IllegalArgumentException("Invalid or expired verification code.");
+                return ResponseEntity.ok(ApiResponse.ok("Documents may be reused for your next application.",
+                                Map.of("proof", proof)));
         }
 
         // ============================================================
@@ -2877,6 +2944,8 @@ public class PublicController {
                         @RequestPart(value = "selfie", required = false) MultipartFile selfieFile,
                         @RequestPart(value = "payslip", required = false) MultipartFile payslipFile,
                         @RequestPart(value = "businessRegistration", required = false) MultipartFile businessRegistrationFile,
+                        @RequestPart(value = "collateralExpertiseDocument", required = false) MultipartFile collateralExpertiseDocument,
+                        @RequestPart(value = "otherSupportingDocuments", required = false) List<MultipartFile> otherSupportingDocuments,
                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
                 Map<String, Object> body;
@@ -3009,6 +3078,7 @@ public class PublicController {
                 String physicalAddressDistrict = str(body.get("district"));
                 String physicalAddressSector = str(body.get("sector"));
                 String physicalAddressCell = str(body.get("cell"));
+                String physicalAddressVillage = str(body.get("village"));
                 String country = str(body.get("country"));
 
                 requirePublicCrbField(nationality, "Nationality");
@@ -3017,6 +3087,10 @@ public class PublicController {
                 requirePublicCrbField(physicalAddressDistrict, "Physical address district");
                 requirePublicCrbField(physicalAddressSector, "Physical address sector");
                 requirePublicCrbField(physicalAddressCell, "Physical address cell");
+                requirePublicCrbField(physicalAddressVillage, "Physical address village");
+                if (physicalAddressVillage.length() > 255) {
+                        throw new RuntimeException("Physical address village cannot exceed 255 characters");
+                }
 
                 if (country == null || country.isBlank()) {
                         country = org.getCountry();
@@ -3076,16 +3150,8 @@ public class PublicController {
                 // the application. The loan is never created unless every
                 // mandatory document for the selected employment/marital type
                 // is present and valid.
-                validateRequiredPublicApplicationDocuments(
-                                employmentType(body),
-                                maritalStatus,
-                                nationalIdFile,
-                                bankStatementFile,
-                                marriageCertificateFile,
-                                singleCertificateFile,
-                                selfieFile,
-                                payslipFile,
-                                businessRegistrationFile);
+                // For a returning borrower, required documents can already be on file.
+                // Validate after matching both protected borrower identifiers below.
 
                 /*
                  * EXISTING BORROWER HANDLING
@@ -3230,7 +3296,7 @@ public class PublicController {
                         borrower.setPhysicalAddressCell(
                                         physicalAddressCell);
                         borrower.setPhysicalAddressVillage(
-                                        str(body.get("village")));
+                                        physicalAddressVillage.trim());
 
                         borrower.setCountry(country);
 
@@ -3261,6 +3327,83 @@ public class PublicController {
 
                         borrower = borrowerRepo.save(
                                         borrower);
+                }
+
+                // New borrowers still provide all mandatory KYC evidence.
+                // Returning borrowers reuse the latest acceptable borrower-level
+                // documents; only missing, rejected or outdated types need uploads.
+                if (borrowerByPhone == null && borrowerByNationalId == null) {
+                        validateRequiredPublicApplicationDocuments(
+                                        employmentType(body), maritalStatus,
+                                        nationalIdFile, bankStatementFile, marriageCertificateFile,
+                                        singleCertificateFile, selfieFile, payslipFile,
+                                        businessRegistrationFile);
+                } else {
+                        boolean anyDocumentReused = nationalIdFile == null || nationalIdFile.isEmpty()
+                                        || bankStatementFile == null || bankStatementFile.isEmpty()
+                                        || selfieFile == null || selfieFile.isEmpty()
+                                        || ("MARRIED".equalsIgnoreCase(maritalStatus)
+                                                        && (marriageCertificateFile == null
+                                                                        || marriageCertificateFile.isEmpty()))
+                                        || ("SINGLE".equalsIgnoreCase(maritalStatus)
+                                                        && (singleCertificateFile == null
+                                                                        || singleCertificateFile.isEmpty()))
+                                        || (isEmployeeEmploymentType(employmentType(body))
+                                                        && (payslipFile == null || payslipFile.isEmpty()))
+                                        || (isBusinessEmploymentType(employmentType(body))
+                                                        && (businessRegistrationFile == null
+                                                                        || businessRegistrationFile.isEmpty()));
+                        if (anyDocumentReused) {
+                                // Avoid unauthorized use of another customer's stored KYC.
+                                borrowerReuseVerificationService.consumeProof(
+                                                borrower.getId(), org.getId(), str(body.get("reuseProof")));
+                        }
+                        validateRepeatBorrowerDocuments(
+                                        borrower, employmentType(body), maritalStatus,
+                                        nationalIdFile, bankStatementFile, marriageCertificateFile,
+                                        singleCertificateFile, selfieFile, payslipFile,
+                                        businessRegistrationFile);
+                }
+
+                String requestedCollateralType = str(body.get("collateralType"));
+                String normalizedCollateralType = requestedCollateralType == null
+                                ? "NONE"
+                                : requestedCollateralType.trim().toUpperCase(java.util.Locale.ROOT);
+                if (!java.util.Set.of("NONE", "MOVABLE", "IMMOVABLE").contains(normalizedCollateralType)) {
+                        throw new IllegalArgumentException("Invalid collateral type.");
+                }
+                if ("IMMOVABLE".equals(normalizedCollateralType)
+                                && (collateralExpertiseDocument == null || collateralExpertiseDocument.isEmpty())) {
+                        throw new IllegalArgumentException(
+                                        "Collateral expertise / valuation report is required for immovable collateral.");
+                }
+                if (otherSupportingDocuments != null && otherSupportingDocuments.size() > 9) {
+                        throw new IllegalArgumentException("Maximum nine additional supporting documents.");
+                }
+
+                if ("NONE".equals(normalizedCollateralType)
+                                && collateralExpertiseDocument != null && !collateralExpertiseDocument.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                        "No collateral selected: remove the collateral expertise report.");
+                }
+                long totalApplicationFileBytes = 0L;
+                for (MultipartFile file : java.util.Arrays.asList(
+                                nationalIdFile, bankStatementFile, marriageCertificateFile,
+                                singleCertificateFile, selfieFile, payslipFile,
+                                businessRegistrationFile, collateralExpertiseDocument)) {
+                        if (file != null)
+                                totalApplicationFileBytes += file.getSize();
+                }
+                if (otherSupportingDocuments != null) {
+                        for (MultipartFile file : otherSupportingDocuments) {
+                                if (file != null)
+                                        totalApplicationFileBytes += file.getSize();
+                        }
+                }
+                if (totalApplicationFileBytes > 30L * 1024 * 1024) {
+                        throw new IllegalArgumentException(
+                                        "Total application attachments must not exceed 30 MB. "
+                                                        + "Please reduce the supporting file sizes.");
                 }
 
                 // ========================================================
@@ -3397,6 +3540,7 @@ public class PublicController {
                                                                                 "purpose")))
                                 .notes(
                                                 "Submitted via public website")
+                                .collateralType(normalizedCollateralType)
                                 .collateralValue(
                                                 collateralValue)
                                 .collateralDescription(
@@ -3425,6 +3569,24 @@ public class PublicController {
                                 org.getId(),
                                 null);
 
+                // Loan-specific collateral evidence, never reusable as borrower KYC.
+                try {
+                        if (collateralExpertiseDocument != null && !collateralExpertiseDocument.isEmpty()) {
+                                fileService.uploadEvidenceForLoan(borrower.getId(), loan,
+                                                collateralExpertiseDocument, DocumentType.COLLATERAL_EXPERTISE, true);
+                        }
+                        if (otherSupportingDocuments != null) {
+                                for (MultipartFile doc : otherSupportingDocuments) {
+                                        if (doc != null && !doc.isEmpty()) {
+                                                fileService.uploadEvidenceForLoan(borrower.getId(), loan,
+                                                                doc, DocumentType.OTHER, true);
+                                        }
+                                }
+                        }
+                } catch (java.io.IOException e) {
+                        throw new IllegalStateException("Could not securely save loan supporting documents.", e);
+                }
+
                 /*
                  * Persist the exact active product terms selected above.
                  * LoanService remains the authoritative domain validator, while
@@ -3441,6 +3603,15 @@ public class PublicController {
 
                 loan = loanRepo.save(
                                 loan);
+
+                // Preserve original public application answers for the downloadable form.
+                // The writer joins this existing transaction and encrypts the snapshot at rest.
+                // A failed snapshot save rolls back the application instead of losing answers.
+                loanApplicationSnapshotWriter.save(loan, body);
+
+                // Generate only after product-specific rates/fees have been applied, so the
+                // document reflects the actual product selected by the borrower.
+                loanContractService.generateForNewLoan(loan, null);
 
                 notifyStaff(
                                 org,
@@ -4485,6 +4656,69 @@ public class PublicController {
                 }
         }
 
+        private void validateRepeatBorrowerDocuments(
+                        Borrower borrower,
+                        String employmentType,
+                        String maritalStatus,
+                        MultipartFile nationalIdFile,
+                        MultipartFile bankStatementFile,
+                        MultipartFile marriageCertificateFile,
+                        MultipartFile singleCertificateFile,
+                        MultipartFile selfieFile,
+                        MultipartFile payslipFile,
+                        MultipartFile businessRegistrationFile) {
+                if (borrower == null || borrower.getId() == null) {
+                        throw new IllegalArgumentException("Existing borrower could not be verified.");
+                }
+                if (borrower.getMaritalStatus() != null
+                                && !borrower.getMaritalStatus().isBlank()
+                                && !borrower.getMaritalStatus().equalsIgnoreCase(maritalStatus)) {
+                        throw new IllegalArgumentException(
+                                        "Your recorded marital status has changed. Contact your loan officer "
+                                                        + "to update the borrower profile and review the supporting certificate.");
+                }
+                java.util.List<String> missing = new java.util.ArrayList<>();
+                requireNewOrReusableDocument(borrower.getId(), DocumentType.NATIONAL_ID,
+                                nationalIdFile, "National ID", missing);
+                requireNewOrReusableDocument(borrower.getId(), DocumentType.BANK_STATEMENT,
+                                bankStatementFile, "Bank Statement (recent)", missing);
+                requireNewOrReusableDocument(borrower.getId(), DocumentType.SELFIE,
+                                selfieFile, "Selfie", missing);
+                if ("MARRIED".equalsIgnoreCase(maritalStatus)) {
+                        requireNewOrReusableDocument(borrower.getId(), DocumentType.MARRIAGE_CERTIFICATE,
+                                        marriageCertificateFile, "Marriage Certificate", missing);
+                } else if ("SINGLE".equalsIgnoreCase(maritalStatus)) {
+                        requireNewOrReusableDocument(borrower.getId(), DocumentType.SINGLE_CERTIFICATE,
+                                        singleCertificateFile, "Single Status Certificate", missing);
+                } else {
+                        throw new IllegalArgumentException("Marital status must be Married or Single.");
+                }
+                if (isEmployeeEmploymentType(employmentType)) {
+                        requireNewOrReusableDocument(borrower.getId(), DocumentType.PAYSLIP,
+                                        payslipFile, "Payslip (recent)", missing);
+                } else if (isBusinessEmploymentType(employmentType)) {
+                        requireNewOrReusableDocument(borrower.getId(), DocumentType.BUSINESS_REGISTRATION,
+                                        businessRegistrationFile, "Business Registration", missing);
+                }
+                if (!missing.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                        "Existing documents will be reused. Upload only missing, outdated, "
+                                                        + "or replacement-requested documents: "
+                                                        + String.join(", ", missing)
+                                                        + ". A loan officer can request updated documents from the Documents viewer.");
+                }
+        }
+
+        private void requireNewOrReusableDocument(Long borrowerId, DocumentType type,
+                        MultipartFile uploaded, String label, java.util.List<String> missing) {
+                if (uploaded != null && !uploaded.isEmpty()) {
+                        return;
+                }
+                if (!fileService.hasReusableBorrowerDocument(borrowerId, type)) {
+                        missing.add(label);
+                }
+        }
+
         private void requirePublicDocument(MultipartFile file, String label) {
                 if (file == null || file.isEmpty() || file.getSize() <= 0) {
                         throw new IllegalArgumentException(label + " is mandatory before the loan can be created.");
@@ -4495,19 +4729,21 @@ public class PublicController {
                         Long borrowerId,
                         MultipartFile file,
                         DocumentType documentType) {
+                if (file == null || file.isEmpty()) {
+                        return; // Current borrower-level evidence is reused without new binary writes.
+                }
                 final BorrowerFile saved;
                 try {
-                        saved = fileService.upsertApplicantDocumentForNewApplication(
-                                        borrowerId,
-                                        file,
-                                        documentType);
+                        // New submission is a new version. Never overwrite previously
+                        // verified evidence referenced by an older loan or audit.
+                        saved = fileService.upload(borrowerId, file, documentType, true);
                 } catch (java.io.IOException ex) {
                         throw new IllegalStateException(
-                                        "Failed to persist mandatory " + documentType.name() + " document.", ex);
+                                        "Failed to persist " + documentType.name() + " document.", ex);
                 }
                 if (saved == null || saved.getId() == null) {
                         throw new IllegalStateException(
-                                        "Failed to persist mandatory " + documentType.name() + " document.");
+                                        "Failed to persist " + documentType.name() + " document.");
                 }
         }
 

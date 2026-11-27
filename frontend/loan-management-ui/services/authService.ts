@@ -1,6 +1,7 @@
 import { authApi } from "@/services/api";
 import { clearSensitiveClientState } from "@/lib/securityCleanup";
 import { AuthResponse } from "@/types";
+import { noteSessionActivity } from "@/lib/sessionActivity";
 
 /** Browser authentication uses an HttpOnly NLS_SESSION cookie. The JWT is never
  * exposed to JavaScript or persisted in localStorage. */
@@ -12,6 +13,7 @@ export async function login(
   const data = (await authApi.login(email, password)) as AuthResponse;
   if (typeof window !== "undefined") {
     localStorage.setItem("user", JSON.stringify(data));
+    noteSessionActivity();
   }
   return data;
 }

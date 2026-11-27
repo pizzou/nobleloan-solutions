@@ -64,7 +64,7 @@ public class SmsService {
 
         private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
-        private static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("10.00");
+        private static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("15.00");
 
         // ================================================================
         // LOAN APPROVED

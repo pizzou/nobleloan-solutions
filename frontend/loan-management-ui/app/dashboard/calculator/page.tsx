@@ -21,7 +21,7 @@ const DEFAULT_MANAGEMENT_RATE = 5;
 const DEFAULT_APPLICATION_FEE_RATE = 2;
 
 export default function CalculatorPage() {
-  const [amount, setAmount] = useState("500000");
+  const [amount, setAmount] = useState("1000000");
   const [interestRate, setInterestRate] = useState(
     String(DEFAULT_INTEREST_RATE),
   );
@@ -195,7 +195,7 @@ export default function CalculatorPage() {
             Principal amount
             <input
               type="number"
-              min="500000"
+              min="1000000"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="mt-2 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"

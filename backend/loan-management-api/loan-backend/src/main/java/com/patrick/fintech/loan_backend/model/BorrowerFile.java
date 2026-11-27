@@ -25,6 +25,14 @@ public class BorrowerFile {
     @EqualsAndHashCode.Exclude
     private Borrower borrower;
 
+    /** Optional association to the exact loan this document belongs to. */
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "loan_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private Loan loan;
+
     private String fileName;
     private String fileType;
     private Long fileSize;
@@ -80,10 +88,23 @@ public class BorrowerFile {
     private byte[] data;
 
     /** True when the database row contains non-empty binary content. */
+    /**
+     * Exposes the loan relationship only as metadata; the entity relation stays
+     * private.
+     */
+    @Transient
+    private Long loanId;
+
     @Transient
     private boolean contentAvailable;
 
     private LocalDateTime uploadedAt;
+
+    @Transient
+    private java.time.LocalDate documentReviewDueAt;
+
+    @Transient
+    private boolean updateRequired;
 
     @PrePersist
     protected void onCreate() {

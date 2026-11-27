@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { loanApi } from "@/services/api";
 import { Loan, LoanStatus, LoanType } from "@/types";
 import { formatCurrency, formatDate, LOAN_TYPE_META } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
-import { cacheGet, cacheSet } from "@/lib/offlineDb";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 import { StatusBadge, RiskBadge, Pill } from "@/components/ui/Badge";
@@ -30,6 +29,7 @@ import {
    ============================================================ */
 
 const PAGE_SIZE = 25;
+type PortfolioVisibility = "NORMAL" | "BUSINESS_OWNER_ONLY" | "ALL";
 
 /* ============================================================
    FILTER OPTIONS
@@ -323,12 +323,16 @@ function LoanRow({
   locale,
   canDelete,
   onDelete,
+  onVisibility,
+  visibilityUpdating,
 }: {
   loan: Loan;
   currency: string;
   locale: string;
   canDelete: boolean;
   onDelete: (loan: Loan) => void;
+  onVisibility: (loan: Loan) => void;
+  visibilityUpdating: boolean;
 }) {
   const borrowerName = getBorrowerName(loan);
   const borrowerInitials = getBorrowerInitials(loan);
@@ -528,6 +532,9 @@ function LoanRow({
             {formatCurrency(outstanding, currency, locale)}
           </div>
 
+          <div className="mt-1 text-[11px] text-slate-500">
+            Principal balance (excludes accrued interest and fees)
+          </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full bg-teal-600 transition-all duration-500"
@@ -537,8 +544,22 @@ function LoanRow({
             />
           </div>
 
+          <div className="mt-1 text-xs font-semibold text-teal-800">
+            Paid: {formatCurrency(totalPaid, currency, locale)}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            Principal{" "}
+            {formatCurrency(toNumber(loan.principalPaid), currency, locale)} ·
+            Interest{" "}
+            {formatCurrency(toNumber(loan.interestPaid), currency, locale)}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            Management fees paid:{" "}
+            {formatCurrency(toNumber(loan.managementFeePaid), currency, locale)}
+            {loan.imported ? " · Historical opening amounts included" : ""}
+          </div>
           <div className="mt-1 text-[11px] text-slate-400">
-            {progress}% collected
+            {progress}% collected · Principal balance shown above
           </div>
         </div>
       </td>
@@ -558,11 +579,26 @@ function LoanRow({
           </div>
         ) : null}
 
-        {overdue > 0 ? (
+        {loan.imported &&
+        loan.nextDueDate &&
+        loan.startDate &&
+        loan.nextDueDate <= loan.startDate ? (
+          <div
+            className="mt-2 text-xs font-semibold text-amber-700"
+            title="Review the oldest unpaid contractual installment date before relying on days past due"
+          >
+            Review due date — cannot measure arrears from disbursement
+          </div>
+        ) : overdue > 0 ? (
           <div className="mt-2 flex items-center justify-end gap-1 text-xs font-bold text-red-600">
             <IconAlertTriangle className="h-3.5 w-3.5" />
             {overdue} day
             {overdue === 1 ? "" : "s"} overdue
+            {loan.imported && loan.nextDueDate && (
+              <span className="font-normal text-slate-500">
+                (from {formatDate(loan.nextDueDate, locale)})
+              </span>
+            )}
           </div>
         ) : loan.nextDueDate ? (
           <div className="mt-2 text-xs text-slate-400">
@@ -573,6 +609,23 @@ function LoanRow({
 
       {canDelete ? (
         <td className="px-5 py-4 align-top">
+          <div className="mb-2 text-[11px] font-semibold text-slate-600">
+            {loan.businessOwnerOnly
+              ? "Business Owner only"
+              : "Normal · everyone authorized"}
+          </div>
+          <button
+            type="button"
+            disabled={visibilityUpdating}
+            onClick={() => onVisibility(loan)}
+            className="mb-2 block rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {visibilityUpdating
+              ? "Saving…"
+              : loan.businessOwnerOnly
+                ? "Make normal"
+                : "Owner only"}
+          </button>
           <button
             type="button"
             onClick={() => onDelete(loan)}
@@ -602,8 +655,12 @@ export default function LoanListPage() {
   );
 
   const [loading, setLoading] = useState(true);
+  const [initialLoadFinished, setInitialLoadFinished] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [visibilityUpdatingId, setVisibilityUpdatingId] = useState<
+    number | null
+  >(null);
 
   const [deleteLoan, setDeleteLoan] = useState<Loan | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -611,6 +668,7 @@ export default function LoanListPage() {
   const [deletingLoan, setDeletingLoan] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [page, setPage] = useState(0);
 
@@ -622,9 +680,14 @@ export default function LoanListPage() {
 
   const [type, setType] = useState<"" | LoanType>("");
 
+  // Start in the ordinary portfolio even for the Business Owner. The
+  // confidential register requires an explicit owner-only selection.
+  const [visibility, setVisibility] = useState<PortfolioVisibility>("NORMAL");
+
   const [query, setQuery] = useState("");
 
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const latestPortfolioRequest = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -640,94 +703,45 @@ export default function LoanListPage() {
      ========================================================== */
 
   const loadPortfolio = useCallback(async () => {
-    const cacheKey = `/loans/list?page=${page}&size=${PAGE_SIZE}&status=${status}&type=${type}&search=${encodeURIComponent(debouncedQuery)}`;
-
+    const requestId = ++latestPortfolioRequest.current;
     setError(null);
-
+    // Confidential loan records must not be rendered from a stale browser
+    // cache after a change of access or reporting visibility.
     try {
       const [listResponse, dashboardResponse] = await Promise.all([
-        loanApi.list(page, PAGE_SIZE, status, type, debouncedQuery),
-
-        page === 0 && !status && !type && !debouncedQuery
+        loanApi.list(page, PAGE_SIZE, status, type, debouncedQuery, visibility),
+        // Dashboard totals are cross-portfolio for the Business Owner. Never
+        // present those as scoped totals for Normal or Owner-only registers.
+        page === 0 &&
+        !status &&
+        !type &&
+        !debouncedQuery &&
+        (!isBusinessOwner || visibility === "ALL")
           ? loanApi.dashboard()
           : Promise.resolve(null),
       ]);
-
+      if (requestId !== latestPortfolioRequest.current) return;
       const pageLoans = getPageLoans(listResponse);
-
       const meta = getPageMeta(listResponse);
-
       setLoans(pageLoans);
-
       setTotalPages(meta.totalPages);
-
       setTotalElements(meta.totalElements || pageLoans.length);
-
-      if (dashboardResponse) {
-        setDashboard(dashboardResponse as LoanDashboardResponse);
-      }
-
-      await cacheSet(cacheKey, {
-        loans: pageLoans,
-        meta,
-        dashboard: dashboardResponse ?? undefined,
-      });
+      setDashboard(dashboardResponse as LoanDashboardResponse | null);
     } catch (requestError) {
-      console.error("Failed to load loan portfolio", requestError);
-
-      try {
-        const cached = await cacheGet<{
-          loans: Loan[];
-          meta: ReturnType<typeof getPageMeta>;
-          dashboard?: LoanDashboardResponse;
-        }>(cacheKey);
-
-        if (cached) {
-          const cachedData = cached.data;
-
-          setLoans(Array.isArray(cachedData.loans) ? cachedData.loans : []);
-
-          setTotalPages(
-            Number.isFinite(cachedData.meta?.totalPages)
-              ? cachedData.meta.totalPages
-              : 0,
-          );
-
-          setTotalElements(
-            Number.isFinite(cachedData.meta?.totalElements)
-              ? cachedData.meta.totalElements
-              : Array.isArray(cachedData.loans)
-                ? cachedData.loans.length
-                : 0,
-          );
-
-          if (cachedData.dashboard) {
-            setDashboard(cachedData.dashboard);
-          }
-
-          setError(
-            online
-              ? "Live portfolio data is temporarily unavailable. Showing the latest cached portfolio."
-              : "You're offline. Showing the latest cached portfolio.",
-          );
-        } else {
-          setLoans([]);
-
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : "Unable to load the loan portfolio.",
-          );
-        }
-      } catch (cacheError) {
-        console.error("Failed to load cached loan portfolio", cacheError);
-
-        setLoans([]);
-
-        setError("Unable to load the loan portfolio.");
-      }
+      if (requestId !== latestPortfolioRequest.current) return;
+      // Fail closed: an old cached list may contain recently reclassified
+      // confidential loans, or data from another authorized session.
+      setLoans([]);
+      setTotalPages(0);
+      setTotalElements(0);
+      setDashboard(null);
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load live loan portfolio. Reconnect and refresh.",
+      );
     }
-  }, [page, status, type, debouncedQuery, online]);
+  }, [page, status, type, debouncedQuery, visibility, isBusinessOwner]);
 
   /* ==========================================================
      INITIAL / FILTER LOAD
@@ -745,6 +759,7 @@ export default function LoanListPage() {
 
       if (mounted) {
         setLoading(false);
+        setInitialLoadFinished(true);
       }
     };
 
@@ -765,6 +780,43 @@ export default function LoanListPage() {
     await loadPortfolio();
 
     setRefreshing(false);
+  };
+
+  const handleVisibilityChange = async (loan: Loan) => {
+    if (!isBusinessOwner || visibilityUpdatingId !== null) return;
+    const desired = !Boolean(loan.businessOwnerOnly);
+    const label = desired
+      ? "Business Owner only"
+      : "Normal reporting (all authorized staff)";
+    if (
+      !window.confirm(
+        `Change ${loan.referenceNumber} to ${label}? This changes visibility and report scope, not the loan balance. The action is audited.`,
+      )
+    )
+      return;
+    setVisibilityUpdatingId(loan.id);
+    setNotice(null);
+    setError(null);
+    try {
+      await loanApi.changeReportingVisibility(loan.id, desired);
+      // Requery the server for the selected scope; a newly confidential loan
+      // must disappear from NORMAL, and vice versa for OWNER_ONLY.
+      if (page !== 0) setPage(0);
+      else await loadPortfolio();
+      setNotice(
+        desired
+          ? `${loan.referenceNumber} moved to Business Owner only. It is no longer in Normal loans; find it under Business Owner only or All loans.`
+          : `${loan.referenceNumber} moved to Normal loans. It is no longer in Business Owner only.`,
+      );
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Unable to change reporting visibility",
+      );
+    } finally {
+      setVisibilityUpdatingId(null);
+    }
   };
 
   const handleDeleteLoan = async () => {
@@ -927,6 +979,11 @@ export default function LoanListPage() {
     setPage(0);
   };
 
+  const isScopedPageSummary =
+    (isBusinessOwner && visibility !== "ALL") ||
+    page !== 0 ||
+    Boolean(status || type || debouncedQuery);
+
   /* ==========================================================
      PAGINATION
      ========================================================== */
@@ -947,7 +1004,7 @@ export default function LoanListPage() {
      LOADING
      ========================================================== */
 
-  if (loading) {
+  if (loading && !initialLoadFinished) {
     return <PageSpinner />;
   }
 
@@ -1019,9 +1076,13 @@ export default function LoanListPage() {
                 ) : null}
 
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-                  Monitor the institution's loan book, disbursements,
-                  outstanding balances, repayment performance and collection
-                  risk from one controlled operational view.
+                  {isBusinessOwner
+                    ? visibility === "NORMAL"
+                      ? "Normal portfolio: excludes loans classified Business Owner only."
+                      : visibility === "BUSINESS_OWNER_ONLY"
+                        ? "Confidential portfolio: only loans classified Business Owner only."
+                        : "All loans: normal and confidential portfolios combined."
+                    : "Normal portfolio: loans available to authorized staff."}
                 </p>
 
                 <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400">
@@ -1103,7 +1164,9 @@ export default function LoanListPage() {
                 </div>
 
                 <div className="mt-1 text-xs text-slate-500">
-                  Current portfolio count
+                  {isScopedPageSummary
+                    ? "Selected register count"
+                    : "Current portfolio count"}
                 </div>
               </div>
 
@@ -1117,7 +1180,9 @@ export default function LoanListPage() {
                 </div>
 
                 <div className="mt-1 text-xs text-slate-500">
-                  Cash released to borrowers
+                  {isScopedPageSummary
+                    ? "On this page only"
+                    : "Cash released to borrowers"}
                 </div>
               </div>
 
@@ -1131,7 +1196,9 @@ export default function LoanListPage() {
                 </div>
 
                 <div className="mt-1 text-xs text-slate-500">
-                  Includes{" "}
+                  {isScopedPageSummary
+                    ? "On this page only. Includes "
+                    : "Includes "}{" "}
                   {formatCurrency(
                     summary.historicalCollected,
                     currency,
@@ -1185,11 +1252,20 @@ export default function LoanListPage() {
             <div className="font-bold">Offline mode</div>
 
             <div className="mt-0.5 text-xs text-amber-800">
-              The portfolio remains readable from the latest cached version.
-              Server-dependent actions are not assumed to have completed.
+              Loan records require live verification of your permissions. A
+              cached loan register is intentionally not displayed.
             </div>
           </div>
         ) : null}
+
+        {notice && (
+          <div
+            role="status"
+            className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-900"
+          >
+            {notice}
+          </div>
+        )}
 
         {/* ====================================================
             ERROR / FALLBACK NOTICE
@@ -1223,7 +1299,11 @@ export default function LoanListPage() {
           <MetricCard
             label="Active"
             value={summary.active.toLocaleString()}
-            description="Loans currently performing."
+            description={
+              isScopedPageSummary
+                ? "On this page only."
+                : "Loans currently performing."
+            }
             icon={<IconCheckCircle className="h-5 w-5" />}
             tone="teal"
           />
@@ -1231,7 +1311,11 @@ export default function LoanListPage() {
           <MetricCard
             label="Overdue"
             value={summary.overdue.toLocaleString()}
-            description="Loans requiring collections attention."
+            description={
+              isScopedPageSummary
+                ? "On this page only."
+                : "Loans requiring collections attention."
+            }
             icon={<IconAlertTriangle className="h-5 w-5" />}
             tone="red"
           />
@@ -1239,7 +1323,11 @@ export default function LoanListPage() {
           <MetricCard
             label="Pending"
             value={summary.pending.toLocaleString()}
-            description="Applications awaiting action."
+            description={
+              isScopedPageSummary
+                ? "On this page only."
+                : "Applications awaiting action."
+            }
             icon={<IconClock className="h-5 w-5" />}
             tone="amber"
           />
@@ -1247,7 +1335,11 @@ export default function LoanListPage() {
           <MetricCard
             label="Disbursed"
             value={formatCurrency(summary.disbursed, currency, locale)}
-            description="Total cash released."
+            description={
+              isScopedPageSummary
+                ? "On this page only."
+                : "Total cash released."
+            }
             icon={<IconSend className="h-5 w-5" />}
             tone="blue"
           />
@@ -1255,7 +1347,11 @@ export default function LoanListPage() {
           <MetricCard
             label="Outstanding"
             value={formatCurrency(summary.outstanding, currency, locale)}
-            description="Current system-calculated balance."
+            description={
+              isScopedPageSummary
+                ? "On this page only."
+                : "Current system-calculated balance."
+            }
             icon={<IconCoins className="h-5 w-5" />}
             tone="violet"
           />
@@ -1279,7 +1375,11 @@ export default function LoanListPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-base font-bold text-slate-950">
-                    Loan register
+                    {visibility === "BUSINESS_OWNER_ONLY"
+                      ? "Business Owner-only loans"
+                      : visibility === "ALL"
+                        ? "All loans"
+                        : "Normal loans"}
                   </h2>
 
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
@@ -1294,6 +1394,26 @@ export default function LoanListPage() {
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                {isBusinessOwner && (
+                  <select
+                    aria-label="Loan visibility register"
+                    value={visibility}
+                    onChange={(event) => {
+                      setVisibility(event.target.value as PortfolioVisibility);
+                      setNotice(null);
+                      setPage(0);
+                      setLoans([]);
+                      setDashboard(null);
+                    }}
+                    className="h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-bold text-amber-950"
+                  >
+                    <option value="NORMAL">Normal loans</option>
+                    <option value="BUSINESS_OWNER_ONLY">
+                      Business Owner only
+                    </option>
+                    <option value="ALL">All loans (owner view)</option>
+                  </select>
+                )}
                 {/* Search */}
 
                 <div className="relative min-w-[260px]">
@@ -1313,7 +1433,7 @@ export default function LoanListPage() {
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Loan ID, reference, borrower, phone…"
+                    placeholder="Loan reference or borrower name…"
                     className="
                       h-10
                       w-full
@@ -1440,7 +1560,7 @@ export default function LoanListPage() {
                     "Status & risk",
                     "Original principal",
                     "Disbursed",
-                    "Outstanding",
+                    "Principal outstanding / payments",
                     "Type / repayment",
                     ...(isBusinessOwner ? ["Actions"] : []),
                   ].map((label) => (
@@ -1482,6 +1602,8 @@ export default function LoanListPage() {
                       locale={locale}
                       canDelete={isBusinessOwner}
                       onDelete={setDeleteLoan}
+                      onVisibility={handleVisibilityChange}
+                      visibilityUpdating={visibilityUpdatingId === loan.id}
                     />
                   ))
                 )}

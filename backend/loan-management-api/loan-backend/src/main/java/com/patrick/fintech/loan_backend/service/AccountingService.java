@@ -51,6 +51,7 @@ public class AccountingService {
         // MONEY CONFIGURATION
         // ============================================================
 
+        static final LocalDate LEDGER_HISTORY_START = LocalDate.of(1900, 1, 1);
         private static final int MONEY_SCALE = 2;
 
         private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
@@ -75,6 +76,7 @@ public class AccountingService {
                         { "1160", "Management Fees Receivable", "ASSET", "DEBIT" },
                         { "1170", "Extension Fees Receivable", "ASSET", "DEBIT" },
                         { "1175", "Penalties Receivable", "ASSET", "DEBIT" },
+                        { "1180", "Application Fees Receivable", "ASSET", "DEBIT" },
 
                         // CONTRA ASSET
                         { "1200", "Loan Loss Reserve", "ASSET", "CREDIT" },
@@ -628,6 +630,19 @@ public class AccountingService {
                         String description,
                         LocalDate entryDate,
                         List<JournalLine> lines) {
+                return postAtDate(org, branch, sourceType, sourceId, reference, description, entryDate, lines, null);
+        }
+
+        private JournalEntry postAtDate(
+                        Organization org,
+                        Branch branch,
+                        String sourceType,
+                        String sourceId,
+                        String reference,
+                        String description,
+                        LocalDate entryDate,
+                        List<JournalLine> lines,
+                        Loan originatingLoan) {
 
                 requireOrganization(org);
 
@@ -679,10 +694,14 @@ public class AccountingService {
 
                 String normalizedSourceId = sourceId.trim();
 
-                boolean businessOwnerOnly = resolveBusinessOwnerOnly(
-                                org.getId(),
-                                normalizedSourceType,
-                                normalizedSourceId);
+                if (originatingLoan != null && (originatingLoan.getOrganization() == null
+                                || !org.getId().equals(originatingLoan.getOrganization().getId()))) {
+                        throw new IllegalArgumentException("Originating loan belongs to a different organization");
+                }
+
+                boolean businessOwnerOnly = originatingLoan == null
+                                ? resolveBusinessOwnerOnly(org.getId(), normalizedSourceType, normalizedSourceId)
+                                : Boolean.TRUE.equals(originatingLoan.getBusinessOwnerOnly());
 
                 if (!"REVERSAL".equals(
                                 normalizedSourceType)) {
@@ -826,6 +845,244 @@ public class AccountingService {
         }
 
         /**
+         * Apply a verified IMPORT-TRANSCRIPTION adjustment to historical opening
+         * receivables. This is NOT a cash receipt, loan reversal, or a restatement
+         * of an old journal. Each receivable change is offset to historical
+         * migration equity (3010), and the entry is posted in the current open
+         * accounting period. postAtDate validates account ownership, balance,
+         * posting-period status, idempotency and reporting visibility.
+         */
+        @Transactional
+        public JournalEntry postApprovedLegacyCorrection(
+                        Loan loan, Long correctionId, Map<String, BigDecimal> receivableDeltas) {
+                if (loan == null || loan.getId() == null || loan.getOrganization() == null
+                                || correctionId == null || correctionId <= 0) {
+                        throw new IllegalArgumentException("Imported loan and correction ID are required");
+                }
+                if (!Boolean.TRUE.equals(loan.getImported())) {
+                        throw new IllegalStateException("Only historical imports support this adjustment");
+                }
+                if (receivableDeltas == null || receivableDeltas.isEmpty()) {
+                        throw new IllegalArgumentException("No receivable change to post");
+                }
+                java.util.Set<String> allowed = Set.of("1100", "1150", "1160", "1170", "1175", "1180");
+                Organization org = loan.getOrganization();
+                List<JournalLine> lines = new ArrayList<>();
+                BigDecimal totalChange = ZERO;
+                for (Map.Entry<String, BigDecimal> change : receivableDeltas.entrySet()) {
+                        String code = change.getKey();
+                        if (!allowed.contains(code) || change.getValue() == null) {
+                                throw new IllegalArgumentException(
+                                                "Unsupported receivable adjustment account: " + code);
+                        }
+                        BigDecimal delta = change.getValue().setScale(MONEY_SCALE, RoundingMode.UNNECESSARY);
+                        if (delta.signum() == 0)
+                                continue;
+                        lines.add(JournalLine.builder()
+                                        .account(account(org, code))
+                                        .debit(delta.signum() > 0 ? delta : ZERO)
+                                        .credit(delta.signum() < 0 ? delta.negate() : ZERO)
+                                        .description("Verified post-import correction #" + correctionId
+                                                        + " for " + loan.getReferenceNumber())
+                                        .build());
+                        totalChange = totalChange.add(delta);
+                }
+                if (lines.isEmpty())
+                        throw new IllegalArgumentException("All receivable changes are zero");
+                if (totalChange.signum() != 0) {
+                        lines.add(JournalLine.builder()
+                                        .account(account(org, "3010"))
+                                        .debit(totalChange.signum() < 0 ? totalChange.negate() : ZERO)
+                                        .credit(totalChange.signum() > 0 ? totalChange : ZERO)
+                                        .description("Offset to historical portfolio migration equity for correction #"
+                                                        + correctionId)
+                                        .build());
+                }
+                return postAtDate(org, loan.getBranch(), "LEGACY_IMPORT_DATA_CORRECTION",
+                                "LOAN:" + loan.getId() + ":CORRECTION:" + correctionId,
+                                loan.getReferenceNumber(),
+                                "Approved post-import data correction #" + correctionId
+                                                + " — not a cash transaction",
+                                LocalDate.now(), lines);
+        }
+
+        /**
+         * Compensating entries for an independently approved loan amendment.
+         * The old journals are never rewritten. The caller supplies signed
+         * changes (positive = debit for receivables; negative = credit), and
+         * this method validates the balanced journal in the open period.
+         *
+         * Imported portfolio corrections are offset to migration equity,
+         * since pre-import cash/income must not be represented as new cash.
+         * Native loan recording corrections change principal receivables
+         * against a historical-recording adjustment, never against today's
+         * cash. Actual incremental funding belongs to the disbursement flow.
+         */
+        @Transactional
+        public JournalEntry postApprovedLoanAmendment(
+                        Loan loan, Long amendmentId,
+                        BigDecimal principalReceivableDelta,
+                        BigDecimal interestReceivableDelta,
+                        BigDecimal managementReceivableDelta,
+                        BigDecimal principalContractDelta,
+                        BigDecimal interestContractDelta,
+                        BigDecimal managementContractDelta,
+                        BigDecimal overpaymentLiabilityDelta) {
+                if (loan == null || loan.getId() == null || loan.getOrganization() == null
+                                || amendmentId == null || amendmentId <= 0) {
+                        throw new IllegalArgumentException("Valid loan and approved amendment ID are required");
+                }
+                Organization org = loan.getOrganization();
+                ensureChartOfAccounts(org);
+                // A contractual outstanding value is not necessarily an accrued
+                // GL receivable. Posting its entire delta when the old GL never
+                // recognized it would create negative receivables and premature
+                // income. Fail closed until the existing loan-specific GL agrees.
+                assertLoanReceivableEqualsGl(loan, "1100", loan.getOutstandingBalanceDecimal());
+                assertLoanReceivableEqualsGl(loan, "1150", loan.getInterestOutstandingDecimal());
+                assertLoanReceivableEqualsGl(loan, "1160", loan.getManagementFeeOutstandingDecimal());
+                List<JournalLine> lines = new ArrayList<>();
+                addSignedLine(lines, org, "1100", principalReceivableDelta,
+                                "Principal receivable amendment #" + amendmentId);
+                addSignedLine(lines, org, "1150", interestReceivableDelta,
+                                "Interest receivable amendment #" + amendmentId);
+                addSignedLine(lines, org, "1160", managementReceivableDelta,
+                                "Management receivable amendment #" + amendmentId);
+
+                BigDecimal receivableChange = money(principalReceivableDelta)
+                                .add(money(interestReceivableDelta))
+                                .add(money(managementReceivableDelta));
+                if (Boolean.TRUE.equals(loan.getImported())) {
+                        // Legacy repayments can have been booked to refundable
+                        // overpayments (2100). When an approved repricing applies
+                        // that cash to the contract, release the liability too;
+                        // otherwise the loan is paid while the GL still claims a
+                        // refund is owed to the borrower.
+                        BigDecimal liabilityChange = money(overpaymentLiabilityDelta);
+                        if (liabilityChange.signum() < 0) {
+                                BigDecimal existingLiability = loanSpecificAccountBalance(loan, "2100").negate();
+                                if (existingLiability.add(liabilityChange).signum() < 0)
+                                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
+                                                        + " has insufficient booked refundable overpayment for amendment");
+                        }
+                        addSignedLine(lines, org, "2100", liabilityChange.negate(),
+                                        "Reallocate historical borrower overpayment for amendment #" + amendmentId);
+                        addSignedLine(lines, org, "3010", importedMigrationEquityChange(receivableChange, liabilityChange),
+                                        "Historical migration equity offset for amendment #" + amendmentId);
+                } else {
+                        addSignedLine(lines, org, "3010", money(principalContractDelta).negate(),
+                                        "Noncash historical principal recording adjustment #" + amendmentId);
+                        addSignedLine(lines, org, "4000", money(interestContractDelta).negate(),
+                                        "Contractual interest adjustment #" + amendmentId);
+                        addSignedLine(lines, org, "4100", money(managementContractDelta).negate(),
+                                        "Contractual management fee adjustment #" + amendmentId);
+                        addSignedLine(lines, org, "2100", money(overpaymentLiabilityDelta).negate(),
+                                        "Refundable overpayment reallocation #" + amendmentId);
+                }
+                if (lines.isEmpty()) return null;
+                return postAtDate(org, loan.getBranch(), "LOAN_AMENDMENT_RECONCILIATION",
+                                "LOAN:" + loan.getId() + ":AMENDMENT:" + amendmentId,
+                                loan.getReferenceNumber(), "Owner-approved loan amendment #" + amendmentId,
+                                LocalDate.now(), lines);
+        }
+
+        /**
+         * Posts a receipt allocation adjustment with no cash movement. The caller
+         * must persist the effective allocation and loan balances in the same transaction.
+         */
+        @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+        public JournalEntry postHistoricalReceiptReclassification(
+                        Loan loan, Long receiptId, Map<String, BigDecimal> signedDebits) {
+                if (loan == null || loan.getId() == null || loan.getOrganization() == null
+                                || receiptId == null || receiptId <= 0 || signedDebits == null) {
+                        throw new IllegalArgumentException("An originating loan and receipt are required");
+                }
+
+                Set<String> allowed = Set.of("1100", "1150", "1160", "1170", "1175", "2100");
+                if (!allowed.containsAll(signedDebits.keySet()) || signedDebits.values().stream().anyMatch(
+                                amount -> amount == null || amount.compareTo(money(amount)) != 0)) {
+                        throw new IllegalArgumentException("Invalid receipt reclassification account or amount");
+                }
+                if (signedDebits.values().stream().reduce(ZERO, BigDecimal::add).signum() != 0) {
+                        throw new IllegalArgumentException("Receipt reclassification must balance");
+                }
+
+                Organization organization = loan.getOrganization();
+                List<JournalLine> lines = new ArrayList<>();
+                signedDebits.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(
+                                change -> addSignedLine(lines, organization, change.getKey(), change.getValue(),
+                                                "Reclassify original receipt " + receiptId));
+                if (lines.isEmpty()) {
+                        return null;
+                }
+                return postAtDate(organization, loan.getBranch(), "HISTORICAL_RECEIPT_REALLOCATION",
+                                "LOAN:" + loan.getId() + ":RECEIPT:" + receiptId,
+                                loan.getReferenceNumber(), "Reclassify historical receipt " + receiptId,
+                                LocalDate.now(), lines, loan);
+        }
+
+        @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+        public void postHistoricalPenaltyRestatement(Loan loan, long receiptId,
+                        BigDecimal openingDelta, BigDecimal incomeDelta) {
+                assertLoanReceivableEqualsGl(loan, "1175",
+                                money(loan.getPenaltiesAssessedDecimal().subtract(loan.getPenaltiesPaidDecimal())));
+                Organization organization = loan.getOrganization();
+                List<JournalLine> lines = new ArrayList<>();
+                addSignedLine(lines, organization, "1175", openingDelta.add(incomeDelta),
+                                "Restate penalty receivable");
+                addSignedLine(lines, organization, "3010", openingDelta.negate(),
+                                "Restate legacy opening penalty");
+                addSignedLine(lines, organization, "4100", incomeDelta.negate(),
+                                "Restate penalty accrual income");
+                if (lines.isEmpty()) return;
+
+                postAtDate(organization, loan.getBranch(), "HISTORICAL_PENALTY_RESTATEMENT",
+                                "LOAN:" + loan.getId() + ":RECEIPT:" + receiptId,
+                                loan.getReferenceNumber(), "Restate penalties for receipt " + receiptId,
+                                LocalDate.now(), lines, loan);
+        }
+
+        private void addSignedLine(List<JournalLine> lines, Organization org,
+                                   String code, BigDecimal signedDebit, String description) {
+                BigDecimal value = money(signedDebit);
+                if (value.signum() == 0) return;
+                lines.add(JournalLine.builder().account(account(org, code))
+                                .debit(value.signum() > 0 ? value : ZERO)
+                                .credit(value.signum() < 0 ? value.negate() : ZERO)
+                                .description(description).build());
+        }
+
+        static BigDecimal importedMigrationEquityChange(BigDecimal receivableChange,
+                                                         BigDecimal liabilityChange) {
+                return liabilityChange.subtract(receivableChange).setScale(2, RoundingMode.HALF_UP);
+        }
+
+        private void assertLoanReceivableEqualsGl(Loan loan, String accountCode, BigDecimal expected) {
+                BigDecimal actual = loanSpecificAccountBalance(loan, accountCode);
+                if (actual.subtract(money(expected)).abs().compareTo(TOLERANCE) > 0) {
+                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
+                                        + " cannot be automatically amended: GL " + accountCode
+                                        + " balance " + money(actual) + " differs from loan receivable "
+                                        + money(expected) + ". Historical accrual or payment reconciliation is required.");
+                }
+        }
+
+        private BigDecimal loanSpecificAccountBalance(Loan loan, String accountCode) {
+                Organization org = loan.getOrganization();
+                ChartOfAccount receivable = account(org, accountCode);
+                BigDecimal actual = ZERO;
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoanIdentity(
+                                receivable.getId(), org.getId(), loan.getId(), loan.getReferenceNumber());
+                if (lines != null) {
+                        for (JournalLine line : lines) {
+                                actual = actual.add(money(line.getDebitDecimal()))
+                                                .subtract(money(line.getCreditDecimal()));
+                        }
+                }
+                return money(actual);
+        }
+
+        /**
          * Resolves the visibility classification of an accounting event from
          * its originating loan. All loan-generated journal entries therefore
          * carry the same reporting boundary without requiring every posting
@@ -851,7 +1108,10 @@ public class AccountingService {
                                 "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL",
                                 "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL",
                                 "LEGACY_LOAN_OPENING",
+                                "LEGACY_PENALTY_OPENING",
                                 "LEGACY_LOAN_RECONCILIATION",
+                                "LEGACY_IMPORT_DATA_CORRECTION",
+                                "LOAN_AMENDMENT_RECONCILIATION",
                                 "WRITE_OFF");
 
                 java.util.Set<String> paymentTypes = java.util.Set.of(
@@ -961,6 +1221,14 @@ public class AccountingService {
         @Transactional
         public JournalEntry postHistoricalLoanOpening(
                         Loan loan) {
+                return postHistoricalLoanOpening(loan, null);
+        }
+
+        /**
+         * Current-dated posting for reconciliation repairs; null retains original
+         * import behavior.
+         */
+        private JournalEntry postHistoricalLoanOpening(Loan loan, LocalDate repairPostingDate) {
 
                 if (loan == null) {
                         throw new IllegalArgumentException("Loan is required");
@@ -978,6 +1246,10 @@ public class AccountingService {
                                 loan.getManagementFeeOutstandingDecimal()).max(ZERO);
                 BigDecimal extensionOutstanding = money(
                                 loan.getExtensionFeeOutstandingDecimal()).max(ZERO);
+                BigDecimal applicationFeeOutstanding = money(
+                                money(loan.getApplicationFeeDecimal())
+                                                .subtract(money(loan.getApplicationFeePaidDecimal()))
+                                                .max(ZERO));
 
                 BigDecimal penaltiesAssessed = money(
                                 loan.getPenaltiesAssessedDecimal()).max(ZERO);
@@ -1004,7 +1276,8 @@ public class AccountingService {
                                                 .add(interestOutstanding)
                                                 .add(managementOutstanding)
                                                 .add(extensionOutstanding)
-                                                .add(penaltyOutstanding));
+                                                .add(penaltyOutstanding)
+                                                .add(applicationFeeOutstanding));
 
                 if (openingBalance.compareTo(ZERO) <= 0) {
                         log.info(
@@ -1080,6 +1353,18 @@ public class AccountingService {
                                                         .build());
                 }
 
+                if (applicationFeeOutstanding.compareTo(ZERO) > 0) {
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "1180"))
+                                                        .debit(applicationFeeOutstanding)
+                                                        .credit(ZERO)
+                                                        .description(
+                                                                        "Opening unpaid application-fee receivable — "
+                                                                                        + reference)
+                                                        .build());
+                }
+
                 lines.add(
                                 JournalLine.builder()
                                                 .account(account(org, "3010"))
@@ -1098,12 +1383,93 @@ public class AccountingService {
                                 reference,
                                 "Opening financial position for migrated historical loan "
                                                 + reference,
-                                loan.getDisbursedAt() != null
-                                                ? loan.getDisbursedAt().toLocalDate()
-                                                : (loan.getStartDate() != null
-                                                                ? loan.getStartDate()
-                                                                : LocalDate.now()),
+                                repairPostingDate != null ? repairPostingDate
+                                                : (loan.getDisbursedAt() != null
+                                                                ? loan.getDisbursedAt().toLocalDate()
+                                                                : (loan.getStartDate() != null ? loan.getStartDate()
+                                                                                : LocalDate.now())),
                                 lines);
+        }
+
+        /**
+         * Recognizes the application fee already collected at the historical
+         * disbursement of an imported loan. Legacy opening journals deliberately
+         * do not replay cash movements; this entry reclassifies the fee from
+         * migration opening equity (3010) to application-fee income (4100),
+         * matching the established V108 migration treatment. Its source key is
+         * identical to the V108 key, so retries and existing entries are safe.
+         */
+        @Transactional
+        public JournalEntry postHistoricalApplicationFeeIncome(Loan loan) {
+                return postHistoricalApplicationFeeIncome(loan, null);
+        }
+
+        /** Current-dated posting for reconciliation repairs only. */
+        private JournalEntry postHistoricalApplicationFeeIncome(Loan loan, LocalDate repairPostingDate) {
+                if (loan == null || loan.getId() == null) {
+                        throw new IllegalArgumentException("Persisted legacy loan is required");
+                }
+
+                BigDecimal applicationFeePaid = money(loan.getApplicationFeePaidDecimal()).max(ZERO);
+                if (applicationFeePaid.compareTo(ZERO) <= 0) {
+                        return null;
+                }
+
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+
+                JournalEntry originalDisbursement = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(), "LOAN_DISBURSEMENT", String.valueOf(loan.getId()))
+                                .orElse(null);
+                if (originalDisbursement != null && !Boolean.TRUE.equals(originalDisbursement.getReversed())) {
+                        boolean alreadyRecognized = lineRepo.findByJournalEntry_Id(originalDisbursement.getId())
+                                        .stream()
+                                        .anyMatch(line -> line.getAccount() != null
+                                                        && "4100".equals(line.getAccount().getCode())
+                                                        && money(line.getCredit()).compareTo(applicationFeePaid) >= 0);
+                        if (alreadyRecognized) {
+                                log.info("Legacy application fee income is already included in disbursement journal; "
+                                                + "skipping reclassification. loanId={}", loan.getId());
+                                return originalDisbursement;
+                        }
+                }
+                ensureChartOfAccounts(org);
+
+                ChartOfAccount equityAccount = account(org, "3010");
+                ChartOfAccount incomeAccount = account(org, "4100");
+                if (incomeAccount.getType() != ChartOfAccount.AccountType.INCOME) {
+                        throw new IllegalStateException("GL 4100 must be an income account");
+                }
+
+                String reference = loan.getReferenceNumber() != null && !loan.getReferenceNumber().isBlank()
+                                ? loan.getReferenceNumber().trim()
+                                : "LOAN-" + loan.getId();
+                String sourceId = loan.getId() + ":APPLICATION_FEE_INCOME";
+                LocalDate entryDate = repairPostingDate != null ? repairPostingDate
+                                : (loan.getDisbursedAt() != null ? loan.getDisbursedAt().toLocalDate()
+                                                : (loan.getStartDate() != null ? loan.getStartDate()
+                                                                : LocalDate.now()));
+
+                List<JournalLine> lines = new ArrayList<>();
+                lines.add(JournalLine.builder()
+                                .account(equityAccount)
+                                .debit(applicationFeePaid)
+                                .credit(ZERO)
+                                .description("Remove collected legacy application fee from migration equity — "
+                                                + reference)
+                                .build());
+                lines.add(JournalLine.builder()
+                                .account(incomeAccount)
+                                .debit(ZERO)
+                                .credit(applicationFeePaid)
+                                .description("Recognize collected legacy application fee income — " + reference)
+                                .build());
+
+                return postAtDate(org, loan.getBranch(), "APPLICATION_FEE_INCOME_RECLASSIFICATION",
+                                sourceId, reference,
+                                "Reclassify collected historical application fee to income — " + reference,
+                                entryDate, lines);
         }
 
         /**
@@ -1134,8 +1500,12 @@ public class AccountingService {
                          * postAtDate() is source-idempotent, so an existing
                          * correct opening journal is never duplicated.
                          */
-                        JournalEntry opening = postHistoricalLoanOpening(loan);
+                        JournalEntry opening = postHistoricalLoanOpening(loan, LocalDate.now());
                         if (opening != null) {
+                                repaired++;
+                        }
+                        JournalEntry applicationFeeIncome = postHistoricalApplicationFeeIncome(loan, LocalDate.now());
+                        if (applicationFeeIncome != null) {
                                 repaired++;
                         }
 
@@ -1169,6 +1539,8 @@ public class AccountingService {
                                         .subtract(money(loan.getPenaltiesPaidDecimal()))
                                         .max(ZERO);
                         expected.put("1175", money(penaltyOutstanding));
+                        expected.put("1180", money(loan.getApplicationFeeDecimal()
+                                        .subtract(loan.getApplicationFeePaidDecimal()).max(ZERO)));
 
                         Map<String, BigDecimal> deltas = new LinkedHashMap<>();
 
@@ -1273,7 +1645,7 @@ public class AccountingService {
                 }
 
                 Map<String, ChartOfAccount> receivableAccounts = new LinkedHashMap<>();
-                for (String code : List.of("1100", "1150", "1160", "1170", "1175")) {
+                for (String code : List.of("1100", "1150", "1160", "1170", "1175", "1180")) {
                         ChartOfAccount account = coaRepo
                                         .findByOrganization_IdAndCode(organizationId, code)
                                         .orElse(null);
@@ -1356,6 +1728,9 @@ public class AccountingService {
                                                 operational = money(loan.getExtensionFeeOutstandingDecimal()).max(ZERO);
                                         case "1175" -> operational = money(loan.getPenaltiesAssessedDecimal())
                                                         .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                                        .max(ZERO);
+                                        case "1180" -> operational = money(loan.getApplicationFeeDecimal())
+                                                        .subtract(money(loan.getApplicationFeePaidDecimal()))
                                                         .max(ZERO);
                                         default -> operational = ZERO;
                                 }
@@ -1583,6 +1958,19 @@ public class AccountingService {
                                         "Loan ID is required");
                 }
 
+                // An approved commitment is not a receivable. Only a loan whose
+                // disbursement has succeeded may enter the general ledger.
+                // Keep this guard here, not only in LoanService, so future
+                // callers cannot accidentally post an approval as disbursement.
+                if (loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE
+                                || loan.getDisbursedAt() == null
+                                || loan.getDisbursedAmountDecimal() == null
+                                || loan.getDisbursedAmountDecimal().compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalStateException(
+                                        "Cannot post loan disbursement before successful disbursement: loan="
+                                                        + loan.getId() + ", status=" + loan.getStatus());
+                }
+
                 Organization org = loan.getOrganization();
 
                 requireOrganization(org);
@@ -1781,7 +2169,10 @@ public class AccountingService {
                                                         .build());
                 }
 
-                post(
+                LocalDate accountingDisbursementDate = loan.getDisbursedAt() != null
+                                ? loan.getDisbursedAt().toLocalDate()
+                                : LocalDate.now();
+                postAtDate(
                                 org,
                                 loan.getBranch(),
                                 "LOAN_DISBURSEMENT",
@@ -1795,6 +2186,7 @@ public class AccountingService {
                                                 + applicationFee.toPlainString()
                                                 + ", net cash "
                                                 + netCashDisbursed.toPlainString(),
+                                accountingDisbursementDate,
                                 lines);
 
                 log.info(
@@ -2161,11 +2553,242 @@ public class AccountingService {
         // ============================================================
         // PENALTY ACCRUAL
         // ============================================================
+        /**
+         * Opens overdue penalties that accrued BEFORE a legacy loan was imported.
+         * The approved legacy policy uses the CURRENT outstanding principal for
+         * every historical chargeable day, at the saved 10% monthly rate.
+         *
+         * These charges are opening receivables against migration equity, not
+         * current-period income. Existing imported assessed/paid amounts are
+         * preserved; only a positive shortfall is added. A fixed source ID
+         * prevents re-posting after a restart or scheduler retry.
+         */
+        @Transactional
+        public JournalEntry postImportedLoanHistoricalPenaltyOpeningCatchUp(Loan loan, LocalDate asOf) {
+                if (loan == null || !Boolean.TRUE.equals(loan.getImported())
+                                || loan.getId() == null || loan.getOrganization() == null
+                                || loan.getCreatedAt() == null || loan.getDeletedAt() != null
+                                || (loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE
+                                    && loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE)
+                                || asOf == null || !LocalDate.now().equals(asOf))
+                        return null;
+
+                LocalDate firstChargeable = FinancialPolicy.firstContractPenaltyDate(loan);
+                LocalDate importDate = loan.getCreatedAt().toLocalDate();
+                if (firstChargeable == null || importDate.isAfter(asOf))
+                        return null;
+                LocalDate lastHistoricalDay = importDate;
+
+                BigDecimal principal = money(loan.getOutstandingBalanceDecimal());
+                if (principal.signum() <= 0 || loan.getPenaltyRateDecimal() == null
+                                || loan.getPenaltyRateDecimal()
+                                                .compareTo(FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE) != 0)
+                        return null;
+
+                boolean hasPaymentHistory = !paymentRepo.findByLoanId(loan.getId()).isEmpty()
+                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0;
+                BigDecimal openingPrincipal = hasPaymentHistory ? verifiedOpeningPrincipal(loan) : principal;
+                if (openingPrincipal == null) {
+                        log.warn("Skipping historical penalty opening for {}: payment activity requires review",
+                                        loan.getReferenceNumber());
+                        return null;
+                }
+
+                Organization org = loan.getOrganization();
+                String sourceId = "LOAN:" + loan.getId() + ":HISTORICAL-PENALTY";
+                JournalEntry openingJournal = journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                org.getId(), "LEGACY_PENALTY_OPENING", sourceId).orElse(null);
+
+                BigDecimal historicalEstimate = FinancialPolicy.historicalDailyPenalty(
+                                openingPrincipal, firstChargeable, lastHistoricalDay,
+                                loan.getPenaltyRateDecimal(), day -> openingPrincipal);
+                BigDecimal postImportAssessed = money(lineRepo.sumPostedPenaltyAccrualSinceImport(
+                                org.getId(), loan.getId() + "-%", importDate));
+                BigDecimal historicalAlreadyAssessed = money(
+                                loan.getPenaltiesAssessedDecimal().subtract(postImportAssessed).max(ZERO));
+                BigDecimal additionalHistorical = money(historicalEstimate.subtract(historicalAlreadyAssessed));
+                if (additionalHistorical.signum() < 0 && openingJournal != null) {
+                        return creditVerifiedHistoricalPenaltyOpening(loan, openingJournal,
+                                        historicalAlreadyAssessed, additionalHistorical, asOf, openingPrincipal);
+                }
+                if (hasPaymentHistory || openingJournal != null || additionalHistorical.signum() <= 0
+                                || loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE)
+                        return null;
+
+                JournalEntry entry = postAtDate(org, loan.getBranch(), "LEGACY_PENALTY_OPENING", sourceId,
+                                loan.getReferenceNumber(),
+                                "Imported loan historical overdue penalty opening through " + importDate
+                                                + " using current outstanding principal and 10% monthly rate",
+                                asOf, List.of(
+                                                JournalLine.builder().account(account(org, "1175"))
+                                                                .debit(additionalHistorical).credit(ZERO)
+                                                                .description("Historical penalties receivable — "
+                                                                                + loan.getReferenceNumber())
+                                                                .build(),
+                                                JournalLine.builder().account(account(org, "3010"))
+                                                                .debit(ZERO).credit(additionalHistorical)
+                                                                .description("Historical migration equity — "
+                                                                                + loan.getReferenceNumber())
+                                                                .build()));
+                loan.setPenaltiesAssessed(money(loan.getPenaltiesAssessedDecimal().add(additionalHistorical)));
+                loan.setTotalRepayable(money(money(loan.getTotalRepayableDecimal()).add(additionalHistorical)));
+                return entry;
+        }
+
+        private BigDecimal verifiedOpeningPrincipal(Loan loan) {
+                BigDecimal paid = loanRepo.sumVerifiedPostImportPrincipal(
+                                loan.getId(), loan.getCreatedAt().toLocalDate());
+                if (paid == null || paid.signum() < 0
+                                || money(paid).compareTo(money(loan.getPrincipalPaidDecimal())) != 0) {
+                        return null;
+                }
+                BigDecimal principal = money(loan.getOutstandingBalanceDecimal().add(paid));
+                return principal.compareTo(money(loan.getAmountDecimal())) == 0 ? principal : null;
+        }
+
+        private JournalEntry creditVerifiedHistoricalPenaltyOpening(
+                        Loan loan, JournalEntry openingJournal, BigDecimal historicalAssessed,
+                        BigDecimal delta, LocalDate asOf, BigDecimal openingPrincipal) {
+                if (loanRepo.findByIdForUpdate(loan.getId()).isEmpty()
+                                || money(loan.getPenaltiesPaidDecimal()).signum() != 0
+                                || (loan.getExtensionCount() != null && loan.getExtensionCount() > 0)
+                                || Boolean.TRUE.equals(openingJournal.getReversed())) {
+                        return null;
+                }
+
+                boolean hasPaymentHistory = !paymentRepo.findByLoanId(loan.getId()).isEmpty()
+                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0;
+                BigDecimal confirmedPrincipal = hasPaymentHistory ? verifiedOpeningPrincipal(loan)
+                                : money(loan.getOutstandingBalanceDecimal());
+                if (confirmedPrincipal == null
+                                || confirmedPrincipal.compareTo(openingPrincipal) != 0
+                                || confirmedPrincipal.compareTo(money(loan.getAmountDecimal())) != 0
+                                || (!hasPaymentHistory && money(loan.getPrincipalPaidDecimal()).signum() != 0)) {
+                        return null;
+                }
+
+                List<JournalLine> openingLines = lineRepo.findByJournalEntry_Id(openingJournal.getId());
+                if (openingLines.size() != 2
+                                || openingLines.stream().noneMatch(line -> "1175".equals(line.getAccount().getCode())
+                                                && money(line.getDebitDecimal()).compareTo(historicalAssessed) == 0
+                                                && money(line.getCreditDecimal()).signum() == 0)
+                                || openingLines.stream().noneMatch(line -> "3010".equals(line.getAccount().getCode())
+                                                && money(line.getCreditDecimal()).compareTo(historicalAssessed) == 0
+                                                && money(line.getDebitDecimal()).signum() == 0)) {
+                        return null;
+                }
+
+                Organization org = loan.getOrganization();
+                String sourceType = "LEGACY_PENALTY_OPENING_ADJUSTMENT";
+                String sourceId = "LOAN:" + loan.getId() + ":PENALTY-OPENING:" + openingJournal.getId();
+                if (journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                org.getId(), sourceType, sourceId).isPresent()) {
+                        return null;
+                }
+                if (loanSpecificAccountBalance(loan, "1175")
+                                .compareTo(money(loan.getPenaltiesAssessedDecimal())) != 0) {
+                        log.warn("Skipping historical penalty credit for {}: penalty ledger does not reconcile",
+                                        loan.getReferenceNumber());
+                        return null;
+                }
+
+                List<JournalLine> lines = new ArrayList<>();
+                addSignedLine(lines, org, "1175", delta, "Correct historical penalty receivable");
+                addSignedLine(lines, org, "3010", delta.negate(), "Correct historical migration equity");
+                JournalEntry adjustment = postAtDate(org, loan.getBranch(), sourceType, sourceId,
+                                loan.getReferenceNumber(), "Correct historical penalty opening #" + openingJournal.getId(),
+                                asOf, lines, loan);
+                loan.setPenaltiesAssessed(money(loan.getPenaltiesAssessedDecimal().add(delta)));
+                loan.setTotalRepayable(money(loan.getTotalRepayableDecimal().add(delta)));
+                return adjustment;
+        }
+
+        /**
+         * Imported loans have no synthetic installment rows. Accrue only the
+         * days after the record entered this platform; pre-import penalties
+         * belong in verified historical opening balances, not current income.
+         *
+         * No schedule and no post-import payments are prerequisites because
+         * without transaction-level history a fixed daily principal cannot
+         * be reconstructed safely. Uses posted PENALTY_ACCRUAL 1175 debits
+         * rather than all loan penalties to avoid subtracting import opening
+         * positions. postPenaltyAccrual is idempotent by loan/day.
+         */
+        @Transactional
+        public JournalEntry postImportedLoanPostImportPenaltyAccrual(
+                        Loan loan, LocalDate asOf) {
+                if (loan == null || !Boolean.TRUE.equals(loan.getImported())
+                                || loan.getId() == null
+                                || loan.getOrganization() == null
+                                || loan.getCreatedAt() == null
+                                || loan.getDeletedAt() != null
+                                || loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE
+                                || asOf == null)
+                        return null;
+
+                LocalDate firstChargeable = FinancialPolicy.firstContractPenaltyDate(loan);
+                if (firstChargeable == null || firstChargeable.isAfter(asOf))
+                        return null;
+                LocalDate importDate = loan.getCreatedAt().toLocalDate();
+                // The opening position is recognized at import; begin new
+                // accrual on the following day to avoid overlapping opening
+                // balances with the import date.
+                LocalDate firstPostImportDay = importDate.plusDays(1);
+                if (firstChargeable.isBefore(firstPostImportDay))
+                        firstChargeable = firstPostImportDay;
+                if (firstChargeable.isAfter(asOf))
+                        return null;
+
+                BigDecimal principal = money(loan.getOutstandingBalanceDecimal());
+                if (principal.signum() <= 0)
+                        return null;
+
+                // Never silently reconstruct changing principal from opening totals.
+                if (!paymentRepo.findByLoanId(loan.getId()).isEmpty()
+                                || loanRepo.countRecordedPaymentTransactions(loan.getId()) > 0) {
+                        log.warn("Skipping imported penalty catch-up for {}: later payment activity requires reconciliation",
+                                        loan.getReferenceNumber());
+                        return null;
+                }
+
+                if (loan.getPenaltyRateDecimal().compareTo(
+                                FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE) != 0) {
+                        log.warn("Skipping imported penalty catch-up for {}: unexpected saved penalty rate {}",
+                                        loan.getReferenceNumber(), loan.getPenaltyRateDecimal());
+                        return null;
+                }
+
+                BigDecimal requiredSinceImport = FinancialPolicy.historicalDailyPenalty(
+                                principal, firstChargeable, asOf,
+                                loan.getPenaltyRateDecimal(), day -> principal);
+                BigDecimal postedSinceImport = money(lineRepo.sumPostedPenaltyAccrualSinceImport(
+                                loan.getOrganization().getId(),
+                                loan.getId() + "-%", importDate));
+                BigDecimal difference = money(requiredSinceImport.subtract(postedSinceImport));
+                if (difference.signum() <= 0)
+                        return null;
+
+                String currentSourceId = loan.getId() + "-" + asOf;
+                if (journalRepo.findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                loan.getOrganization().getId(), "PENALTY_ACCRUAL",
+                                currentSourceId).isPresent()) {
+                        // Another run may have already posted today. Never change
+                        // an immutable journal or invent a duplicate source event.
+                        log.warn("Imported penalty accrual for {} needs review: today's journal already exists",
+                                        loan.getReferenceNumber());
+                        return null;
+                }
+                // Scheduler passes today's date; no retroactive journal dates.
+                if (!LocalDate.now().equals(asOf))
+                        throw new IllegalArgumentException("Catch-up must post on the current accounting date");
+                return postPenaltyAccrual(loan, difference);
+        }
 
         /**
          * Records the daily late-payment penalty as a receivable. The platform
-         * policy is 10% of outstanding principal per chargeable day after a 3-day grace
-         * period.
+         * rate comes from the saved loan: 10% per month for imported legacy loans,
+         * 15% per month for new system loans, prorated daily after three full
+         * calendar grace days.
          */
         @Transactional
         public JournalEntry postPenaltyAccrual(
@@ -2210,8 +2833,10 @@ public class AccountingService {
                                 "PENALTY_ACCRUAL",
                                 sourceId,
                                 reference,
-                                "10% daily penalty accrual after 3-day grace period for " + reference
-                                                + " (" + accrualDate + ")",
+                                "Penalty accrual at "
+                                                + loan.getPenaltyRateDecimal().stripTrailingZeros().toPlainString()
+                                                + "% monthly (daily-prorated) after 3-day grace period for "
+                                                + reference + " (" + accrualDate + ")",
                                 List.of(
                                                 JournalLine.builder()
                                                                 .account(account(org, "1175"))
@@ -2239,7 +2864,7 @@ public class AccountingService {
         // ============================================================
 
         /**
-         * Record a 10% extension/restructuring fee as a receivable and
+         * Record a 5% extension/restructuring fee as a receivable and
          * fee income. The fee is never added to loan principal.
          */
         @Transactional
@@ -2286,7 +2911,7 @@ public class AccountingService {
                                 "LOAN_EXTENSION_FEE",
                                 sourceId,
                                 reference,
-                                "10% extension fee assessed for " + reference,
+                                "5% extension fee assessed for " + reference,
                                 List.of(
                                                 JournalLine.builder()
                                                                 .account(account(org, "1170"))
@@ -2423,6 +3048,35 @@ public class AccountingService {
                         BigDecimal extensionFeeAmount,
                         BigDecimal overpaymentAmount) {
 
+                return postPaymentReceived(payment, paymentAmount, principalAmount,
+                                interestAmount, managementFeeAmount, penaltyAmount,
+                                extensionFeeAmount, overpaymentAmount, null);
+        }
+
+        /**
+         * Transaction-scoped cash posting. A Payment row is an installment with
+         * cumulative amounts, whereas a PaymentTransaction is one immutable cash
+         * receipt. Use the receipt's identity for journal idempotency.
+         *
+         * Null transaction id retains the historical installment-id overload
+         * for existing callers and journal references.
+         */
+        @Transactional
+        public JournalEntry postPaymentReceived(
+                        Payment payment,
+                        BigDecimal paymentAmount,
+                        BigDecimal principalAmount,
+                        BigDecimal interestAmount,
+                        BigDecimal managementFeeAmount,
+                        BigDecimal penaltyAmount,
+                        BigDecimal extensionFeeAmount,
+                        BigDecimal overpaymentAmount,
+                        Long paymentTransactionId) {
+
+                if (paymentTransactionId != null && paymentTransactionId <= 0) {
+                        throw new IllegalArgumentException("Payment transaction ID must be positive");
+                }
+
                 if (payment == null) {
 
                         throw new IllegalArgumentException(
@@ -2455,8 +3109,9 @@ public class AccountingService {
 
                 ensureChartOfAccounts(org);
 
-                String sourceId = String.valueOf(
-                                payment.getId());
+                String sourceId = paymentTransactionId == null
+                                ? String.valueOf(payment.getId())
+                                : "PAYTX:" + paymentTransactionId;
 
                 JournalEntry existing = journalRepo
                                 .findFirstByOrganization_IdAndSourceTypeAndSourceId(
@@ -2466,6 +3121,10 @@ public class AccountingService {
                                 .orElse(null);
 
                 if (existing != null) {
+                        if (Boolean.TRUE.equals(existing.getBusinessOwnerOnly())
+                                        != Boolean.TRUE.equals(loan.getBusinessOwnerOnly())) {
+                                throw new IllegalStateException("Payment journal already exists in a different reporting scope.");
+                        }
 
                         log.info(
                                         "Payment {} already posted as journal {}",
@@ -2811,15 +3470,21 @@ public class AccountingService {
                                                 ? payment.getPaymentReference().trim()
                                                 : "PAY-" + payment.getId();
 
-                return post(
+                if (paymentTransactionId != null) {
+                        reference = "PAYTX-" + paymentTransactionId + "-" + loanReference;
+                }
+
+                // The receipt ID identifies the journal. Its reporting scope comes from the payment's loan.
+                return postAtDate(
                                 org,
                                 loan.getBranch(),
                                 "PAYMENT_RECEIVED",
                                 sourceId,
                                 reference,
-                                "Payment received on loan "
-                                                + loanReference,
-                                lines);
+                                "Payment received on loan " + loanReference,
+                                LocalDate.now(),
+                                lines,
+                                loan);
         }
 
         // ============================================================
@@ -4158,6 +4823,12 @@ public class AccountingService {
 
                 List<JournalEntry> entries = loadEntries(orgId, from, to);
                 Map<String, AccountReportTotal> totals = new LinkedHashMap<>();
+                Map<String, BigDecimal> feeTotals = new LinkedHashMap<>();
+                feeTotals.put("applicationFeeIncome", ZERO);
+                feeTotals.put("historicalApplicationFeeIncome", ZERO);
+                feeTotals.put("penaltyIncome", ZERO);
+                feeTotals.put("managementFeeIncome", ZERO);
+                feeTotals.put("otherFeeIncome", ZERO);
 
                 for (JournalEntry entry : entries) {
                         if (entry == null || entry.getLines() == null)
@@ -4181,13 +4852,21 @@ public class AccountingService {
                                                 k -> new AccountReportTotal(acc.getCode(), acc.getName(),
                                                                 acc.getType()));
                                 total.amount = normalize(total.amount.add(amount));
+                                if (acc.getType() == ChartOfAccount.AccountType.INCOME
+                                                && "4100".equals(acc.getCode())) {
+                                        String type = feeIncomeType(entry, line);
+                                        feeTotals.merge(type, amount, BigDecimal::add);
+                                        if ("APPLICATION_FEE_INCOME_RECLASSIFICATION".equals(entry.getSourceType())) {
+                                                feeTotals.merge("historicalApplicationFeeIncome", amount,
+                                                                BigDecimal::add);
+                                        }
+                                }
                         }
                 }
 
                 List<Map<String, Object>> income = new ArrayList<>();
                 List<Map<String, Object>> expenses = new ArrayList<>();
                 BigDecimal totalIncome = ZERO;
-                BigDecimal applicationFeeIncome = ZERO;
                 BigDecimal totalExpense = ZERO;
 
                 for (AccountReportTotal total : totals.values()) {
@@ -4203,9 +4882,7 @@ public class AccountingService {
                         if (total.type == ChartOfAccount.AccountType.INCOME) {
                                 income.add(row);
                                 totalIncome = totalIncome.add(amount);
-                                if ("4100".equals(total.code)) {
-                                        applicationFeeIncome = normalize(applicationFeeIncome.add(amount));
-                                }
+
                         } else {
                                 expenses.add(row);
                                 totalExpense = totalExpense.add(amount);
@@ -4230,12 +4907,110 @@ public class AccountingService {
                 result.put("expenses", expenses);
                 result.put("expense", expenses); // backward compatibility
                 result.put("totalIncome", totalIncome);
-                result.put("applicationFeeIncome", normalize(applicationFeeIncome));
+                result.put("applicationFeeIncome", normalize(feeTotals.get("applicationFeeIncome")));
+                result.put("historicalApplicationFeeIncome",
+                                normalize(feeTotals.get("historicalApplicationFeeIncome")));
+                result.put("penaltyIncome", normalize(feeTotals.get("penaltyIncome")));
+                result.put("managementFeeIncome", normalize(feeTotals.get("managementFeeIncome")));
+                result.put("otherFeeIncome", normalize(feeTotals.get("otherFeeIncome")));
                 result.put("totalExpense", totalExpense);
                 result.put("netIncome", netProfit); // backward compatibility
                 result.put("netProfit", netProfit);
                 result.put("profitMarginPercent", margin);
                 result.put("profitable", netProfit.compareTo(ZERO) >= 0);
+                return result;
+        }
+
+        /** Identify the actual income stream behind the shared GL 4100 account. */
+        static String feeIncomeType(JournalEntry entry, JournalLine line) {
+                String source = entry.getSourceType() == null ? "" : entry.getSourceType();
+                String description = line.getDescription() == null ? ""
+                                : line.getDescription().toLowerCase(java.util.Locale.ROOT);
+                if ("APPLICATION_FEE_INCOME_RECLASSIFICATION".equals(source)
+                                || (description.contains("application fee") && description.contains("income")))
+                        return "applicationFeeIncome";
+                if ("PENALTY_ACCRUAL".equals(source)
+                                || (description.contains("penalty") && description.contains("income")))
+                        return "penaltyIncome";
+                if ("CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL".equals(source)
+                                || (description.contains("management fee") && description.contains("income")))
+                        return "managementFeeIncome";
+                return "otherFeeIncome";
+        }
+
+        /**
+         * Cumulative imported-loan operational history, shown separately from the
+         * general ledger P&L. Historic payment dates are usually unavailable.
+         * This read-only summary MUST NOT be added to period GL income or cash.
+         */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getHistoricalPortfolioPerformance(Long orgId) {
+                requireOrganizationId(orgId);
+                List<Loan> imports = loanRepo.findVisibleHistoricalImportedLoans(
+                                orgId, ReportingScopeService.includeBusinessOwnerOnly());
+                BigDecimal principalPaid = ZERO;
+                BigDecimal interestPaid = ZERO;
+                BigDecimal managementPaid = ZERO;
+                BigDecimal extensionPaid = ZERO;
+                BigDecimal penaltyRecordedPaid = ZERO;
+                BigDecimal penaltyAssessed = ZERO;
+                BigDecimal applicationPaid = ZERO;
+                BigDecimal principalOutstanding = ZERO;
+                BigDecimal interestOutstanding = ZERO;
+                BigDecimal managementOutstanding = ZERO;
+                BigDecimal penaltyOutstanding = ZERO;
+                int count = 0;
+                int penaltyLoans = 0;
+                for (Loan loan : imports) {
+                        if (loan == null || loan.getDeletedAt() != null) {
+                                continue;
+                        }
+                        count++;
+                        principalPaid = principalPaid.add(money(loan.getPrincipalPaidDecimal()));
+                        interestPaid = interestPaid.add(money(loan.getInterestPaidDecimal()));
+                        managementPaid = managementPaid.add(money(loan.getManagementFeePaidDecimal()));
+                        extensionPaid = extensionPaid.add(money(loan.getExtensionFeePaidDecimal()));
+                        penaltyRecordedPaid = penaltyRecordedPaid.add(money(loan.getPenaltiesPaidDecimal()));
+                        penaltyAssessed = penaltyAssessed.add(money(loan.getPenaltiesAssessedDecimal()));
+                        applicationPaid = applicationPaid.add(money(loan.getApplicationFeePaidDecimal()));
+                        if (money(loan.getPenaltiesAssessedDecimal()).signum() > 0) {
+                                penaltyLoans++;
+                        }
+                        if (loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.DISBURSED
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.OVERDUE
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.DEFAULTED
+                                        || loan.getStatus() == com.patrick.fintech.loan_backend.model.LoanStatus.RESTRUCTURED) {
+                                principalOutstanding = principalOutstanding
+                                                .add(money(loan.getOutstandingBalanceDecimal()));
+                                interestOutstanding = interestOutstanding
+                                                .add(money(loan.getInterestOutstandingDecimal()));
+                                managementOutstanding = managementOutstanding
+                                                .add(money(loan.getManagementFeeOutstandingDecimal()));
+                                penaltyOutstanding = penaltyOutstanding.add(money(loan.getPenaltiesAssessedDecimal())
+                                                .subtract(money(loan.getPenaltiesPaidDecimal())).max(ZERO));
+                        }
+                }
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("basis", "CUMULATIVE_IMPORTED_LOAN_RECORDS");
+                result.put("note",
+                                "Historical amounts are imported operational records without verified individual payment dates. They are not automatically GL income or current-period cash flow.");
+                result.put("loanCount", count);
+                result.put("principalPaid", normalize(principalPaid));
+                result.put("interestPaid", normalize(interestPaid));
+                result.put("managementFeePaid", normalize(managementPaid));
+                result.put("extensionFeePaid", normalize(extensionPaid));
+                result.put("penaltiesAssessed", normalize(penaltyAssessed));
+                result.put("penaltiesRecordedPaid", normalize(penaltyRecordedPaid));
+                result.put("penaltyLoanCount", penaltyLoans);
+                result.put("penaltyAllocationRequiresVerification", penaltyLoans > 0);
+                result.put("applicationFeePaid", normalize(applicationPaid));
+                result.put("principalOutstanding", normalize(principalOutstanding));
+                result.put("interestOutstanding", normalize(interestOutstanding));
+                result.put("managementFeeOutstanding", normalize(managementOutstanding));
+                result.put("penaltiesOutstanding", normalize(penaltyOutstanding));
+                result.put("recordedHistoricCollections", normalize(principalPaid.add(interestPaid)
+                                .add(managementPaid).add(extensionPaid).add(penaltyRecordedPaid).add(applicationPaid)));
                 return result;
         }
 
@@ -4566,7 +5341,7 @@ public class AccountingService {
                 if (from != null && to.isBefore(from))
                         throw new IllegalArgumentException("End date cannot be before start date");
 
-                LocalDate start = from == null ? LocalDate.of(1900, 1, 1) : from;
+                LocalDate start = from == null ? LEDGER_HISTORY_START : from;
                 List<JournalEntry> entries = journalRepo
                                 .findVisibleByOrganizationIdAndEntryDateBetween(
                                                 orgId,

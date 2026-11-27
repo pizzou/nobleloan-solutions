@@ -9,6 +9,7 @@ import {
   previewFile,
   downloadFile,
   verifyFile,
+  completeDocumentReview,
   formatFileSize,
   fileIcon,
   DOCUMENT_TYPE_LABELS,
@@ -31,6 +32,8 @@ const MAX_COMMENT_LENGTH = 2000;
  */
 type BorrowerFileWithContent = BorrowerFile & {
   contentAvailable?: boolean;
+  updateRequired?: boolean;
+  documentReviewDueAt?: string | null;
 };
 
 export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
@@ -240,16 +243,8 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
       return;
     }
 
-    if (
-      (action === "REJECTED" || action === "REPLACEMENT_REQUESTED") &&
-      !hasValidLoanId
-    ) {
-      toast(
-        "error",
-        "The loan reference could not be determined. Refresh the loan page and try again.",
-      );
-      return;
-    }
+    // Document review is available from the borrower profile without
+    // selecting a specific loan. The backend scopes access by organization.
 
     setBusyFileId(fileId);
 
@@ -287,6 +282,29 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
     }
   };
 
+  const [sendingReview, setSendingReview] = useState(false);
+  const currentFiles = files.filter(
+    (file) => String(file.verificationStatus) !== "EXPIRED",
+  );
+  const reviewReady =
+    currentFiles.length > 0 &&
+    currentFiles.every((file) =>
+      ["VERIFIED", "REJECTED", "REPLACEMENT_REQUESTED"].includes(
+        file.verificationStatus ?? "",
+      ),
+    );
+
+  async function completeReview() {
+    setSendingReview(true);
+    try {
+      toast("success", await completeDocumentReview(borrowerId));
+    } catch (error: unknown) {
+      toast("error", getMsg(error));
+    } finally {
+      setSendingReview(false);
+    }
+  }
+
   const acceptedTypes = useMemo(() => ".pdf,.jpg,.jpeg,.png,.webp", []);
 
   if (loading) {
@@ -308,6 +326,15 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
             {files.length} {files.length !== 1 ? "files" : "file"} uploaded
           </p>
         </div>
+
+        <button
+          type="button"
+          className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+          disabled={!reviewReady || sendingReview || busyFileId !== null}
+          onClick={() => void completeReview()}
+        >
+          {sendingReview ? "Sending…" : "Complete Review & Notify Borrower"}
+        </button>
 
         <label
           className={
@@ -399,6 +426,7 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
              */
             const fileWithContent = f as BorrowerFileWithContent;
             const contentAvailable = fileWithContent.contentAvailable !== false;
+            const updateRequired = fileWithContent.updateRequired === true;
 
             const isSelfie =
               f.documentType === "SELFIE" ||
@@ -441,6 +469,14 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                               ? "National ID (Back)"
                               : DOCUMENT_TYPE_LABELS[f.documentType] ||
                                 f.documentType.replace(/_/g, " ")}
+                        </span>
+                      )}
+
+                      {(f as typeof f & { loanId?: number | null }).loanId && (
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold text-[10px] uppercase tracking-wide">
+                          Loan #
+                          {(f as typeof f & { loanId?: number | null }).loanId}{" "}
+                          — loan-specific evidence
                         </span>
                       )}
 
@@ -489,6 +525,18 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                       Download
                     </button>
 
+                    {updateRequired && (
+                      <span
+                        className="px-2 py-1 rounded bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200"
+                        title={
+                          fileWithContent.documentReviewDueAt
+                            ? `Review due: ${fileWithContent.documentReviewDueAt}`
+                            : "The document needs replacement or staff review."
+                        }
+                      >
+                        Needs update
+                      </span>
+                    )}
                     {!contentAvailable && (
                       <span
                         className="text-amber-700 text-xs font-medium border border-amber-200 bg-amber-50 px-3 py-1.5 rounded-lg whitespace-nowrap"

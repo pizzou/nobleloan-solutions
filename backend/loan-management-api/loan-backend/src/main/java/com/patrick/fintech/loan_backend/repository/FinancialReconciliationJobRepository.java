@@ -24,6 +24,22 @@ public interface FinancialReconciliationJobRepository extends JpaRepository<Fina
             """)
     Optional<FinancialReconciliationJob> findForUpdate(@Param("jobId") Long jobId);
 
+    /**
+     * Reconciliation runs on an asynchronous thread without an HTTP persistence
+     * context. Load all relationships the worker must inspect eagerly here.
+     * Do not reuse the pessimistic locking query: the worker performs long
+     * accounting work in separate transactions.
+     */
+    @Query("""
+            select j
+            from FinancialReconciliationJob j
+            join fetch j.organization
+            left join fetch j.requestedBy requester
+            left join fetch requester.role
+            where j.id = :jobId
+            """)
+    Optional<FinancialReconciliationJob> findForExecution(@Param("jobId") Long jobId);
+
     @Query("""
             select j
             from FinancialReconciliationJob j

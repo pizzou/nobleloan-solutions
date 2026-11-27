@@ -11,6 +11,7 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 
 import java.util.concurrent.Executor;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,6 +21,15 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @Configuration
 public class AppConfig implements AsyncConfigurer {
+
+    @Value("${loansaas.async.core-pool-size:8}")
+    private int asyncCorePoolSize;
+
+    @Value("${loansaas.async.max-pool-size:32}")
+    private int asyncMaxPoolSize;
+
+    @Value("${loansaas.async.queue-capacity:200}")
+    private int asyncQueueCapacity;
 
     @Bean
     public FilterRegistrationBean<RequestIdFilter> requestIdFilter() {
@@ -47,9 +57,12 @@ public class AppConfig implements AsyncConfigurer {
         ThreadPoolTaskExecutor executor =
                 new ThreadPoolTaskExecutor();
 
-        executor.setCorePoolSize(8);
-        executor.setMaxPoolSize(32);
-        executor.setQueueCapacity(200);
+        if (asyncCorePoolSize < 1 || asyncMaxPoolSize < asyncCorePoolSize || asyncQueueCapacity < 1) {
+            throw new IllegalStateException("Invalid loansaas.async executor sizing configuration");
+        }
+        executor.setCorePoolSize(asyncCorePoolSize);
+        executor.setMaxPoolSize(asyncMaxPoolSize);
+        executor.setQueueCapacity(asyncQueueCapacity);
         executor.setThreadNamePrefix(
                 "loansaas-async-"
         );

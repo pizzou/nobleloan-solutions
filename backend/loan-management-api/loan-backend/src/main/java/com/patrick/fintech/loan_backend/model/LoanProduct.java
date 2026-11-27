@@ -140,7 +140,7 @@ public class LoanProduct {
          * ============================================================
          */
 
-        public static final BigDecimal DEFAULT_MIN_AMOUNT = new BigDecimal("500000.00");
+        public static final BigDecimal DEFAULT_MIN_AMOUNT = new BigDecimal("1000000.00");
 
         public static final BigDecimal DEFAULT_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 

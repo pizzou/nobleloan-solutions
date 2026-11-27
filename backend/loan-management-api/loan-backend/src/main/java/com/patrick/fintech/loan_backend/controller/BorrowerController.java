@@ -32,6 +32,7 @@ import java.time.LocalDate;
 public class BorrowerController {
 
         private final BorrowerRepository borrowerRepo;
+        private final com.patrick.fintech.loan_backend.service.BorrowerFileService borrowerFileService;
 
         private final CurrentUserUtil currentUserUtil;
 
@@ -176,9 +177,105 @@ public class BorrowerController {
         // CREATE BORROWER
         // ============================================================
 
+        /**
+         * All files and the borrower commit together; failed uploads roll back the
+         * profile.
+         */
+        @PostMapping(value = "/with-documents", consumes = "multipart/form-data")
+        @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+        public ResponseEntity<ApiResponse<BorrowerResponse>> createWithDocuments(
+                        @Valid @RequestPart("borrower") BorrowerRequest req,
+                        @RequestParam java.util.Map<String, org.springframework.web.multipart.MultipartFile> files,
+                        @RequestPart(value = "collateralDocuments", required = false) java.util.List<org.springframework.web.multipart.MultipartFile> collateralDocuments,
+                        @RequestPart(value = "otherSupportingDocuments", required = false) java.util.List<org.springframework.web.multipart.MultipartFile> otherSupportingDocuments)
+                        throws java.io.IOException {
+                var required = com.patrick.fintech.loan_backend.service.BorrowerDocumentRequirements.required(
+                                req.getMaritalStatus(), req.getEmploymentType());
+                int optionalDocumentCount = (collateralDocuments == null ? 0 : collateralDocuments.size())
+                                + (otherSupportingDocuments == null ? 0 : otherSupportingDocuments.size());
+                if (optionalDocumentCount > 10) {
+                        throw invalidBorrower("A maximum of 10 additional documents including expertise is allowed.");
+                }
+                for (DocumentType type : required) {
+                        var file = files.get(type.name());
+                        if (file == null || file.isEmpty()) {
+                                throw invalidBorrower("Please upload the required document: " + type.name());
+                        }
+                }
+                var response = create(req);
+                Long borrowerId = java.util.Objects.requireNonNull(response.getBody()).getData().getId();
+                for (DocumentType type : required) {
+                        borrowerFileService.upload(borrowerId, files.get(type.name()), type, false);
+                }
+                saveOptionalBorrowerDocuments(borrowerId, collateralDocuments, otherSupportingDocuments);
+                return response;
+        }
+
+        private void saveOptionalBorrowerDocuments(
+                        Long borrowerId,
+                        java.util.List<org.springframework.web.multipart.MultipartFile> collateralDocuments,
+                        java.util.List<org.springframework.web.multipart.MultipartFile> otherSupportingDocuments)
+                        throws java.io.IOException {
+                int total = (collateralDocuments == null ? 0 : collateralDocuments.size())
+                                + (otherSupportingDocuments == null ? 0 : otherSupportingDocuments.size());
+                if (total > 10) {
+                        throw invalidBorrower("A maximum of 10 optional supporting documents is allowed.");
+                }
+                if (collateralDocuments != null) {
+                        for (var file : collateralDocuments) {
+                                if (file == null || file.isEmpty()) {
+                                        throw invalidBorrower("Supporting documents cannot be empty.");
+                                }
+                                borrowerFileService.upload(borrowerId, file, DocumentType.COLLATERAL_DOCUMENT, false);
+                        }
+                }
+                if (otherSupportingDocuments != null) {
+                        for (var file : otherSupportingDocuments) {
+                                if (file == null || file.isEmpty()) {
+                                        throw invalidBorrower("Supporting documents cannot be empty.");
+                                }
+                                borrowerFileService.upload(borrowerId, file, DocumentType.OTHER, false);
+                        }
+                }
+        }
+
         @PostMapping
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<ApiResponse<BorrowerResponse>> create(
                         @Valid @RequestBody BorrowerRequest req) {
+
+                if (req.getEmail() == null || req.getEmail().isBlank()) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST, "Email is required.");
+                }
+
+                String maritalStatus = req.getMaritalStatus().strip().toUpperCase(java.util.Locale.ROOT);
+                boolean married = "MARRIED".equals(maritalStatus);
+                boolean single = "SINGLE".equals(maritalStatus);
+                String spouseName = trimToNull(req.getSpouseFullName());
+                String spouseId = trimToNull(req.getSpouseNationalId());
+                String spousePhone = trimToNull(req.getSpousePhone());
+                String certificate = trimToNull(req.getSingleCertificateNumber());
+                if (married && spouseName == null) {
+                        throw invalidBorrower("Spouse full name is required for a married borrower.");
+                }
+                if (married && spouseId != null && !spouseId.matches("[0-9]{16}")) {
+                        throw invalidBorrower("Spouse National ID must contain exactly 16 digits.");
+                }
+                if (married && spousePhone != null && !spousePhone.matches("0[0-9]{9}")) {
+                        throw invalidBorrower("Spouse phone must contain exactly 10 digits and start with 0.");
+                }
+                if (single && certificate == null) {
+                        throw invalidBorrower("Single status certificate number is required.");
+                }
+                LocalDate dateOfBirth = null;
+                if (trimToNull(req.getDateOfBirth()) != null) {
+                        try {
+                                dateOfBirth = LocalDate.parse(req.getDateOfBirth().strip());
+                        } catch (java.time.format.DateTimeParseException ex) {
+                                throw invalidBorrower("Enter a valid date of birth.");
+                        }
+                }
 
                 Organization org = currentUserUtil
                                 .getCurrentUser()
@@ -195,9 +292,8 @@ public class BorrowerController {
                                                 req.getEmail(),
                                                 org)) {
 
-                        throw new RuntimeException(
-                                        "Email already registered: "
-                                                        + req.getEmail());
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.CONFLICT, "Email already registered.");
                 }
 
                 Borrower borrower = Borrower.builder()
@@ -226,7 +322,7 @@ public class BorrowerController {
                                                 req.getPhone())
 
                                 .alternatePhone(
-                                                req.getAlternatePhone())
+                                                req.getPhone())
 
                                 .nationalId(
                                                 req.getNationalId())
@@ -237,17 +333,14 @@ public class BorrowerController {
                                 .taxIdentificationNumber(
                                                 req.getTaxIdentificationNumber())
 
-                                .dateOfBirth(
-                                                req.getDateOfBirth() != null
-                                                                ? LocalDate.parse(
-                                                                                req.getDateOfBirth())
-                                                                : null)
-
-                                .gender(
-                                                req.getGender())
-
-                                .maritalStatus(
-                                                req.getMaritalStatus())
+                                .dateOfBirth(dateOfBirth)
+                                .gender(req.getGender())
+                                .maritalStatus(maritalStatus)
+                                .singleCertificateNumber(single ? certificate : null)
+                                .spouseFullName(married ? spouseName : null)
+                                .spouseNationalId(married ? spouseId : null)
+                                .spousePhone(married ? spousePhone : null)
+                                .spouseConsent(married ? Boolean.TRUE.equals(req.getSpouseConsent()) : null)
 
                                 .nationality(
                                                 req.getNationality())
@@ -304,13 +397,13 @@ public class BorrowerController {
                                 // ------------------------------------------------
 
                                 .monthlyIncome(
-                                                req.getMonthlyIncome())
+                                                req.getMonthlyIncomeDecimal())
 
                                 .monthlyExpenses(
-                                                req.getMonthlyExpenses())
+                                                req.getMonthlyExpensesDecimal())
 
                                 .netWorth(
-                                                req.getNetWorth())
+                                                req.getNetWorthDecimal())
 
                                 // ------------------------------------------------
                                 // CREDIT
@@ -344,8 +437,23 @@ public class BorrowerController {
 
                                 .build();
 
-                Borrower saved = borrowerRepo.save(
-                                borrower);
+                Borrower saved;
+                try {
+                        saved = borrowerRepo.saveAndFlush(borrower);
+                } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+                        Throwable cause = ex.getMostSpecificCause();
+                        if (cause instanceof java.sql.SQLException sql) {
+                                if ("23505".equals(sql.getSQLState())) {
+                                        throw new org.springframework.web.server.ResponseStatusException(
+                                                        HttpStatus.CONFLICT,
+                                                        "A borrower with these identifying details already exists.");
+                                }
+                                if ("22001".equals(sql.getSQLState())) {
+                                        throw invalidBorrower("One or more borrower fields exceed the allowed length.");
+                                }
+                        }
+                        throw ex;
+                }
 
                 // ========================================================
                 // AUDIT
@@ -437,6 +545,9 @@ public class BorrowerController {
 
                         borrower.setPhone(
                                         req.getPhone());
+                        // Keep the legacy alternate-phone column synchronized: the product collects one
+                        // phone only.
+                        borrower.setAlternatePhone(req.getPhone());
                 }
 
                 if (req.getPlaceOfBirth() != null) {
@@ -467,9 +578,6 @@ public class BorrowerController {
                         borrower.setCountry(req.getCountry());
                 }
 
-                if (req.getAlternatePhone() != null) {
-                        borrower.setAlternatePhone(req.getAlternatePhone().trim());
-                }
                 if (req.getEmail() != null) {
                         borrower.setEmail(req.getEmail().trim());
                 }
@@ -500,11 +608,11 @@ public class BorrowerController {
                 if (req.getPostalCode() != null) {
                         borrower.setPostalCode(req.getPostalCode().trim());
                 }
-                if (req.getNetWorth() != null) {
-                        borrower.setNetWorth(req.getNetWorth());
+                if (req.getNetWorthDecimal() != null) {
+                        borrower.setNetWorth(req.getNetWorthDecimal());
                 }
-                if (req.getMonthlyExpenses() != null) {
-                        borrower.setMonthlyExpenses(req.getMonthlyExpenses());
+                if (req.getMonthlyExpensesDecimal() != null) {
+                        borrower.setMonthlyExpenses(req.getMonthlyExpensesDecimal());
                 }
                 if (req.getJobTitle() != null) {
                         borrower.setJobTitle(req.getJobTitle().trim());
@@ -526,10 +634,10 @@ public class BorrowerController {
                 // UPDATE FINANCIAL INFORMATION
                 // ========================================================
 
-                if (req.getMonthlyIncome() != null) {
+                if (req.getMonthlyIncomeDecimal() != null) {
 
                         borrower.setMonthlyIncome(
-                                        req.getMonthlyIncome());
+                                        req.getMonthlyIncomeDecimal());
                 }
 
                 if (req.getCreditScore() != null) {
@@ -586,5 +694,13 @@ public class BorrowerController {
                                 ApiResponse.ok(
                                                 "Borrower updated",
                                                 ResponseDtoMapper.borrower(saved)));
+        }
+
+        private static String trimToNull(String value) {
+                return value == null || value.isBlank() ? null : value.strip();
+        }
+
+        private static org.springframework.web.server.ResponseStatusException invalidBorrower(String message) {
+                return new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, message);
         }
 }

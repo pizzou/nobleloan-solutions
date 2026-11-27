@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Borrower;
+import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.BorrowerFile;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.VerificationStatus;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -103,6 +105,39 @@ public class BorrowerFileService {
         return fileRepository.save(borrowerFile);
     }
 
+    /** Store validated evidence on the EXACT loan, not as reusable borrower KYC. */
+    @Transactional
+    public BorrowerFile uploadEvidenceForLoan(Long borrowerId, Loan loan,
+            MultipartFile document, DocumentType category, boolean uploadedByApplicant)
+            throws IOException {
+        if (loan == null || loan.getId() == null || loan.getBorrower() == null
+                || !borrowerId.equals(loan.getBorrower().getId())
+                || !java.util.Set.of(DocumentType.COLLATERAL_EXPERTISE,
+                        DocumentType.COLLATERAL_DOCUMENT, DocumentType.OTHER).contains(category)) {
+            throw new IllegalArgumentException("Invalid loan-related supporting document.");
+        }
+        BorrowerFile saved = upload(borrowerId, document, category, uploadedByApplicant);
+        saved.setLoan(loan);
+        return fileRepository.save(saved);
+    }
+
+    /**
+     * Store a signed copy under the borrower's documents and link it to this exact
+     * loan.
+     */
+    @Transactional
+    public BorrowerFile uploadSignedContractForLoan(Long borrowerId, Loan loan, MultipartFile file)
+            throws IOException {
+        if (loan == null || loan.getId() == null || loan.getBorrower() == null
+                || !loan.getBorrower().getId().equals(borrowerId)) {
+            throw new IllegalArgumentException("The selected loan does not belong to this borrower.");
+        }
+        BorrowerFile saved = upload(borrowerId, file, DocumentType.SIGNED_LOAN_CONTRACT, false);
+        saved.setLoan(loan);
+        saved.setVerificationStatus(VerificationStatus.PENDING);
+        return fileRepository.save(saved);
+    }
+
     /**
      * Default upload.
      */
@@ -146,10 +181,66 @@ public class BorrowerFileService {
             boolean available = file.getData() != null && file.getData().length > 0;
             entityManager.detach(file);
             file.setContentAvailable(available);
+            file.setLoanId(file.getLoan() == null ? null : file.getLoan().getId());
+            file.setDocumentReviewDueAt(BorrowerDocumentReusePolicy.reviewDueAt(file));
+            file.setUpdateRequired(BorrowerDocumentReusePolicy.reviewerUpdateRequired(file, LocalDate.now()));
             file.setData(null);
         }
 
         return files;
+    }
+
+    /**
+     * Checks the latest stored borrower-level copy for a new application.
+     * A rejected/replacement-requested newer file cannot be bypassed by choosing
+     * an older verified copy. This method never exposes the files publicly.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasReusableBorrowerDocument(Long borrowerId, DocumentType type) {
+        if (borrowerId == null || type == null)
+            return false;
+        return fileRepository
+                .findFirstByBorrowerIdAndDocumentTypeAndLoanIsNullOrderByUploadedAtDescIdDesc(borrowerId, type)
+                .map(f -> BorrowerDocumentReusePolicy.reusable(f, LocalDate.now()))
+                .orElse(false);
+    }
+
+    /**
+     * An immovable-collateral valuation must belong to THIS loan and have a
+     * final VERIFIED decision. Borrower-level KYC and older loan reports are
+     * intentionally not eligible.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasVerifiedExpertiseForLoan(Long loanId, Long borrowerId) {
+        if (loanId == null || borrowerId == null)
+            return false;
+        // Only the latest evidence counts. An older VERIFIED report must not
+        // bypass a newer PENDING, REJECTED or replacement-requested report.
+        return fileRepository.findByBorrowerId(borrowerId).stream()
+                .filter(file -> file.getLoan() != null && loanId.equals(file.getLoan().getId()))
+                .filter(file -> file.getDocumentType() == DocumentType.COLLATERAL_EXPERTISE)
+                .max(java.util.Comparator
+                        .comparing(BorrowerFile::getUploadedAt,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
+                        .thenComparing(BorrowerFile::getId,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
+                .filter(file -> file.getVerificationStatus() == VerificationStatus.VERIFIED)
+                .filter(file -> file.getData() != null && file.getData().length > 0)
+                .isPresent();
+    }
+
+    /**
+     * Documents list/approval UI can distinguish missing expertise from pending
+     * review.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasUploadedExpertiseForLoan(Long loanId, Long borrowerId) {
+        if (loanId == null || borrowerId == null)
+            return false;
+        return fileRepository.findByBorrowerId(borrowerId).stream()
+                .filter(file -> file.getLoan() != null && loanId.equals(file.getLoan().getId()))
+                .filter(file -> file.getDocumentType() == DocumentType.COLLATERAL_EXPERTISE)
+                .anyMatch(file -> file.getData() != null && file.getData().length > 0);
     }
 
     /**
@@ -161,20 +252,25 @@ public class BorrowerFileService {
                 .orElseThrow(() -> new RuntimeException("File not found: " + fileId));
     }
 
-    /**
-     * Get file ensuring organization ownership.
-     */
+    @Transactional(readOnly = true)
     public BorrowerFile getByIdForOrg(Long fileId, Long orgId) {
 
-        BorrowerFile file = getById(fileId);
+        if (fileId == null || orgId == null) {
+            throw new RuntimeException("File not found.");
+        }
 
-        if (file.getBorrower() == null
-                || file.getBorrower().getOrganization() == null
-                || !file.getBorrower()
-                        .getOrganization()
-                        .getId()
-                        .equals(orgId)) {
+        BorrowerFile file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("File not found."));
 
+        Borrower borrower = file.getBorrower();
+
+        if (borrower == null) {
+            throw new RuntimeException("File not found.");
+        }
+
+        if (borrower.getOrganization() == null
+                || borrower.getOrganization().getId() == null
+                || !orgId.equals(borrower.getOrganization().getId())) {
             throw new RuntimeException("File not found.");
         }
 
@@ -192,6 +288,12 @@ public class BorrowerFileService {
 
         BorrowerFile file = getByIdForOrg(fileId, orgId);
 
+        if (status == VerificationStatus.VERIFIED
+                && BorrowerDocumentReusePolicy.reviewerUpdateRequired(file, LocalDate.now())) {
+            throw new IllegalArgumentException(
+                    "This document is outdated, has missing content, or is loan-specific. "
+                            + "Request an updated document instead of verifying it.");
+        }
         file.setVerificationStatus(status);
         file.setOfficerComment(comment);
         file.setVerifiedByName(officerName);
@@ -345,6 +447,7 @@ public class BorrowerFileService {
         Set<DocumentType> uploaded = fileRepository.findByBorrowerId(borrowerId)
                 .stream()
                 .filter(f -> f.getData() != null && f.getData().length > 0)
+                .filter(f -> f.getVerificationStatus() != VerificationStatus.REJECTED)
                 .map(BorrowerFile::getDocumentType)
                 .collect(Collectors.toSet());
 

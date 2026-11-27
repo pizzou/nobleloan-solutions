@@ -16,7 +16,7 @@ const API_BASE_URL = "/api";
 
 const API: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 20000,
+  timeout: 30000,
   withCredentials: true,
   xsrfCookieName: "XSRF-TOKEN",
   xsrfHeaderName: "X-XSRF-TOKEN",
@@ -28,6 +28,7 @@ const API: AxiosInstance = axios.create({
   },
 });
 
+let sessionVerificationPromise: Promise<void> | null = null;
 let csrfToken: string | null = null;
 let csrfRefreshPromise: Promise<string | null> | null = null;
 
@@ -151,21 +152,45 @@ API.interceptors.response.use(
     const isAuthMeRequest = requestUrl.includes("/auth/me");
     const isPublicRequest = requestUrl.includes("/public/");
 
-    // /auth/me is the session-bootstrap request. Let useAuthState decide
-    // whether a 401 is a real logout condition; redirecting here races the
-    // refresh/bootstrap flow and can turn a temporary refresh failure into
-    // an unconditional navigation to /login.
+    // A 401 on one resource is not proof that the entire login expired:
+    // an upstream API can return 401 for its own authorization requirements.
+    // Verify the signed session with /auth/me before clearing user data.
+    // Use raw axios to avoid recursively intercepting the confirmation call.
     if (
       status === 401 &&
       !isAuthMeRequest &&
       !isPublicRequest &&
+      !requestUrl.includes("/auth/login") &&
+      !requestUrl.includes("/auth/send-login-otp") &&
       typeof window !== "undefined" &&
       window.location.pathname !== "/login"
     ) {
-      void clearSensitiveClientState().finally(() => {
-        if (window.location.pathname !== "/login")
-          window.location.replace("/login");
-      });
+      if (!sessionVerificationPromise) {
+        sessionVerificationPromise = axios
+          .get(`${API_BASE_URL}/auth/me`, {
+            withCredentials: true,
+            timeout: 8000,
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-store",
+            },
+          })
+          .catch(async (checkError: unknown) => {
+            // Only a confirmed /auth/me 401 can invalidate the browser session.
+            if (
+              axios.isAxiosError(checkError) &&
+              checkError.response?.status === 401
+            ) {
+              await clearSensitiveClientState();
+              if (window.location.pathname !== "/login")
+                window.location.replace("/login");
+            }
+          })
+          .then(() => undefined)
+          .finally(() => {
+            sessionVerificationPromise = null;
+          });
+      }
     }
 
     const requestId = String(
@@ -227,6 +252,25 @@ function getAxiosErrorMessage(data: unknown): string | null {
       detail?: unknown;
     };
 
+    // Spring validation responses use a generic top-level `error` such as
+    // "Validation failed" and put actionable field errors in `detail`. Prefer
+    // those details so a 400 is diagnosable rather than displaying only the
+    // generic summary.
+    if (
+      value.detail &&
+      typeof value.detail === "object" &&
+      !Array.isArray(value.detail)
+    ) {
+      const details = Object.entries(value.detail as Record<string, unknown>)
+        .filter(
+          (entry): entry is [string, string] =>
+            typeof entry[1] === "string" && Boolean(entry[1].trim()),
+        )
+        .slice(0, 3)
+        .map(([field, message]) => `${field}: ${message}`);
+      if (details.length) return details.join("; ").slice(0, 400);
+    }
+
     if (typeof value.message === "string" && value.message) {
       return value.message;
     }
@@ -279,6 +323,13 @@ export const put = (
   config?: AxiosRequestConfig,
 ): Promise<any> =>
   API.put(url, data, config).then((response) => unwrap(response.data));
+
+export const patch = (
+  url: string,
+  data?: unknown,
+  config?: AxiosRequestConfig,
+): Promise<any> =>
+  API.patch(url, data, config).then((response) => unwrap(response.data));
 
 export const del = (url: string, config?: AxiosRequestConfig): Promise<any> =>
   API.delete(url, config).then((response) => unwrap(response.data));
@@ -354,7 +405,7 @@ export const authApi = {
     return post(
       "/auth/send-login-otp",
       { otpChallengeToken: token },
-      { timeout: 15000 },
+      { timeout: 45000 },
     );
   },
 
@@ -367,6 +418,9 @@ export const authApi = {
     post("/auth/reset-password", { token, newPassword }),
 
   me: () => get("/auth/me"),
+
+  /** Only call after a real keyboard, pointer, touch or scroll interaction. */
+  renew: () => post("/auth/renew", {}, { timeout: 60000 }),
 
   logout: () => post("/auth/logout"),
 };
@@ -387,15 +441,53 @@ export const taskApi = {
  */
 
 export const loanApi = {
-  list: (page = 0, size = 20, status = "", type = "", search = "") =>
+  list: (
+    page = 0,
+    size = 20,
+    status = "",
+    type = "",
+    search = "",
+    visibility: "NORMAL" | "BUSINESS_OWNER_ONLY" | "ALL" = "NORMAL",
+  ) =>
     get(
-      `/loans?page=${page}&size=${size}` +
+      `/loans?page=${page}&size=${size}&visibility=${visibility}` +
         `${status ? `&status=${encodeURIComponent(status)}` : ""}` +
         `${type ? `&type=${encodeURIComponent(type)}` : ""}` +
         `${search.trim() ? `&search=${encodeURIComponent(search.trim())}` : ""}`,
     ),
 
   get: (id: number) => get(`/loans/${id}`),
+
+  correctionHistory: (loanId: number) =>
+    get(`/loans/${loanId}/legacy-corrections`),
+
+  previewLegacyCorrection: (loanId: number, data: unknown) =>
+    post(`/loans/${loanId}/legacy-corrections/preview`, data),
+
+  submitLegacyCorrection: (loanId: number, data: unknown) =>
+    post(`/loans/${loanId}/legacy-corrections`, data),
+
+  applyOwnerLegacyCorrection: (loanId: number, data: unknown) =>
+    post(`/loans/${loanId}/legacy-corrections/owner-apply`, data),
+
+  decideLegacyCorrection: (
+    loanId: number,
+    correctionId: number,
+    approve: boolean,
+    decision: { confirmReference: string; reason: string },
+  ) =>
+    post(
+      `/loans/${loanId}/legacy-corrections/${correctionId}/${approve ? "approve" : "reject"}`,
+      decision,
+    ),
+
+  applyAuthorizedLegacyCorrection: (loanId: number, correctionId: number) =>
+    post(`/loans/${loanId}/legacy-corrections/${correctionId}/apply`, {}),
+
+  pendingLegacyCorrections: () => get("/legacy-corrections/pending"),
+
+  changeReportingVisibility: (id: number, businessOwnerOnly: boolean) =>
+    patch(`/loans/${id}/visibility`, { businessOwnerOnly }),
 
   deleteWithConfirmation: (id: number, confirmation: string, reason: string) =>
     del(`/loans/${id}`, { data: { confirmation, reason } }),
@@ -422,6 +514,7 @@ export const loanApi = {
     approvedAmount?: number,
     idempotencyKey?: string,
     businessOwnerOnly?: boolean,
+    managementFeeRate?: number,
   ) =>
     post(
       `/loans/${id}/approve`,
@@ -430,6 +523,8 @@ export const loanApi = {
         interestRate: interestRate != null ? String(interestRate) : undefined,
         applicationFeeRate:
           applicationFeeRate != null ? String(applicationFeeRate) : undefined,
+        managementFeeRate:
+          managementFeeRate != null ? String(managementFeeRate) : undefined,
         approvedAmount:
           approvedAmount != null ? String(approvedAmount) : undefined,
         businessOwnerOnly,
@@ -448,10 +543,15 @@ export const loanApi = {
         : undefined,
     ),
 
-  disburse: (id: number, method: string, idempotencyKey?: string) =>
+  disburse: (
+    id: number,
+    method: string,
+    idempotencyKey?: string,
+    disbursementDate?: string,
+  ) =>
     post(
       `/loans/${id}/disburse`,
-      { disbursementMethod: method },
+      { disbursementMethod: method, disbursementDate },
       idempotencyKey
         ? { headers: { "Idempotency-Key": idempotencyKey } }
         : undefined,
@@ -865,6 +965,9 @@ export const esignatureApi = {
  */
 
 export const accountingApi = {
+  openPeriod: (year: number, month: number) =>
+    post("/accounting/periods/open", { year, month }),
+
   chartOfAccounts: () => get("/accounting/chart-of-accounts"),
 
   createAccount: (data: {
@@ -893,9 +996,17 @@ export const accountingApi = {
 
   ledger: (accountId: number) => get(`/accounting/ledger/${accountId}`),
 
-  trialBalance: () => get("/accounting/trial-balance"),
+  trialBalance: (asOf?: string) =>
+    get(
+      `/accounting/trial-balance${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`,
+    ),
 
-  balanceSheet: () => get("/accounting/balance-sheet"),
+  balanceSheet: (asOf?: string) =>
+    get(
+      `/accounting/balance-sheet${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`,
+    ),
+
+  historicalPortfolioPerformance: () => get("/accounting/historical-portfolio-performance"),
 
   profitAndLoss: (from?: string, to?: string) =>
     get(
@@ -1524,3 +1635,63 @@ function getExportAcceptHeader(format: string): string {
 export default API;
 
 export { API };
+
+// NOBLELOAN_API_TIMING_V1
+// Diagnostic-only interceptor. No automatic retries or credential logging.
+const nobleRequestStarts = new WeakMap<object, number>();
+
+function nobleSafePath(url?: string): string {
+  return String(url ?? "unknown")
+    .split("?")[0]
+    .replace(/[0-9a-fA-F-]{20,}/g, ":id")
+    .replace(/\/\d+(?=\/|$)/g, "/:id");
+}
+
+API.interceptors.request.use((config) => {
+  nobleRequestStarts.set(config, Date.now());
+  return config;
+});
+
+API.interceptors.response.use(
+  (response) => {
+    const start = nobleRequestStarts.get(response.config);
+    if (start !== undefined) {
+      const elapsed = Date.now() - start;
+      if (elapsed >= 4000) {
+        console.warn("[API PERFORMANCE]", {
+          method: String(response.config.method ?? "GET").toUpperCase(),
+          path: nobleSafePath(response.config.url),
+          durationMs: elapsed,
+          status: response.status,
+        });
+      }
+    }
+    return response;
+  },
+  (error) => {
+    const config = error?.config;
+    const start = config ? nobleRequestStarts.get(config) : undefined;
+    const elapsed = start === undefined ? undefined : Date.now() - start;
+    const code = String(error?.code ?? "");
+    const status = error?.response?.status;
+
+    if (
+      code === "ECONNABORTED" ||
+      code === "ETIMEDOUT" ||
+      code === "ERR_NETWORK" ||
+      (typeof status === "number" && status >= 500) ||
+      (elapsed !== undefined && elapsed >= 4000)
+    ) {
+      console.warn("[API FAILURE]", {
+        method: String(config?.method ?? "GET").toUpperCase(),
+        path: nobleSafePath(config?.url),
+        durationMs: elapsed,
+        timeoutMs: config?.timeout,
+        status,
+        code,
+      });
+    }
+
+    return Promise.reject(error);
+  },
+);

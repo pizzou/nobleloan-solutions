@@ -4,6 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useTenant } from "../app/(site)/layout";
 import { pageContent } from "../lib/websiteContent";
+import {
+  getLoanProductType,
+  getLoanRequirementProfile,
+} from "../lib/loanRequirements";
 
 const productImages: Record<string, string> = {
   PERSONAL: "/personal-loan.jpg",
@@ -84,6 +88,11 @@ export default function PublicProductPage({
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
   const image = productImages[normalizedType] || "/hero-borrower.jpg";
+  const requirementType = getLoanProductType({
+    loanType: product?.loanType || normalizedType,
+    title: product?.title || resolvedTitle,
+  });
+  const requirementProfile = getLoanRequirementProfile(requirementType);
   const audience = productAudience[normalizedType] || {
     title: "Your borrowing need",
     body: "Review the active product terms and eligibility requirements shown through Noble's application journey.",
@@ -152,6 +161,12 @@ export default function PublicProductPage({
                 style={{ backgroundColor: accent }}
               >
                 Apply for this solution →
+              </Link>
+              <Link
+                href="#loan-requirements"
+                className="rounded-2xl border border-white/15 bg-white/[.05] px-6 py-4 text-center text-sm font-bold text-white"
+              >
+                View full requirements ↓
               </Link>
               <Link
                 href="/loan-calculator"
@@ -245,7 +260,10 @@ export default function PublicProductPage({
               {resolvedSections[1]?.body ? `${resolvedSections[1].body} ` : ""}
               Minimum:{" "}
               <strong className="text-slate-800">
-                {amount(tenant.currency, product?.minAmount)}
+                {amount(
+                  tenant.currency,
+                  Math.max(1000000, Number(product?.minAmount ?? 1000000)),
+                )}
               </strong>
               . Maximum:{" "}
               <strong className="text-slate-800">
@@ -274,6 +292,65 @@ export default function PublicProductPage({
             </p>
           </article>
         </div>
+
+        <section
+          id="loan-requirements"
+          className="mt-10 scroll-mt-24 rounded-[30px] border border-slate-200 bg-white p-7 shadow-sm sm:p-9 sm:p-10"
+        >
+          <div className="max-w-3xl">
+            <p
+              className="text-[10px] font-black uppercase tracking-[.18em]"
+              style={{ color: accent }}
+            >
+              DETAILED REQUIREMENTS BEFORE YOU APPLY
+            </p>
+            <h2 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">
+              Requirements for {resolvedTitle}
+            </h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Use this checklist to prepare before opening the application. Core
+              identity and affordability checks are listed separately from
+              additional evidence that may be requested for your circumstances
+              or this loan purpose. The application form and lending team
+              confirm the final mandatory documents.
+            </p>
+          </div>
+          <div className="mt-7 grid gap-6 md:grid-cols-3">
+            {[
+              { title: "Eligibility", items: requirementProfile.eligibility },
+              {
+                title: "Documents to prepare",
+                items: requirementProfile.requiredDocuments,
+              },
+              {
+                title: "Additional evidence",
+                items: requirementProfile.additionalEvidence,
+              },
+            ].map((group) => (
+              <div key={group.title} className="rounded-2xl bg-slate-50 p-5">
+                <h3 className="text-sm font-black" style={{ color: primary }}>
+                  {group.title}
+                </h3>
+                <ul className="mt-3 list-disc space-y-2 pl-4 text-sm leading-6 text-slate-700">
+                  {group.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="mt-5 text-xs leading-6 text-slate-500">
+            Minimum loan amount:{" "}
+            <strong>
+              {amount(
+                tenant.currency,
+                Math.max(1000000, Number(product?.minAmount ?? 1000000)),
+              )}
+            </strong>
+            . Product limits shown above apply; the final approved amount and
+            any extra evidence are confirmed during assessment.
+          </p>
+        </section>
 
         <div className="mt-8 grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
           <div

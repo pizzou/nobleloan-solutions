@@ -418,6 +418,10 @@ export interface BorrowerLoanSummary {
    * NOT loanNumber.
    */
   referenceNumber?: string | null;
+  loanNumber?: string | null; // legacy backend compatibility
+  totalOutstanding?: number | null; // principal + outstanding fees, interest and penalties
+  managementFeePaid?: number | null;
+  nextDueDate?: string | null;
 
   loanType?: LoanType | string | null;
 

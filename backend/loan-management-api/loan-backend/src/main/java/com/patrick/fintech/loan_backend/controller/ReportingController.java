@@ -651,12 +651,12 @@ public class ReportingController {
                 report.put(
                                 "trialBalance",
                                 accountingService.getTrialBalance(
-                                                organizationId));
+                                                organizationId, toDate));
 
                 report.put(
                                 "balanceSheet",
                                 accountingService.getBalanceSheet(
-                                                organizationId));
+                                                organizationId, toDate));
 
                 /*
                  * Income statement / P&L is period based.

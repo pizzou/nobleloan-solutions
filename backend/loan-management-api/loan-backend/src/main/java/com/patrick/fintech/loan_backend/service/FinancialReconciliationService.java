@@ -104,32 +104,15 @@ public class FinancialReconciliationService {
                 : new ArrayList<>(visibleLoans);
 
         /*
-         * Recycled loans are deliberately hidden from ordinary operational
-         * queries by Loan's @SQLRestriction. Their posted journal entries are
-         * nevertheless retained for the 30-day restore period. System/owner
-         * reconciliation includes the recycled loan's operational balance so
-         * a legitimate recycled disbursement is not misreported as a missing
-         * RWF 20m (or other) sub-ledger balance. This is limited to this
-         * reconciliation path; the native query is not used by normal reports.
+         * Recycle-bin scope invariant: both sides of the active reconciliation
+         * exclude recycled loans. The visible journal query already filters
+         * recycleLoanId IS NULL; findVisibleByOrganizationId applies Loan's
+         * 
+         * @SQLRestriction (deleted_at IS NULL). Do NOT add recycled loans back
+         * to the operational side, or a false GL/sub-ledger variance results.
+         * Historical journal rows remain stored for audit and restoration;
+         * excluding them from this active view is not a reversal or write-off.
          */
-        if (includeBusinessOwnerOnly) {
-            List<Loan> recycledLoans = loanRepository
-                    .findRecycledForReconciliationByOrganizationId(organizationId);
-            if (recycledLoans != null && !recycledLoans.isEmpty()) {
-                java.util.Set<Long> includedLoanIds = new java.util.HashSet<>();
-                for (Loan loan : loans) {
-                    if (loan != null && loan.getId() != null) {
-                        includedLoanIds.add(loan.getId());
-                    }
-                }
-                for (Loan recycled : recycledLoans) {
-                    if (recycled != null && recycled.getId() != null
-                            && includedLoanIds.add(recycled.getId())) {
-                        loans.add(recycled);
-                    }
-                }
-            }
-        }
 
         loans = loans.stream()
                 .filter(loan -> isFinanciallyOriginated(loan, asOf))
@@ -376,6 +359,13 @@ public class FinancialReconciliationService {
             BigDecimal paid = loan.getPenaltiesPaidDecimal();
             return money(assessed).subtract(money(paid)).max(ZERO);
         }));
+        // Application-fee receivable is only the genuinely unpaid portion.
+        // Fees deducted and collected at disbursement must have application_fee_paid
+        // populated and therefore must not be reported as a receivable a second time.
+        operationalSubledger.put("1180", sum(loans, loan -> money(
+                money(loan.getApplicationFeeDecimal())
+                        .subtract(money(loan.getApplicationFeePaidDecimal())))
+                .max(ZERO)));
 
         Map<String, ReconciliationLine> subledger = new LinkedHashMap<>();
         for (Map.Entry<String, BigDecimal> item : operationalSubledger.entrySet()) {
@@ -487,9 +477,8 @@ public class FinancialReconciliationService {
         // BNR <-> PORTFOLIO CONTROL
         // ------------------------------------------------------------
         // Regulatory/portfolio reporting intentionally excludes loans in the
-        // recycle bin. Keep this population separate from the internal GL
-        // sub-ledger above, which must include recycled balances while their
-        // posted journals are retained.
+        // recycle bin. This uses the same active population as the scoped GL
+        // and operational sub-ledger above.
         BigDecimal portfolioOutstanding = loans.stream()
                 .filter(loan -> loan != null && loan.getDeletedAt() == null)
                 .filter(this::isGrossPortfolioLoan)
@@ -636,6 +625,8 @@ public class FinancialReconciliationService {
                     .subtract(money(loan.getPenaltiesPaidDecimal()))
                     .max(ZERO);
             operational.put("1175", money(penalties));
+            operational.put("1180", money(loan.getApplicationFeeDecimal())
+                    .subtract(money(loan.getApplicationFeePaidDecimal())).max(ZERO));
 
             Map<String, BigDecimal> gl = new LinkedHashMap<>();
             for (String code : operational.keySet()) {
@@ -650,12 +641,15 @@ public class FinancialReconciliationService {
             BigDecimal managementDifference = normalize(gl.get("1160").subtract(operational.get("1160")));
             BigDecimal extensionDifference = normalize(gl.get("1170").subtract(operational.get("1170")));
             BigDecimal penaltyDifference = normalize(gl.get("1175").subtract(operational.get("1175")));
+            BigDecimal applicationFeeDifference = normalize(
+                    gl.get("1180").subtract(operational.get("1180")));
 
             boolean reconciles = principalDifference.abs().compareTo(TOLERANCE) < 0
                     && interestDifference.abs().compareTo(TOLERANCE) < 0
                     && managementDifference.abs().compareTo(TOLERANCE) < 0
                     && extensionDifference.abs().compareTo(TOLERANCE) < 0
-                    && penaltyDifference.abs().compareTo(TOLERANCE) < 0;
+                    && penaltyDifference.abs().compareTo(TOLERANCE) < 0
+                    && applicationFeeDifference.abs().compareTo(TOLERANCE) < 0;
 
             if (!reconciles) {
                 result.add(new LoanReconciliationDiagnostic(
@@ -676,7 +670,10 @@ public class FinancialReconciliationService {
                         extensionDifference,
                         operational.get("1175"),
                         gl.get("1175"),
-                        penaltyDifference));
+                        penaltyDifference,
+                        operational.get("1180"),
+                        gl.get("1180"),
+                        applicationFeeDifference));
             }
         }
 
@@ -946,7 +943,7 @@ public class FinancialReconciliationService {
          * attribute and a legacy/misconfigured row must never be allowed to
          * invert the operational sub-ledger reconciliation.
          *
-         * For 1100/1150/1160/1170/1175 the authoritative GL balance is:
+         * For 1100/1150/1160/1170/1175/1180 the authoritative GL balance is:
          *
          * total debits - total credits
          *
@@ -972,7 +969,7 @@ public class FinancialReconciliationService {
         }
 
         return switch (code.trim()) {
-            case "1100", "1150", "1160", "1170", "1175" -> true;
+            case "1100", "1150", "1160", "1170", "1175", "1180" -> true;
             default -> false;
         };
     }
@@ -1034,7 +1031,10 @@ public class FinancialReconciliationService {
             BigDecimal extensionFeeDifference,
             BigDecimal operationalPenalty,
             BigDecimal glPenalty,
-            BigDecimal penaltyDifference) {
+            BigDecimal penaltyDifference,
+            BigDecimal operationalApplicationFee,
+            BigDecimal glApplicationFee,
+            BigDecimal applicationFeeDifference) {
     }
 
     public record ReconciliationLine(

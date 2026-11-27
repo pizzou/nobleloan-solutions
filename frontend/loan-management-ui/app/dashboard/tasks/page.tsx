@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
-import { get, taskApi } from "@/services/api";
+import { get, loanApi, taskApi } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
 import { WorkflowTask } from "@/types";
 
@@ -14,6 +14,13 @@ interface StaffUser {
   status?: string;
   role?: { name?: string };
 }
+
+type CorrectionTask = {
+  id: number;
+  loanId: number;
+  loanReference?: string;
+  kind: "terms" | "legacy";
+};
 
 function dateText(value?: string | null) {
   if (!value) return "No due date";
@@ -35,7 +42,10 @@ function badge(priority: string) {
 }
 
 export default function TasksPage() {
-  const { user } = useAuth();
+  const { user, isBusinessOwner } = useAuth();
+  const [correctionTasks, setCorrectionTasks] = useState<CorrectionTask[]>([]);
+  const [correctionsLoading, setCorrectionsLoading] = useState(false);
+  const [correctionError, setCorrectionError] = useState("");
   const [tasks, setTasks] = useState<WorkflowTask[]>([]);
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +95,49 @@ export default function TasksPage() {
     void load();
     void loadStaff();
   }, [load, loadStaff]);
+
+  useEffect(() => {
+    if (!isBusinessOwner) {
+      setCorrectionTasks([]);
+      setCorrectionError("");
+      setCorrectionsLoading(false);
+      return;
+    }
+
+    let active = true;
+    setCorrectionsLoading(true);
+    setCorrectionError("");
+    void Promise.allSettled([
+      get("/principal-amendments/pending"),
+      loanApi.pendingLegacyCorrections(),
+    ]).then(([terms, legacy]) => {
+      if (!active) return;
+      const failed: string[] = [];
+      const pending: CorrectionTask[] = [];
+      for (const [result, kind, label] of [
+        [terms, "terms", "loan terms"],
+        [legacy, "legacy", "imported loan data"],
+      ] as const) {
+        if (result.status !== "fulfilled" || !Array.isArray(result.value)) {
+          failed.push(label);
+          continue;
+        }
+        for (const request of result.value) {
+          if (!Number.isSafeInteger(request?.id) || !Number.isSafeInteger(request?.loanId)) continue;
+          pending.push({
+            id: request.id,
+            loanId: request.loanId,
+            loanReference: typeof request.loanReference === "string" ? request.loanReference : undefined,
+            kind,
+          });
+        }
+      }
+      setCorrectionTasks(pending);
+      setCorrectionError(failed.length ? `Could not load correction requests for ${failed.join(" and ")}.` : "");
+      setCorrectionsLoading(false);
+    });
+    return () => { active = false; };
+  }, [isBusinessOwner]);
 
   const assignTask = async (event: FormEvent) => {
     event.preventDefault();
@@ -182,6 +235,36 @@ export default function TasksPage() {
           {notice}
         </div>
       ) : null}
+
+      {isBusinessOwner && (
+        <section aria-labelledby="correction-tasks-heading" className="rounded-2xl border border-slate-200 bg-white p-5">
+          <h2 id="correction-tasks-heading" className="font-bold text-slate-900">Loan corrections awaiting review</h2>
+          {correctionsLoading && <p role="status" className="mt-2 text-sm text-slate-600">Loading correction requests…</p>}
+          {correctionError && <p role="alert" className="mt-2 text-sm text-red-700">{correctionError}</p>}
+          {!correctionsLoading && !correctionError && correctionTasks.length === 0 && (
+            <p className="mt-2 text-sm text-slate-600">No loan corrections are pending your review.</p>
+          )}
+          {correctionTasks.length > 0 && (
+            <ul className="mt-3 divide-y divide-slate-100">
+              {correctionTasks.map((task) => (
+                <li key={`${task.kind}-${task.id}`}>
+                  <Link
+                    href={`/dashboard/loans/${task.loanId}/${task.kind === "terms" ? "principal-amendments" : "legacy-corrections"}#correction-request-${task.id}`}
+                    className="block rounded-lg px-3 py-3 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-700"
+                  >
+                    <span className="block text-sm font-semibold text-slate-900">
+                      {task.loanReference || `Loan #${task.loanId}`} · Request #{task.id}
+                    </span>
+                    <span className="block text-sm text-slate-600">
+                      {task.kind === "terms" ? "Review the proposed loan terms before approving or rejecting." : "Review the proposed changes to imported loan records."}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {canAssign ? (
         <form onSubmit={assignTask} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

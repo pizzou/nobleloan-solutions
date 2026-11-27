@@ -54,7 +54,7 @@ public class DataSeeder implements CommandLineRunner {
 
         private static final BigDecimal MANAGEMENT_FEE = new BigDecimal("5.00");
 
-        private static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("500000.00");
+        private static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("1000000.00");
 
         private static final int MIN_TERM_MONTHS = 1;
 
@@ -645,7 +645,8 @@ public class DataSeeder implements CommandLineRunner {
 
                 String configuredDomain = envOrDefault("BOOTSTRAP_ORG_PUBLIC_DOMAIN", "");
                 if (!configuredDomain.isBlank()
-                                && (organization.getPublicDomain() == null || organization.getPublicDomain().isBlank())) {
+                                && (organization.getPublicDomain() == null
+                                                || organization.getPublicDomain().isBlank())) {
                         organization.setPublicDomain(configuredDomain);
                 }
 
@@ -658,7 +659,8 @@ public class DataSeeder implements CommandLineRunner {
                 setConfiguredIfBlankOrKnownPlaceholder(organization.getAddress(),
                                 envOrDefault("BOOTSTRAP_ORG_ADDRESS", ""), organization::setAddress);
                 setConfiguredIfBlankOrKnownPlaceholder(organization.getRegistrationNumber(),
-                                envOrDefault("BOOTSTRAP_ORG_REGISTRATION_NUMBER", ""), organization::setRegistrationNumber);
+                                envOrDefault("BOOTSTRAP_ORG_REGISTRATION_NUMBER", ""),
+                                organization::setRegistrationNumber);
                 setConfiguredIfBlankOrKnownPlaceholder(organization.getFacebookUrl(),
                                 envOrDefault("BOOTSTRAP_ORG_FACEBOOK_URL", ""), organization::setFacebookUrl);
                 setConfiguredIfBlankOrKnownPlaceholder(organization.getInstagramUrl(),

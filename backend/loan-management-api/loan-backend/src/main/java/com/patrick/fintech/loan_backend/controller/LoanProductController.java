@@ -40,7 +40,7 @@ public class LoanProductController {
          * management fee is institutional policy and MUST remain 5% per
          * month on outstanding principal.
          */
-        private static final BigDecimal MINIMUM_LOAN_AMOUNT = new BigDecimal("500000.00");
+        private static final BigDecimal MINIMUM_LOAN_AMOUNT = new BigDecimal("1000000.00");
 
         private static final BigDecimal DEFAULT_INTEREST_RATE = new BigDecimal("5.00");
 

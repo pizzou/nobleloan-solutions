@@ -123,6 +123,14 @@ interface ExpenseRow {
   receiptFileName?: string;
 }
 
+interface ExpensePageResult {
+  content: ExpenseRow[];
+  totalElements: number;
+  totalPages: number;
+}
+
+const PAGE_SIZE = 20;
+
 const categoryLabel = (value: string) =>
   CATEGORIES.find((c) => c.value === value)?.label || value;
 
@@ -138,6 +146,9 @@ export default function ExpensesPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalRecords, setTotalRecords] = useState(0);
 
   const [showForm, setShowForm] = useState(false);
 
@@ -149,29 +160,33 @@ export default function ExpensesPage() {
     setError("");
 
     Promise.all([
-      expenseApi
-        .list({
-          category: filterCategory || undefined,
-        })
-        .catch(() => ({ content: [] })),
-
-      bankAccountApi.list().catch(() => []),
-
-      branchApi.list().catch(() => []),
+      expenseApi.list({
+        page,
+        size: PAGE_SIZE,
+        category: filterCategory || undefined,
+      }),
+      bankAccountApi.list(),
+      branchApi.list(),
     ])
       .then(([exp, ba, br]) => {
-        setExpenses(((exp as any)?.content ?? exp ?? []) as ExpenseRow[]);
+        const result = exp as ExpensePageResult | ExpenseRow[];
+        setExpenses(Array.isArray(result) ? result : (result.content ?? []));
+        setTotalPages(Array.isArray(result) ? 1 : (result.totalPages ?? 0));
+        setTotalRecords(Array.isArray(result) ? result.length : (result.totalElements ?? 0));
 
         setBankAccounts(ba as BankAccountRow[]);
         setBranches(br as BranchRow[]);
       })
       .catch(() => {
-        setError("Could not load expenses.");
+        setExpenses([]);
+        setTotalPages(0);
+        setTotalRecords(0);
+        setError("Expenses could not be loaded. Check your connection and try again.");
       })
       .finally(() => {
         setLoading(false);
       });
-  }, [filterCategory]);
+  }, [filterCategory, page]);
 
   useEffect(() => {
     load();
@@ -179,10 +194,14 @@ export default function ExpensesPage() {
 
   const handleVoid = async (id: number) => {
     const reason =
-      window.prompt("Reason for voiding this expense (optional):") ?? "";
+      window.prompt("Reason for voiding this expense (required):");
+
+    // The server requires a reason and writes a GL reversal. Cancel or blank
+    // input must not initiate an irreversible financial action.
+    if (!reason?.trim()) return;
 
     try {
-      await expenseApi.void(id, reason || undefined);
+      await expenseApi.void(id, reason.trim());
 
       load();
     } catch (e) {
@@ -207,12 +226,17 @@ export default function ExpensesPage() {
     .filter((e) => e.status === "POSTED")
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
+  const resetCategory = (value: string) => {
+    setPage(0);
+    setFilterCategory(value);
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="nls-finance-page space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#0B1F3A]">
             Operating Expenses
           </h1>
 
@@ -223,7 +247,7 @@ export default function ExpensesPage() {
 
         <button
           onClick={() => setShowForm(true)}
-          className="inline-flex items-center justify-center px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition"
+          className="inline-flex items-center justify-center px-5 py-2.5 bg-[#0B1F3A] hover:bg-[#16365F] text-white text-sm font-semibold rounded-xl shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
         >
           + Record Expense
         </button>
@@ -232,16 +256,16 @@ export default function ExpensesPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-xs font-medium text-gray-500 uppercase">Records</p>
+          <p className="text-xs font-medium text-gray-500 uppercase">Total records</p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">
-            {visibleExpenses.length}
+            {totalRecords}
           </p>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs font-medium text-gray-500 uppercase">
-            Posted Expenses
+            Posted on this page
           </p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">
@@ -251,7 +275,7 @@ export default function ExpensesPage() {
 
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs font-medium text-gray-500 uppercase">
-            Total Posted
+            Posted amount on this page
           </p>
 
           <p className="text-2xl font-bold text-teal-700 mt-1">
@@ -276,7 +300,7 @@ export default function ExpensesPage() {
 
             <select
               value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
+              onChange={(e) => resetCategory(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
               <option value="">All categories</option>
@@ -409,7 +433,7 @@ export default function ExpensesPage() {
                 </tr>
               ))}
 
-              {visibleExpenses.length === 0 && (
+              {visibleExpenses.length === 0 && !error && (
                 <tr>
                   <td
                     colSpan={9}
@@ -423,6 +447,24 @@ export default function ExpensesPage() {
           </table>
         </div>
       </div>
+
+      {totalPages > 1 && (
+        <nav aria-label="Expense pages" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4">
+          <p className="text-sm text-slate-600">
+            Page <span className="font-semibold text-slate-900">{page + 1}</span> of {totalPages} · {totalRecords} records
+          </p>
+          <div className="flex gap-2">
+            <button type="button" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-[#0B1F3A] disabled:cursor-not-allowed disabled:opacity-40 hover:bg-slate-50">
+              Previous
+            </button>
+            <button type="button" disabled={page + 1 >= totalPages} onClick={() => setPage((value) => value + 1)}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-[#0B1F3A] disabled:cursor-not-allowed disabled:opacity-40 hover:bg-slate-50">
+              Next
+            </button>
+          </div>
+        </nav>
+      )}
 
       {showForm && (
         <AddExpenseModal
@@ -684,7 +726,7 @@ function AddExpenseModal({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className={labelClass}>Expense Date *</label>
+                <label className={labelClass}>Expense Date <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <input
                   type="date"
@@ -696,7 +738,7 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Expense Category *</label>
+                <label className={labelClass}>Expense Category <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <select
                   required
@@ -713,7 +755,7 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Amount *</label>
+                <label className={labelClass}>Amount <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <input
                   type="number"
@@ -729,7 +771,7 @@ function AddExpenseModal({
 
               <div>
                 <label className={labelClass}>
-                  Approved Financial Approval ID *
+                  Approved Financial Approval ID <span className="text-red-700" aria-hidden="true">*</span>
                 </label>
 
                 <input
@@ -784,7 +826,7 @@ function AddExpenseModal({
 
             <div className="space-y-4">
               <div>
-                <label className={labelClass}>Paid From Account *</label>
+                <label className={labelClass}>Paid From Account <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <select
                   required
@@ -814,7 +856,7 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Payment Method *</label>
+                <label className={labelClass}>Payment Method <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <select
                   required
@@ -880,7 +922,7 @@ function AddExpenseModal({
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className={labelClass}>Transaction Reference *</label>
+                  <label className={labelClass}>Transaction Reference <span className="text-red-700" aria-hidden="true">*</span></label>
 
                   <input
                     type="text"
@@ -944,7 +986,7 @@ function AddExpenseModal({
                 </div>
 
                 <div>
-                  <label className={labelClass}>MoMo Pay Code *</label>
+                  <label className={labelClass}>MoMo Pay Code <span className="text-red-700" aria-hidden="true">*</span></label>
 
                   <input
                     type="text"
@@ -985,7 +1027,7 @@ function AddExpenseModal({
 
               <div>
                 <label className={labelClass}>
-                  Bank Transaction Reference *
+                  Bank Transaction Reference <span className="text-red-700" aria-hidden="true">*</span>
                 </label>
 
                 <input
@@ -1032,7 +1074,7 @@ function AddExpenseModal({
                 </div>
 
                 <div>
-                  <label className={labelClass}>Last 4 Digits *</label>
+                  <label className={labelClass}>Last 4 Digits <span className="text-red-700" aria-hidden="true">*</span></label>
 
                   <input
                     type="text"
@@ -1094,7 +1136,7 @@ function AddExpenseModal({
               </h4>
 
               <div>
-                <label className={labelClass}>Cheque Number *</label>
+                <label className={labelClass}>Cheque Number <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <input
                   type="text"

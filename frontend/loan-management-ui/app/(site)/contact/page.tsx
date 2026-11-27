@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
-import { publicApi } from "../../../services/api";
+import { publicApi, post } from "../../../services/api";
 import { SITE_CONTENT } from "../../../lib/siteContent";
 import { useTenant } from "../layout";
 
@@ -70,7 +70,49 @@ export default function ContactPage() {
     "idle" | "sending" | "success" | "error"
   >("idle");
   const [error, setError] = useState("");
+  const [challengeId, setChallengeId] = useState("");
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [requestingCode, setRequestingCode] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState("");
 
+  async function requestEmailCode() {
+    setError("");
+    setStatus("idle");
+    setVerificationMessage("");
+    const email = form.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Enter a valid email address first.");
+      setStatus("error");
+      return;
+    }
+    setRequestingCode(true);
+    try {
+      const result = (await post("/public/contact", {
+        action: "REQUEST_EMAIL_CODE",
+        tenantSlug: tenant.slug,
+        email,
+      })) as { challengeId?: string };
+      if (!result?.challengeId) throw new Error("Verification request failed.");
+      setChallengeId(result.challengeId);
+      setVerificationEmail(email);
+      setEmailVerificationCode("");
+      setVerificationMessage(
+        "A six-digit code was sent to your email. It expires in 10 minutes.",
+      );
+    } catch (cause) {
+      setChallengeId("");
+      setVerificationEmail("");
+      setEmailVerificationCode("");
+      setVerificationMessage("");
+      setStatus("error");
+      setError(
+        cause instanceof Error ? cause.message : "Could not send email code.",
+      );
+    } finally {
+      setRequestingCode(false);
+    }
+  }
   const mapHref = useMemo(
     () =>
       `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
@@ -79,10 +121,31 @@ export default function ContactPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus("sending");
     setError("");
+    if (!/^[0-9]{10}$/.test(form.phone.trim())) {
+      setError("Phone number must contain exactly 10 digits.");
+      setStatus("error");
+      return;
+    }
+    if (
+      !challengeId ||
+      verificationEmail !== form.email.trim().toLowerCase() ||
+      !/^[0-9]{6}$/.test(emailVerificationCode)
+    ) {
+      setError("Request and enter the six-digit code sent to your email.");
+      setStatus("error");
+      return;
+    }
+    setStatus("sending");
     try {
-      await publicApi.contact({ tenantSlug: tenant.slug, ...form });
+      const payload = {
+        emailChallengeId: challengeId,
+        emailVerificationCode,
+        tenantSlug: tenant.slug,
+        ...form,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+      };
+      await publicApi.contact(payload);
       setForm({
         name: "",
         email: "",
@@ -91,6 +154,10 @@ export default function ContactPage() {
         message: "",
       });
       setStatus("success");
+      setChallengeId("");
+      setVerificationEmail("");
+      setEmailVerificationCode("");
+      setVerificationMessage("");
     } catch (cause) {
       setStatus("error");
       setError(
@@ -314,7 +381,7 @@ export default function ContactPage() {
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
                     Full name
-                  </span>
+                  {" "}<span className="text-red-700" aria-hidden="true">*</span></span>
                   <input
                     required
                     maxLength={120}
@@ -327,19 +394,23 @@ export default function ContactPage() {
                 </label>
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
-                    Email address{" "}
-                    <span className="font-normal text-slate-400">
-                      (optional)
-                    </span>
+                    Email address <span className="text-red-700" aria-hidden="true">*</span>
                   </span>
                   <input
                     type="email"
+                    required
                     maxLength={180}
                     autoComplete="email"
                     value={form.email}
-                    onChange={(e) =>
-                      setForm({ ...form, email: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setForm({ ...form, email: e.target.value });
+                      setChallengeId("");
+                      setVerificationEmail("");
+                      setEmailVerificationCode("");
+                      setVerificationMessage("");
+                      setError("");
+                      setStatus("idle");
+                    }}
                     placeholder="you@example.com"
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                   />
@@ -348,16 +419,20 @@ export default function ContactPage() {
               <div className="grid gap-5 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-black text-slate-700">
-                    Phone number
+                    Phone number (10 digits) <span className="text-red-700" aria-hidden="true">*</span>
                   </span>
                   <input
-                    maxLength={40}
+                    required
+                    inputMode="numeric"
+                    pattern="[0-9]{10}"
+                    minLength={10}
+                    maxLength={10}
                     autoComplete="tel"
                     value={form.phone}
                     onChange={(e) =>
                       setForm({ ...form, phone: e.target.value })
                     }
-                    placeholder="Your phone number"
+                    placeholder="0781234567"
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
                   />
                 </label>
@@ -378,10 +453,57 @@ export default function ContactPage() {
                   </select>
                 </label>
               </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                <p className="text-xs font-black text-slate-700">
+                  Verify your email address *
+                </p>
+                <button
+                  type="button"
+                  disabled={
+                    requestingCode || status === "sending" || !form.email.trim()
+                  }
+                  onClick={() => void requestEmailCode()}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-800 disabled:opacity-50"
+                >
+                  {requestingCode
+                    ? "Sending code..."
+                    : challengeId
+                      ? "Send another code"
+                      : "Send verification code"}
+                </button>
+                {verificationMessage && (
+                  <p role="status" className="text-xs text-slate-600">
+                    {verificationMessage}
+                  </p>
+                )}
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-700">
+                    Six-digit code received by email <span className="text-red-700" aria-hidden="true">*</span>
+                  </span>
+                  <input
+                    required
+                    disabled={!challengeId || requestingCode}
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={emailVerificationCode}
+                    onChange={(e) =>
+                      setEmailVerificationCode(e.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder={challengeId ? "000000" : "Request a code first"}
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                  {!challengeId && (
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Enter your email address and select Send verification code to enable this field.
+                    </span>
+                  )}
+                </label>
+              </div>
               <label className="block">
                 <span className="text-xs font-black text-slate-700">
                   Your message
-                </span>
+                {" "}<span className="text-red-700" aria-hidden="true">*</span></span>
                 <textarea
                   required
                   minLength={5}
@@ -409,7 +531,7 @@ export default function ContactPage() {
                   enquiry.
                 </div>
               )}
-              {status === "error" && (
+              {error && (
                 <div
                   role="alert"
                   className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700"
@@ -425,7 +547,7 @@ export default function ContactPage() {
                   message inbox.
                 </p>
                 <button
-                  disabled={status === "sending"}
+                  disabled={status === "sending" || requestingCode}
                   type="submit"
                   className="rounded-2xl px-7 py-4 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
                   style={{ backgroundColor: primary }}

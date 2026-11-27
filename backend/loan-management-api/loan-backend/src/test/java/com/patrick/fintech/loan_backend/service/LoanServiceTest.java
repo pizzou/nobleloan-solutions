@@ -113,6 +113,9 @@ class LoanServiceTest {
         @Mock
         WorkflowTaskService workflowTaskService;
 
+        @Mock
+        LoanReferenceService loanReferenceService;
+
         @InjectMocks
         LoanService loanService;
 
@@ -126,7 +129,7 @@ class LoanServiceTest {
                 org = new Organization();
                 org.setId(1L);
                 org.setName("TestOrg");
-                org.setDefaultCurrency("USD");
+                org.setDefaultCurrency("RWF");
 
                 borrower = new Borrower();
                 borrower.setId(1L);
@@ -158,12 +161,13 @@ class LoanServiceTest {
 
                 LoanRequest req = LoanRequest.builder()
                                 .borrowerId(1L)
-                                .amount(new BigDecimal("500000.00"))
+                                .amount(new BigDecimal("1000000.00"))
                                 .interestRate(new BigDecimal("5.00"))
                                 .interestRateType("MONTHLY")
                                 .durationMonths(6)
-                                .currency("USD")
+                                .currency("RWF")
                                 .startDate("2026-01-01")
+                                .collateralType("IMMOVABLE")
                                 .collateralValue(new BigDecimal("15000.00"))
                                 .collateralDescription("Land title")
                                 .build();
@@ -174,7 +178,7 @@ class LoanServiceTest {
                 savedLoan.setReferenceNumber("LN-TEST-0001");
                 savedLoan.setBorrower(borrower);
                 savedLoan.setOrganization(org);
-                savedLoan.setAmount(new BigDecimal("500000.00"));
+                savedLoan.setAmount(new BigDecimal("1000000.00"));
                 savedLoan.setDurationMonths(6);
                 savedLoan.setInterestRate(new BigDecimal("5.00"));
                 savedLoan.setStatus(LoanStatus.PENDING);
@@ -205,6 +209,8 @@ class LoanServiceTest {
                                 1L,
                                 true))
                                 .thenReturn(List.of());
+
+                when(loanReferenceService.allocate()).thenReturn("NLS-000007");
 
                 when(loanRepository.save(any(Loan.class)))
                                 .thenReturn(savedLoan);
@@ -247,8 +253,8 @@ class LoanServiceTest {
                 loan.setId(2L);
                 loan.setReferenceNumber("LN-TEST-0002");
                 loan.setStatus(LoanStatus.PENDING);
-                loan.setAmount(new BigDecimal("500000.00"));
-                loan.setRequestedAmount(new BigDecimal("500000.00"));
+                loan.setAmount(new BigDecimal("1000000.00"));
+                loan.setRequestedAmount(new BigDecimal("1000000.00"));
                 loan.setInterestRate(new BigDecimal("7.00"));
                 loan.setManagementFeeRate(new BigDecimal("9.00"));
                 loan.setApplicationFeeRate(new BigDecimal("1.00"));
@@ -258,7 +264,7 @@ class LoanServiceTest {
                 loan.setStartDate(LocalDate.of(2026, 1, 1));
                 loan.setBorrower(borrower);
                 loan.setOrganization(org);
-                loan.setCurrency("USD");
+                loan.setCurrency("RWF");
 
                 when(loanRepository.findVisibleByIdForUpdate(2L, 1L, true))
                                 .thenReturn(Optional.of(loan));
@@ -285,11 +291,53 @@ class LoanServiceTest {
                 assertThat(result.getApplicationFeeRateDecimal())
                                 .isEqualByComparingTo("1.00");
                 assertThat(result.getApplicationFeeDecimal())
-                                .isEqualByComparingTo("5000.00");
+                                .isEqualByComparingTo("10000.00");
                 assertThat(result.getTotalInterestDecimal())
-                                .isEqualByComparingTo("122500.00");
+                                .isEqualByComparingTo("245000.00");
                 assertThat(result.getManagementFeeDecimal())
-                                .isEqualByComparingTo("87500.00");
+                                .isEqualByComparingTo("175000.00");
+        }
+
+        @Test
+        void approveLoan_shouldSaveNegotiatedTwoPointFivePercentRatesForAuthorizedManager() {
+                Role managerRole = new Role();
+                managerRole.setName("MANAGER");
+                officer.setRole(managerRole);
+
+                Loan loan = new Loan();
+                loan.setId(200L);
+                loan.setReferenceNumber("NLS-TEST-200");
+                loan.setStatus(LoanStatus.PENDING);
+                loan.setAmount(new BigDecimal("1000000.00"));
+                loan.setRequestedAmount(new BigDecimal("1000000.00"));
+                loan.setInterestRate(new BigDecimal("5.00"));
+                loan.setManagementFeeRate(new BigDecimal("5.00"));
+                loan.setApplicationFeeRate(new BigDecimal("2.00"));
+                loan.setInterestRateType("MONTHLY");
+                loan.setDurationMonths(1);
+                loan.setStartDate(LocalDate.of(2026, 11, 19));
+                loan.setBorrower(borrower);
+                loan.setOrganization(org);
+                loan.setCurrency("RWF");
+
+                when(loanRepository.findVisibleByIdForUpdate(200L, 1L, true))
+                                .thenReturn(Optional.of(loan));
+                when(fileService.getMissingDocumentTypes(any(Long.class), any()))
+                                .thenReturn(List.of());
+                when(loanRepository.save(any(Loan.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+                when(paymentRepository.findByLoanId(200L)).thenReturn(List.of());
+                lenient().when(holidayService.adjustToBusinessDay(anyLong(), any(LocalDate.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(1));
+
+                Loan approved = loanService.approveLoan(200L, officer,
+                                "Borrower agreed to 5% total for the period",
+                                2.5, null, null, 2.5);
+
+                assertThat(approved.getInterestRateDecimal()).isEqualByComparingTo("2.50");
+                assertThat(approved.getManagementFeeRateDecimal()).isEqualByComparingTo("2.50");
+                assertThat(approved.getTotalInterestDecimal()).isEqualByComparingTo("25000.00");
+                assertThat(approved.getManagementFeeDecimal()).isEqualByComparingTo("25000.00");
         }
 
         // ============================================================
@@ -305,7 +353,7 @@ class LoanServiceTest {
                                 .interestRate(new BigDecimal("5.00"))
                                 .interestRateType("MONTHLY")
                                 .durationMonths(6)
-                                .currency("USD")
+                                .currency("RWF")
                                 .startDate("2026-01-01")
                                 .build();
 
@@ -336,7 +384,7 @@ class LoanServiceTest {
                 loan.setId(1L);
                 loan.setReferenceNumber("LN-TEST-0001");
                 loan.setStatus(LoanStatus.PENDING);
-                loan.setAmount(new BigDecimal("500000.00"));
+                loan.setAmount(new BigDecimal("1000000.00"));
                 loan.setInterestRate(new BigDecimal("5.00"));
                 loan.setManagementFeeRate(new BigDecimal("5.00"));
                 loan.setProcessingFeeRate(new BigDecimal("2.00"));
@@ -346,7 +394,7 @@ class LoanServiceTest {
                                 LocalDate.of(2026, 1, 1));
                 loan.setBorrower(borrower);
                 loan.setOrganization(org);
-                loan.setCurrency("USD");
+                loan.setCurrency("RWF");
 
                 /*
                  * Business Owner-aware row locking.
@@ -399,28 +447,28 @@ class LoanServiceTest {
                                 .isEqualTo(LoanStatus.APPROVED);
 
                 assertThat(result.getTotalInterestDecimal())
-                                .isEqualByComparingTo("87500.00");
+                                .isEqualByComparingTo("175000.00");
 
                 assertThat(result.getInterestPaidDecimal())
                                 .isEqualByComparingTo("0.00");
 
                 assertThat(result.getInterestOutstandingDecimal())
-                                .isEqualByComparingTo("87500.00");
+                                .isEqualByComparingTo("175000.00");
 
                 assertThat(result.getManagementFeeDecimal())
-                                .isEqualByComparingTo("87500.00");
+                                .isEqualByComparingTo("175000.00");
 
                 assertThat(result.getManagementFeePaidDecimal())
                                 .isEqualByComparingTo("0.00");
 
                 assertThat(result.getManagementFeeOutstandingDecimal())
-                                .isEqualByComparingTo("87500.00");
+                                .isEqualByComparingTo("175000.00");
 
                 assertThat(result.getApplicationFeeDecimal())
-                                .isEqualByComparingTo("10000.00");
+                                .isEqualByComparingTo("20000.00");
 
                 assertThat(result.getTotalRepayableDecimal())
-                                .isEqualByComparingTo("675000.00");
+                                .isEqualByComparingTo("1350000.00");
 
                 verify(paymentRepository, times(6))
                                 .save(any());

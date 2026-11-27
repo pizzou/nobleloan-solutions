@@ -360,7 +360,7 @@ function Field({
       <label className="mb-1 block text-sm font-medium text-gray-700">
         {label}
         {required ? " *" : ""}
-      </label>
+      {" "}{(required) && <span className="text-red-700" aria-hidden="true">*</span>}</label>
 
       <input
         type={type}

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
+  get,
+  post,
   loanApi,
   paymentApi,
   borrowerApi,
@@ -77,6 +79,7 @@ const TABS = [
   "Schedule",
   "Timeline",
   "Comments",
+  "Contract",
 ] as const;
 
 type Tab = (typeof TABS)[number];
@@ -1012,10 +1015,14 @@ export default function LoanDetailPage() {
 
   const fc = (n?: number) => formatCurrency(n, currency, locale);
 
-  const isBusinessOwner =
-    String(
-      (user as { role?: { name?: string } } | null)?.role?.name ?? "",
-    ).toUpperCase() === "BUSINESS_OWNER";
+  const roleName = String(user?.role ?? "").toUpperCase();
+
+  const isBusinessOwner = roleName === "BUSINESS_OWNER";
+  const canManageContract =
+    isOfficer || ["ADMIN", "MANAGER", "BUSINESS_OWNER"].includes(roleName);
+  const visibleTabs = TABS.filter(
+    (item) => item !== "Contract" || canManageContract,
+  );
 
   // ==========================================================
   // LOAN
@@ -1029,10 +1036,77 @@ export default function LoanDetailPage() {
 
   const [tab, setTab] = useState<Tab>("Overview");
 
+  const [contractStatus, setContractStatus] = useState<string | null>(null);
+  const [contractGeneratedAt, setContractGeneratedAt] = useState<string | null>(
+    null,
+  );
+  const [contractSent, setContractSent] = useState(false);
+  const [contractNoticeQueued, setContractNoticeQueued] = useState(false);
+  const [contractBusy, setContractBusy] = useState(false);
+  const [applicationFormBusy, setApplicationFormBusy] = useState(false);
+  const [signedContractFile, setSignedContractFile] = useState<File | null>(
+    null,
+  );
+  const [signedContractDocuments, setSignedContractDocuments] = useState<
+    Array<{
+      id: number;
+      fileName: string;
+      uploadedAt: string;
+      downloadUrl: string;
+    }>
+  >([]);
+
   const [msg, setMsg] = useState<{
     type: "error" | "success";
     text: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!hasValidLoanId || !canManageContract) return;
+    let cancelled = false;
+    get(`/loans/${loanId}/contract/status`)
+      .then((result: any) => {
+        if (cancelled) return;
+        setContractStatus(
+          typeof result?.status === "string" ? result.status : null,
+        );
+        setContractGeneratedAt(
+          typeof result?.generatedAt === "string" ? result.generatedAt : null,
+        );
+        setContractSent(result?.status === "SENT_TO_BORROWER");
+        setContractNoticeQueued(result?.borrowerNoticeQueued === true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setContractStatus(null);
+          setContractGeneratedAt(null);
+          setContractSent(false);
+          setContractNoticeQueued(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loanId, hasValidLoanId, canManageContract]);
+
+  useEffect(() => {
+    if (!hasValidLoanId || !canManageContract) return;
+    let cancelled = false;
+    get(`/loans/${loanId}/contract/signed`)
+      .then((result: any) => {
+        if (cancelled) return;
+        const docs = Array.isArray(result?.documents) ? result.documents : [];
+        setSignedContractDocuments(
+          docs.filter((item: any) => Number.isFinite(Number(item?.id))),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setSignedContractDocuments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loanId, hasValidLoanId, canManageContract]);
 
   // ==========================================================
   // CREDIT BUREAU
@@ -1078,6 +1152,11 @@ export default function LoanDetailPage() {
     applicationFeeRate: "",
     approvedAmount: "",
     businessOwnerOnly: false,
+    disbursementDate: new Date(
+      Date.now() - new Date().getTimezoneOffset() * 60_000,
+    )
+      .toISOString()
+      .slice(0, 10),
   });
 
   const [stSaving, setStSaving] = useState(false);
@@ -1582,6 +1661,11 @@ export default function LoanDetailPage() {
           : "2",
       approvedAmount: loan?.amount != null ? String(loan.amount) : "",
       businessOwnerOnly: Boolean(loan?.businessOwnerOnly),
+      disbursementDate: new Date(
+        Date.now() - new Date().getTimezoneOffset() * 60_000,
+      )
+        .toISOString()
+        .slice(0, 10),
     });
     setStOpen(true);
   };
@@ -1666,7 +1750,15 @@ export default function LoanDetailPage() {
         label = `Loan rejection — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status === "DISBURSED") {
         url = `/loans/${loanId}/disburse`;
-        body = { disbursementMethod: "BANK_TRANSFER" };
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(stForm.disbursementDate)) {
+          throw new Error(
+            "Select the date the borrower actually received the loan.",
+          );
+        }
+        body = {
+          disbursementMethod: "BANK_TRANSFER",
+          disbursementDate: stForm.disbursementDate,
+        };
         label = `Loan disbursement — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status) {
         url = `/loans/${loanId}/status`;
@@ -1710,7 +1802,12 @@ export default function LoanDetailPage() {
         } else if (stForm.status === "REJECTED") {
           await loanApi.reject(loanId, stForm.rejectionReason, idempotencyKey);
         } else if (stForm.status === "DISBURSED") {
-          await loanApi.disburse(loanId, "BANK_TRANSFER", idempotencyKey);
+          await loanApi.disburse(
+            loanId,
+            "BANK_TRANSFER",
+            idempotencyKey,
+            stForm.disbursementDate,
+          );
         } else {
           await loanApi.updateStatus(
             loanId,
@@ -1961,7 +2058,9 @@ export default function LoanDetailPage() {
     0,
   );
 
-  const totalPenalty = loan.penaltiesAssessed ?? scheduledPenalty;
+  const penaltyAssessed = loan.penaltiesAssessed ?? scheduledPenalty;
+  const penaltyPaid = loan.penaltiesPaid ?? 0;
+  const penaltyOutstanding = Math.max(0, penaltyAssessed - penaltyPaid);
 
   const managementFeeRate = loan.managementFeeRate ?? 5;
   const interestRate = loan.interestRate ?? 5;
@@ -1989,6 +2088,209 @@ export default function LoanDetailPage() {
 
   const totalDailyChargeRate = interestDailyRate + managementFeeDailyRate;
 
+  const generateContractDraft = async () => {
+    if (!hasValidLoanId || contractBusy) return;
+    setContractBusy(true);
+    setMsg(null);
+    try {
+      const result: any = await post(`/loans/${loanId}/contract/generate`, {});
+      setContractStatus(
+        typeof result?.status === "string" ? result.status : "DRAFT",
+      );
+      setContractGeneratedAt(
+        typeof result?.generatedAt === "string"
+          ? result.generatedAt
+          : new Date().toISOString(),
+      );
+      setMsg({
+        type: "success",
+        text: "Contract draft generated. Review it before sending it to the borrower.",
+      });
+    } catch {
+      setMsg({
+        type: "error",
+        text: "Unable to generate the contract draft. Please check the loan record and try again.",
+      });
+    } finally {
+      setContractBusy(false);
+    }
+  };
+
+  const downloadLoanApplicationForm = async () => {
+    if (!hasValidLoanId || applicationFormBusy) return;
+    setApplicationFormBusy(true);
+    setMsg(null);
+    try {
+      const result = await get(`/loans/${loanId}/application-form`, {
+        responseType: "blob",
+      });
+      const fileBlob =
+        result instanceof Blob
+          ? result
+          : new Blob([result], {
+              type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            });
+      const url = window.URL.createObjectURL(fileBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `NLS-Application-${loan?.referenceNumber ?? loanId}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      setMsg({ type: "success", text: "Application form downloaded." });
+    } catch {
+      setMsg({
+        type: "error",
+        text: "Unable to download the application form.",
+      });
+    } finally {
+      setApplicationFormBusy(false);
+    }
+  };
+
+  const downloadContractDraft = async () => {
+    if (!hasValidLoanId || contractBusy) return;
+    setContractBusy(true);
+    setMsg(null);
+    try {
+      // The stored DOCX may predate a branding or loan-term correction.
+      // Always refresh an UNSENT draft before downloading it, so the logo,
+      // Kinyarwanda amounts and the latest saved schedule are included.
+      // An already-sent document remains immutable.
+      if (!contractSent) {
+        const refreshed: any = await post(
+          `/loans/${loanId}/contract/generate`,
+          {},
+        );
+        setContractStatus(
+          typeof refreshed?.status === "string" ? refreshed.status : "DRAFT",
+        );
+        setContractGeneratedAt(
+          typeof refreshed?.generatedAt === "string"
+            ? refreshed.generatedAt
+            : new Date().toISOString(),
+        );
+      }
+      const blob = await get(`/loans/${loanId}/contract/draft`, {
+        responseType: "blob",
+      });
+      const fileBlob = blob instanceof Blob ? blob : new Blob([blob]);
+      const url = window.URL.createObjectURL(fileBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `NLS-Loan-Contract-${loan?.referenceNumber ?? loanId}-DRAFT.docx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      setMsg({
+        type: "success",
+        text: "Draft contract downloaded. Review all terms before sending it to the borrower.",
+      });
+    } catch {
+      setMsg({
+        type: "error",
+        text: "Unable to download the contract draft. Confirm that the loan has a generated contract and try again.",
+      });
+    } finally {
+      setContractBusy(false);
+    }
+  };
+
+  const markContractSent = async () => {
+    if (!hasValidLoanId || contractBusy) return;
+    const confirmed = window.confirm(
+      "Confirm that you have already sent the downloaded draft and reviewed the borrower details, loan amounts, rates, fees, loan terms and repayment schedule. The system will block dispatch if the repayment schedule is missing. A borrower review notice will be queued when email is enabled.",
+    );
+    if (!confirmed) return;
+    setContractBusy(true);
+    setMsg(null);
+    try {
+      const result: any = await post(`/loans/${loanId}/contract/sent`, {
+        termsReviewed: true,
+      });
+      setContractSent(true);
+      setContractStatus("SENT_TO_BORROWER");
+      setContractNoticeQueued(result?.borrowerNoticeQueued === true);
+      setMsg({
+        type: "success",
+        text:
+          result?.borrowerNoticeQueued === true
+            ? "Contract dispatch recorded and borrower review notice queued. This does not confirm the borrower read it."
+            : "Contract dispatch recorded. No borrower email notice was queued; confirm email configuration or contact the borrower through the approved channel.",
+      });
+    } catch (error: any) {
+      const details =
+        error?.response?.data?.message ??
+        error?.response?.data?.error ??
+        error?.message;
+      setMsg({
+        type: "error",
+        text:
+          typeof details === "string" && details.trim()
+            ? details
+            : "Could not record contract dispatch. Confirm the repayment schedule is present and all contract terms have been reviewed.",
+      });
+    } finally {
+      setContractBusy(false);
+    }
+  };
+
+  const uploadSignedContract = async () => {
+    if (!hasValidLoanId || !signedContractFile || contractBusy) return;
+    const allowed = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+    if (!allowed.includes(signedContractFile.type)) {
+      setMsg({
+        type: "error",
+        text: "Upload the signed contract as a PDF, JPG, PNG or WEBP scan.",
+      });
+      return;
+    }
+    if (signedContractFile.size > 8 * 1024 * 1024) {
+      setMsg({
+        type: "error",
+        text: "The signed contract must be no larger than 8 MB.",
+      });
+      return;
+    }
+    const form = new FormData();
+    form.append("file", signedContractFile);
+    setContractBusy(true);
+    setMsg(null);
+    try {
+      await post(`/loans/${loanId}/contract/signed`, form);
+      setSignedContractFile(null);
+      const result: any = await get(`/loans/${loanId}/contract/signed`);
+      setSignedContractDocuments(
+        Array.isArray(result?.documents) ? result.documents : [],
+      );
+      setMsg({
+        type: "success",
+        text: "Signed contract uploaded and linked to this loan under the borrower's documents.",
+      });
+    } catch (error: any) {
+      const details =
+        error?.response?.data?.message ??
+        error?.response?.data?.error ??
+        error?.message;
+      setMsg({
+        type: "error",
+        text:
+          typeof details === "string" && details.trim()
+            ? details
+            : "Unable to upload the signed contract. Please retry.",
+      });
+    } finally {
+      setContractBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50/70 pb-10">
       <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
@@ -2005,6 +2307,79 @@ export default function LoanDetailPage() {
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950">
                 {loan.referenceNumber}
               </h1>
+              {[
+
+                  "BUSINESS_OWNER",
+                  "ACCOUNTANT",
+                  "ADMIN",
+                  "MANAGER",
+                  "LOAN_OFFICER",
+                  "CREDIT_ANALYST",
+                  "AUDITOR",
+                ].includes(roleName) && (
+                  <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(`/dashboard/loans/${loan.id}/corrections`)
+                    }
+                    className="mt-3 inline-flex rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900 hover:bg-amber-100"
+                  >
+                    {isBusinessOwner
+                      ? "Request or review loan correction"
+                      : ["AUDITOR"].includes(roleName)
+                        ? "View correction history"
+                        : "Request loan correction"}
+                  </button>
+                  </>
+                )}
+              {isBusinessOwner && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-bold ${loan.businessOwnerOnly ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}
+                  >
+                    {loan.businessOwnerOnly
+                      ? "Business Owner only"
+                      : "Normal reporting"}
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                    onClick={async () => {
+                      const nextValue = !Boolean(loan.businessOwnerOnly);
+                      const nextLabel = nextValue
+                        ? "Business Owner only"
+                        : "Normal reporting";
+                      const confirmed = window.confirm(
+                        `Move loan ${loan.referenceNumber} to ${nextLabel}? This changes reporting visibility only; it does not change the loan balance or post financial transactions.`,
+                      );
+                      if (!confirmed) return;
+                      try {
+                        await loanApi.changeReportingVisibility(
+                          loan.id,
+                          nextValue,
+                        );
+                        setMsg({
+                          type: "success",
+                          text: `Loan reporting visibility changed to ${nextLabel}.`,
+                        });
+                        await load();
+                      } catch (error) {
+                        setMsg({
+                          type: "error",
+                          text:
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to change loan reporting visibility.",
+                        });
+                      }
+                    }}
+                  >
+                    Move to{" "}
+                    {loan.businessOwnerOnly ? "Normal" : "Business Owner only"}
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <StatusBadge status={loan.status} />
@@ -2268,8 +2643,8 @@ export default function LoanDetailPage() {
             },
 
             {
-              label: "Penalty",
-              value: fc(totalPenalty),
+              label: "Penalty Outstanding",
+              value: fc(penaltyOutstanding),
               Icon: IconFileText,
               color: "#6B7280",
             },
@@ -2511,24 +2886,18 @@ export default function LoanDetailPage() {
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Assessed</span>
-                    <strong>{fc(loan.penaltiesAssessed)}</strong>
+                    <strong>{fc(penaltyAssessed)}</strong>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Paid</span>
-                    <strong>{fc(loan.penaltiesPaid)}</strong>
+                    <strong>{fc(penaltyPaid)}</strong>
                   </div>
                   <div className="flex justify-between gap-4 border-t border-rose-100 pt-2">
                     <span className="font-semibold text-slate-600">
                       Outstanding
                     </span>
                     <strong className="text-rose-700">
-                      {fc(
-                        Math.max(
-                          0,
-                          (loan.penaltiesAssessed ?? 0) -
-                            (loan.penaltiesPaid ?? 0),
-                        ),
-                      )}
+                      {fc(penaltyOutstanding)}
                     </strong>
                   </div>
                 </div>
@@ -2627,8 +2996,30 @@ export default function LoanDetailPage() {
             </div>
           )}
 
+        <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-teal-900">Loan Application Form</h3>
+              <p className="mt-1 text-sm text-teal-800">
+                Download the bilingual NLS form with saved borrower details and
+                blank signature spaces.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={downloadLoanApplicationForm}
+              disabled={!hasValidLoanId || applicationFormBusy}
+              className="rounded-lg bg-teal-800 px-5 py-3 text-sm font-bold text-white transition hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {applicationFormBusy
+                ? "Preparing application…"
+                : "Download Application Form (.docx)"}
+            </button>
+          </div>
+        </div>
+
         <div className="flex border-b border-gray-200 mb-5 gap-0 overflow-x-auto">
-          {TABS.map((t) => (
+          {visibleTabs.map((t) => (
             <button
               key={t}
               type="button"
@@ -2652,6 +3043,162 @@ export default function LoanDetailPage() {
             </button>
           ))}
         </div>
+
+        {tab === "Contract" && (
+          <Card>
+            <CardHeader title="Loan contract draft" />
+            <CardBody>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-5">
+                <div className="font-semibold text-amber-900">
+                  Draft only — review before signing
+                </div>
+                <p className="mt-1 text-sm text-amber-800">
+                  The system generates this Word document directly from its own
+                  contract layout, borrower application details and saved loan
+                  terms; no external Word template is required. Check the
+                  borrower identity, approved principal, fees, rates and
+                  repayment terms against the final approved schedule. The draft
+                  is not a signed contract and does not authorize disbursement.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {(!contractStatus || contractStatus === "DRAFT") && (
+                  <Button
+                    onClick={generateContractDraft}
+                    disabled={contractBusy}
+                  >
+                    {contractBusy
+                      ? "Please wait…"
+                      : contractStatus === "DRAFT"
+                        ? "Refresh draft from current loan terms"
+                        : "Generate contract draft"}
+                  </Button>
+                )}
+                <Button
+                  onClick={downloadContractDraft}
+                  disabled={contractBusy || !contractStatus}
+                >
+                  {contractBusy
+                    ? "Please wait…"
+                    : "Download contract draft (.docx)"}
+                </Button>
+                <Button
+                  onClick={markContractSent}
+                  disabled={contractBusy || contractSent || !contractStatus}
+                >
+                  {contractSent
+                    ? "Dispatch recorded"
+                    : "Record draft sent to borrower"}
+                </Button>
+              </div>
+              <div className="mt-3 text-xs text-slate-500">
+                Status:{" "}
+                <strong>
+                  {contractStatus === "SENT_TO_BORROWER"
+                    ? "Sent to borrower"
+                    : contractStatus === "DRAFT"
+                      ? "Draft ready"
+                      : "Not generated yet"}
+                </strong>
+                {contractGeneratedAt
+                  ? ` · Generated ${formatDate(contractGeneratedAt)}`
+                  : ""}
+                {contractSent
+                  ? ` · Borrower review notice: ${contractNoticeQueued ? "queued" : "not queued"}`
+                  : ""}
+              </div>
+              <ol className="mt-5 list-decimal pl-5 space-y-2 text-sm text-slate-600">
+                <li>
+                  Download and review the draft against the approved loan terms
+                  and repayment schedule.
+                </li>
+                <li>
+                  Send the draft to the borrower using the approved
+                  communication channel.
+                </li>
+                <li>
+                  After sending, select “Record draft sent to borrower”. The
+                  system records the dispatch and queues a review-notice email
+                  when email delivery is enabled.
+                </li>
+                <li>
+                  Print the final reviewed contract for the borrower and
+                  authorized Noble Loan Solutions representative to sign.
+                </li>
+                <li>
+                  After signing, scan the signed contract to PDF or image and
+                  upload it below. It will be saved under the borrower's
+                  documents and linked specifically to this loan.
+                </li>
+              </ol>
+              {contractSent && (
+                <p className="mt-4 text-sm font-medium text-emerald-700">
+                  Dispatch has been recorded in this page session. Reopening the
+                  page will not change the saved backend status.
+                </p>
+              )}
+              <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="font-semibold text-slate-900">
+                  Signed contract — Borrower Documents for this loan
+                </h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Upload the scanned signed copy. It is stored as a borrower
+                  document linked to loan {loan?.referenceNumber ?? loanId}, not
+                  as a general unassigned borrower file.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <input
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(event) =>
+                      setSignedContractFile(event.target.files?.[0] ?? null)
+                    }
+                    className="block max-w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:font-medium file:text-slate-700"
+                    disabled={contractBusy}
+                  />
+                  <Button
+                    onClick={uploadSignedContract}
+                    disabled={contractBusy || !signedContractFile}
+                  >
+                    {contractBusy ? "Please wait…" : "Upload signed contract"}
+                  </Button>
+                </div>
+                {signedContractDocuments.length > 0 ? (
+                  <ul className="mt-4 space-y-2">
+                    {signedContractDocuments.map((doc) => (
+                      <li
+                        key={doc.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm"
+                      >
+                        <span className="font-medium text-slate-800">
+                          {doc.fileName}{" "}
+                          <span className="font-normal text-slate-500">
+                            · Uploaded{" "}
+                            {doc.uploadedAt
+                              ? formatDate(doc.uploadedAt)
+                              : "date unavailable"}
+                          </span>
+                        </span>
+                        <a
+                          className="font-semibold text-teal-700 underline"
+                          href={doc.downloadUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Download signed copy
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">
+                    No signed contract has been uploaded for this loan yet.
+                  </p>
+                )}
+              </div>
+            </CardBody>
+          </Card>
+        )}
 
         {tab === "Overview" && (
           <Card>
@@ -3522,6 +4069,38 @@ export default function LoanDetailPage() {
                 })()}
               </Select>
             </FormGroup>
+            {stForm.status === "DISBURSED" && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+                <FormGroup
+                  label="Actual date borrower received the loan"
+                  required
+                >
+                  <Input
+                    type="date"
+                    required
+                    max={new Date(
+                      Date.now() - new Date().getTimezoneOffset() * 60_000,
+                    )
+                      .toISOString()
+                      .slice(0, 10)}
+                    value={stForm.disbursementDate}
+                    onChange={(e) =>
+                      setStForm((f) => ({
+                        ...f,
+                        disbursementDate: e.target.value,
+                      }))
+                    }
+                  />
+                </FormGroup>
+                <p className="text-xs text-amber-900">
+                  The repayment schedule and accounting entry will use this
+                  date. The system separately audits the date and time you
+                  record the disbursement. Ask an administrator or accountant
+                  to open a missing posting month. A closed month requires a
+                  controlled accounting adjustment.
+                </p>
+              </div>
+            )}
             {stForm.status === "APPROVED" && (
               <div className="space-y-5">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">

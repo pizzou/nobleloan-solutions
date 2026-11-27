@@ -175,12 +175,8 @@ export const verifyFile = async (
 ): Promise<BorrowerFile> => {
   const id = normalizeFileId(fileId);
 
-  if (
-    (status === "REJECTED" || status === "REPLACEMENT_REQUESTED") &&
-    (!Number.isSafeInteger(loanId) || (loanId as number) <= 0)
-  ) {
-    throw new Error("A valid loan ID is required for this review action.");
-  }
+  // Document reviews are borrower-scoped. An optional loan ID is useful
+  // for navigation but must not block a reviewer working in the borrower file.
 
   try {
     const response = await API.patch(`/files/${id}/verify`, {
@@ -354,6 +350,7 @@ export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   EMPLOYMENT_LETTER: "Employment Letter",
   BUSINESS_REGISTRATION: "Business Registration Certificate",
   COLLATERAL_DOCUMENT: "Collateral Document",
+  COLLATERAL_EXPERTISE: "Collateral Expertise / Valuation Report",
   SINGLE_CERTIFICATE: "Single Status Certificate",
   MARRIAGE_CERTIFICATE: "Marriage Certificate",
   SELFIE: "Selfie",
@@ -381,3 +378,12 @@ export const VERIFICATION_STATUS_META: Record<
     className: "bg-amber-50 text-amber-700",
   },
 };
+
+export async function completeDocumentReview(
+  borrowerId: number,
+): Promise<string> {
+  const response = await API.post<{ message: string }>(
+    `/files/borrower/${borrowerId}/complete-review`,
+  );
+  return response.data.message;
+}

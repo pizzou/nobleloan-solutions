@@ -96,7 +96,7 @@ const products: TenantConfig["services"] = [
     rateType: "MONTHLY",
     applicationFeeRate: 2,
     managementFeeRate: 5,
-    minAmount: 500000,
+    minAmount: 1000000,
     maxAmount: null,
     minTermMonths: 1,
     maxTermMonths: 6,
@@ -113,7 +113,7 @@ const products: TenantConfig["services"] = [
     rateType: "MONTHLY",
     applicationFeeRate: 2,
     managementFeeRate: 5,
-    minAmount: 500000,
+    minAmount: 1000000,
     maxAmount: null,
     minTermMonths: 1,
     maxTermMonths: 6,
@@ -130,7 +130,7 @@ const products: TenantConfig["services"] = [
     rateType: "MONTHLY",
     applicationFeeRate: 2,
     managementFeeRate: 5,
-    minAmount: 500000,
+    minAmount: 1000000,
     maxAmount: null,
     minTermMonths: 1,
     maxTermMonths: 6,
@@ -147,7 +147,7 @@ const products: TenantConfig["services"] = [
     rateType: "MONTHLY",
     applicationFeeRate: 2,
     managementFeeRate: 5,
-    minAmount: 500000,
+    minAmount: 1000000,
     maxAmount: null,
     minTermMonths: 1,
     maxTermMonths: 6,
@@ -165,7 +165,7 @@ const products: TenantConfig["services"] = [
     rateType: "MONTHLY",
     applicationFeeRate: 2,
     managementFeeRate: 5,
-    minAmount: 500000,
+    minAmount: 1000000,
     maxAmount: null,
     minTermMonths: 1,
     maxTermMonths: 6,
@@ -198,7 +198,7 @@ export const SITE_CONTENT: TenantConfig = {
 
   contactPhone: value(
     process.env.NEXT_PUBLIC_SITE_CONTACT_PHONE,
-    "+250 788 123 456",
+    "+250 788 599 696",
   ),
 
   website: value(

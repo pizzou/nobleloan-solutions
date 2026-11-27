@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import { AuthContext, useAuthState } from "@/hooks/useAuth";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 import ForcedPasswordChange from "@/components/ForcedPasswordChange";
+import { useSessionActivity } from "@/hooks/useSessionActivity";
 
 /* ============================================================
    NOBLE LOAN SOLUTIONS BRAND
@@ -31,6 +32,9 @@ export default function DashboardLayout({
 }) {
   const auth = useAuthState();
   const router = useRouter();
+  useSessionActivity(!auth.loading && Boolean(auth.user), () => {
+    void auth.logout();
+  });
 
   /* ==========================================================
      AUTHENTICATION CHECK

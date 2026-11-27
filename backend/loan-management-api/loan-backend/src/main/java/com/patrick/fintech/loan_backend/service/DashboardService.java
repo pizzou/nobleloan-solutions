@@ -90,18 +90,6 @@ public class DashboardService {
                         overduePayments = List.of();
                 }
 
-                long overdueLoans = overduePayments
-                                .stream()
-                                .filter(
-                                                payment -> payment != null
-                                                                && payment.getLoan() != null)
-                                .map(
-                                                payment -> payment.getLoan().getId())
-                                .filter(
-                                                loanId -> loanId != null)
-                                .distinct()
-                                .count();
-
                 long latePaymentsCount = overduePayments.size();
 
                 // ============================================================
@@ -117,6 +105,10 @@ public class DashboardService {
                 }
 
                 totalLoans = loans.size();
+                // Count overdue LOANS from the loan state, not from the
+                // presence of unpaid payment-schedule rows. Imported loans
+                // can be overdue without a generated overdue Payment row.
+                long overdueLoans = countOverdueLoans(loans);
                 activeLoans = loans.stream()
                                 .filter(l -> l != null && l.getStatus() == LoanStatus.ACTIVE)
                                 .count();
@@ -262,6 +254,7 @@ public class DashboardService {
                 BigDecimal legacyHistoricalCollected = ZERO;
                 BigDecimal currentApplicationFeesCollected = ZERO;
                 BigDecimal legacyApplicationFeesCollected = ZERO;
+                BigDecimal applicationFeesCollectedThisMonth = ZERO;
 
                 for (Payment payment : organizationPayments) {
 
@@ -269,8 +262,11 @@ public class DashboardService {
                                 continue;
                         }
 
-                        if (!Boolean.TRUE.equals(
-                                        payment.getPaid())) {
+                        // paid is the INSTALLMENT completion flag, not proof of a
+                        // cash receipt. A partially paid installment can carry a
+                        // material amount_paid and must count in cash collections.
+                        if (payment.getPaidDate() == null
+                                        || money(payment.getAmountPaidDecimal()).compareTo(ZERO) <= 0) {
                                 continue;
                         }
 
@@ -309,9 +305,18 @@ public class DashboardService {
                         if (money(loan.getDisbursedAmountDecimal()).compareTo(ZERO) <= 0) {
                                 continue;
                         }
+                        BigDecimal feePaid = money(loan.getApplicationFeePaidDecimal());
                         currentApplicationFeesCollected = money(
-                                        currentApplicationFeesCollected.add(
-                                                        money(loan.getApplicationFeePaidDecimal())));
+                                        currentApplicationFeesCollected.add(feePaid));
+                        LocalDate feeCollectionDate = loan.getDisbursedAt() != null
+                                        ? loan.getDisbursedAt().toLocalDate()
+                                        : null;
+                        if (feePaid.compareTo(ZERO) > 0 && feeCollectionDate != null
+                                        && !feeCollectionDate.isBefore(firstOfMonth)
+                                        && !feeCollectionDate.isAfter(today)) {
+                                applicationFeesCollectedThisMonth = money(
+                                                applicationFeesCollectedThisMonth.add(feePaid));
+                        }
                 }
 
                 /*
@@ -344,15 +349,38 @@ public class DashboardService {
                         legacyHistoricalCollected = money(legacyHistoricalCollected.add(historical));
                         legacyApplicationFeesCollected = money(
                                         legacyApplicationFeesCollected.add(applicationFeePaid));
+                        LocalDate feeCollectionDate = loan.getDisbursedAt() != null
+                                        ? loan.getDisbursedAt().toLocalDate()
+                                        : (loan.getStartDate() != null ? loan.getStartDate() : null);
+                        if (applicationFeePaid.compareTo(ZERO) > 0 && feeCollectionDate != null
+                                        && !feeCollectionDate.isBefore(firstOfMonth)
+                                        && !feeCollectionDate.isAfter(today)) {
+                                applicationFeesCollectedThisMonth = money(
+                                                applicationFeesCollectedThisMonth.add(applicationFeePaid));
+                        }
                 }
 
-                totalCollected = money(
-                                totalCollected
-                                                .add(currentApplicationFeesCollected)
-                                                .add(legacyHistoricalCollected));
+                collectedThisMonth = money(collectedThisMonth.add(applicationFeesCollectedThisMonth));
 
-                // Historical legacy collections have no reliable current-period
-                // payment date. They must NEVER be added to collectedThisMonth.
+                // Lifetime collections must come from the loan aggregate, not
+                // both payment rows and legacy paid components. Imported loans'
+                // principal/fee paid fields are updated by subsequent payments;
+                // adding them to payment rows counts the same cash twice.
+                totalCollected = ZERO;
+                for (Loan loan : loans) {
+                        if (loan == null || loan.getStatus() == LoanStatus.CANCELLED) {
+                                continue;
+                        }
+                        totalCollected = money(totalCollected
+                                        .add(money(loan.getTotalPaidDecimal()))
+                                        .add(money(loan.getApplicationFeePaidDecimal())));
+                }
+
+                // Legacy principal/interest/management/extension/penalty totals are
+                // cumulative and have no reliable payment date, so they are not
+                // assigned to this month. Application-fee cash is different: its
+                // collection date is the recorded disbursement date and is added
+                // above only when that date falls inside the current month.
 
                 // ============================================================
                 // PORTFOLIO AT RISK %
@@ -504,6 +532,12 @@ public class DashboardService {
          * legacy ledgers often contain an opening position without a precise
          * timestamp.
          */
+        static long countOverdueLoans(List<Loan> loans) {
+                return loans == null ? 0 : loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.OVERDUE)
+                                .count();
+        }
+
         private boolean isCurrentPortfolioLoan(Loan loan) {
                 if (loan == null || loan.getStatus() == null) {
                         return false;

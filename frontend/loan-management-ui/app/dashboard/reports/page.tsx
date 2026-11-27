@@ -4,10 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import API from "../../../services/api";
+import FinancialPeriodFilter, {
+  financialPeriodPreset,
+  type FinancialPeriod,
+} from "../../../components/reports/FinancialPeriodFilter";
 import { getDashboardStats } from "../../../services/dashboardService";
-import { getOverduePayments } from "../../../services/paymentService";
-
 import { PageSpinner } from "../../../components/ui/Skeleton";
+import FinancialPerformanceCharts, {
+  type CreditQualityPoint,
+  type MonthlyFinancialPoint,
+} from "../../../components/reports/FinancialPerformanceCharts";
 
 /* ==========================================================================
    TYPES
@@ -51,6 +57,11 @@ interface ProfitAndLossReport {
   expense?: AccountingAccountRow[];
   totalIncome?: Numeric;
   applicationFeeIncome?: Numeric;
+  importedLoanCount?: Numeric;
+  historicalApplicationFees?: Numeric;
+  historicalApplicationFeesPaid?: Numeric;
+  historicalRepayments?: Numeric;
+  historicalBalancesPeriodAttributionAvailable?: boolean;
   totalExpense?: Numeric;
   totalExpenses?: Numeric;
   netIncome?: Numeric;
@@ -60,20 +71,19 @@ interface CashFlowReport {
   from?: string;
   to?: string;
   cashUsedForLending?: Numeric;
+  operatingCashInflows?: Numeric;
   cashFromCollections?: Numeric;
   cashFromFees?: Numeric;
   otherCashMovement?: Numeric;
   netChangeInCash?: Numeric;
 }
 
-interface MonthlyAccountingReport {
-  month: string;
-  label: string;
-  from: string;
-  to: string;
-  revenue: number;
-  expenses: number;
-  profit: number;
+interface MonthlyAccountingReport extends MonthlyFinancialPoint {}
+
+interface ReportAggregates {
+  loanProducts: Array<{ type: string; count: number; amount: number }>;
+  creditQuality: CreditQualityPoint[];
+  genderRows: unknown[][];
 }
 
 interface DashboardStatsLike {
@@ -484,10 +494,12 @@ function ExportButtons({
   endpoint,
   label,
   accounting = false,
+  period,
 }: {
   endpoint: string;
   label: string;
   accounting?: boolean;
+  period?: FinancialPeriod;
 }) {
   const [loading, setLoading] = useState<"csv" | "excel" | null>(null);
 
@@ -505,12 +517,19 @@ function ExportButtons({
           ? `/reports/export/${endpoint}/excel`
           : `/reports/export/${endpoint}`;
 
+      const query =
+        !accounting || !period
+          ? ""
+          : endpoint === "trial-balance" || endpoint === "balance-sheet"
+            ? `?asOf=${encodeURIComponent(period.to)}`
+            : `?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}`;
+
       const extension = format === "excel" ? "xlsx" : "csv";
 
       const datePart = new Date().toISOString().slice(0, 10);
 
       await downloadBlob(
-        url,
+        `${url}${query}`,
         `${filenamePart(label)}-${datePart}.${extension}`,
       );
     } catch (error) {
@@ -700,11 +719,13 @@ function ReportDocument({
   title,
   description,
   endpoint,
+  period,
 }: {
   icon: Parameters<typeof Icon>[0]["name"];
   title: string;
   description: string;
   endpoint: string;
+  period: FinancialPeriod;
 }) {
   return (
     <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm">
@@ -723,7 +744,12 @@ function ReportDocument({
       </div>
 
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <ExportButtons endpoint={endpoint} label={title} accounting />
+        <ExportButtons
+          endpoint={endpoint}
+          label={title}
+          accounting
+          period={period}
+        />
       </div>
     </div>
   );
@@ -757,9 +783,18 @@ export default function ReportsPage() {
     MonthlyAccountingReport[]
   >([]);
 
+  const [reportAggregates, setReportAggregates] = useState<ReportAggregates>({
+    loanProducts: [],
+    creditQuality: [],
+    genderRows: [],
+  });
+
   const [loading, setLoading] = useState(true);
 
   const [accountingError, setAccountingError] = useState<string | null>(null);
+  const [financialPeriod, setFinancialPeriod] = useState<FinancialPeriod>(() =>
+    financialPeriodPreset("this-month"),
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -805,28 +840,23 @@ export default function ReportsPage() {
             amount: numberValue(row?.[2]),
           }));
 
-          const genderRows = normalizeArray<any>(operational.borrowerGender);
-          const genderLoans: LoanLike[] = [];
-          for (const row of genderRows) {
-            genderLoans.push({
-              borrower: { gender: String(row?.[0] ?? "UNKNOWN") },
-              amount: numberValue(row?.[1]),
-            });
-          }
+          const genderRows = normalizeArray<unknown[]>(
+            operational.borrowerGender,
+          );
 
-          setLoans(genderLoans);
+          // Keep server aggregates in React state. Avoid synthetic loan objects
+          // and window globals, which could otherwise confuse portfolio totals.
+          setReportAggregates({ loanProducts, creditQuality, genderRows });
+          setLoans([]);
           setOverdue([{ penalty: numberValue(operational.overduePenalties) }]);
-
-          // Store lightweight aggregates on the existing state shape via a synthetic
-          // set of rows used only by the report's memoized composition sections.
-          (window as any).__nobleReportAggregates = {
-            loanProducts,
-            creditQuality,
-            genderRows,
-          };
         } else {
           setLoans([]);
           setOverdue([]);
+          setReportAggregates({
+            loanProducts: [],
+            creditQuality: [],
+            genderRows: [],
+          });
         }
       } catch (error) {
         console.error("Operational reports failed", error);
@@ -835,6 +865,11 @@ export default function ReportsPage() {
           setStats(null);
           setOverdue([]);
           setLoans([]);
+          setReportAggregates({
+            loanProducts: [],
+            creditQuality: [],
+            genderRows: [],
+          });
         }
       }
     };
@@ -852,7 +887,9 @@ export default function ReportsPage() {
         }
 
         const results = await Promise.allSettled([
-          API.get(`/reports/accounting/${organizationId}`),
+          API.get(
+            `/reports/accounting/${organizationId}?from=${encodeURIComponent(financialPeriod.from)}&to=${encodeURIComponent(financialPeriod.to)}`,
+          ),
         ]);
 
         if (!mounted) return;
@@ -929,77 +966,50 @@ export default function ReportsPage() {
           setAccountingError("Accounting reports could not be loaded.");
         }
 
-        /*
-         * Monthly P&L is a secondary visualization. Do not block the first
-         * reports screen on six additional full accounting queries.
-         * Fetch it after the primary reports have rendered.
-         */
-        void (async () => {
-          const today = new Date();
-
-          const periods = Array.from({ length: 6 }, (_, index) => {
-            const date = previousMonth(today, 5 - index);
-
-            return {
-              date,
-              from: toDateString(monthStart(date)),
-              to: toDateString(monthEnd(date)),
-            };
-          });
-
-          const monthlyResults = await Promise.allSettled(
-            periods.map(async (period) => {
-              const response = await API.get("/accounting/profit-and-loss", {
-                params: {
-                  from: period.from,
-                  to: period.to,
-                },
-              });
-
-              const data = unwrap<ProfitAndLossReport>(response);
-
-              return {
-                month: period.from.slice(0, 7),
-                label: new Intl.DateTimeFormat("en-RW", {
-                  month: "short",
-                  year: "numeric",
-                }).format(period.date),
-                from: period.from,
-                to: period.to,
-                revenue: numberValue(data?.totalIncome),
-                expenses: numberValue(
-                  data?.totalExpense ?? data?.totalExpenses,
-                ),
-                profit: numberValue(data?.netIncome),
-              } satisfies MonthlyAccountingReport;
-            }),
+        // The unified accounting response already includes monthlyProfitAndExpenses.
+        // Reuse that server-calculated accounting data instead of issuing six more
+        // full P&L requests from the browser. Failed months are never represented as zero.
+        if (accounting.status === "fulfilled") {
+          const monthlyRows = normalizeArray<any>(
+            accountingPayload.monthlyProfitAndExpenses,
           );
-
-          if (!mounted) return;
-
-          setMonthlyAccounting(
-            monthlyResults.map((result, index) => {
-              const period = periods[index];
-
-              if (result.status === "fulfilled") {
-                return result.value;
-              }
-
+          const normalizedMonthly = monthlyRows.map(
+            (row): MonthlyAccountingReport => {
+              const from = String(row?.from ?? "").slice(0, 10);
+              const to = String(row?.to ?? "").slice(0, 10);
+              const monthNumber = numberValue(row?.monthNumber);
+              const year =
+                numberValue(row?.year) ||
+                (from ? Number(from.slice(0, 4)) : new Date().getFullYear());
+              const monthDate =
+                monthNumber >= 1 && monthNumber <= 12
+                  ? new Date(year, monthNumber - 1, 1)
+                  : from
+                    ? new Date(`${from}T12:00:00`)
+                    : new Date();
+              const monthKey = from
+                ? from.slice(0, 7)
+                : `${year}-${String(monthNumber || monthDate.getMonth() + 1).padStart(2, "0")}`;
+              const label = new Intl.DateTimeFormat("en-RW", {
+                month: "short",
+                year: "2-digit",
+              }).format(monthDate);
               return {
-                month: period.from.slice(0, 7),
-                label: new Intl.DateTimeFormat("en-RW", {
-                  month: "short",
-                  year: "numeric",
-                }).format(period.date),
-                from: period.from,
-                to: period.to,
-                revenue: 0,
-                expenses: 0,
-                profit: 0,
+                month: monthKey,
+                label,
+                from,
+                to,
+                revenue: numberValue(row?.revenue),
+                expenses: numberValue(row?.expenses),
+                profit: numberValue(row?.netIncome ?? row?.profit),
+                available: true,
               };
-            }),
+            },
           );
-        })();
+          setMonthlyAccounting(normalizedMonthly.slice(-6));
+        } else {
+          setMonthlyAccounting([]);
+        }
       } catch (error) {
         console.error("Accounting reports failed", error);
 
@@ -1032,7 +1042,7 @@ export default function ReportsPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [financialPeriod.from, financialPeriod.to]);
 
   /* ==========================================================================
      DERIVED VALUES
@@ -1101,18 +1111,13 @@ export default function ReportsPage() {
 
   const netCashChange = numberValue(cashFlow?.netChangeInCash);
 
-  const currentPeriodNetIncome = numberValue(
-    balanceSheet?.currentPeriodNetIncome,
-  );
+  // The balance sheet is an as-of-date snapshot and does not always expose a
+  // period income field. The selected-period P&L is the authoritative source.
+  const currentPeriodNetIncome = netIncome;
 
   const totalDebit = numberValue(trialBalance?.totalDebit);
 
   const totalCredit = numberValue(trialBalance?.totalCredit);
-
-  const reportAggregates =
-    typeof window !== "undefined"
-      ? (window as any).__nobleReportAggregates
-      : null;
 
   const rejectedCount = 0;
 
@@ -1134,7 +1139,7 @@ export default function ReportsPage() {
       }
     >();
 
-    if (Array.isArray(reportAggregates?.creditQuality)) {
+    if (reportAggregates.creditQuality.length > 0) {
       return reportAggregates.creditQuality;
     }
 
@@ -1161,7 +1166,7 @@ export default function ReportsPage() {
   }, [currentLoans, reportAggregates]);
 
   const borrowerGender = useMemo(() => {
-    if (Array.isArray(reportAggregates?.genderRows)) {
+    if (reportAggregates.genderRows.length > 0) {
       let male = 0;
       let female = 0;
       let unknown = 0;
@@ -1170,7 +1175,7 @@ export default function ReportsPage() {
         const gender = String(row?.[0] ?? "UNKNOWN")
           .trim()
           .toUpperCase();
-        const count = numberValue(row?.[1]);
+        const count = numberValue(row?.[1] as Numeric);
         if (gender === "M" || gender === "MALE") male += count;
         else if (gender === "F" || gender === "FEMALE") female += count;
         else unknown += count;
@@ -1183,7 +1188,7 @@ export default function ReportsPage() {
   }, [reportAggregates]);
 
   const loanProducts = useMemo(() => {
-    if (Array.isArray(reportAggregates?.loanProducts)) {
+    if (reportAggregates.loanProducts.length > 0) {
       const total = reportAggregates.loanProducts.reduce(
         (sum: number, item: any) => sum + numberValue(item.amount),
         0,
@@ -1245,13 +1250,9 @@ export default function ReportsPage() {
     ]),
   );
 
-  const reportingFrom =
-    profitAndLoss?.from ?? monthlyAccounting[0]?.from ?? asOfDate;
+  const reportingFrom = financialPeriod.from;
 
-  const reportingTo =
-    profitAndLoss?.to ??
-    monthlyAccounting[monthlyAccounting.length - 1]?.to ??
-    asOfDate;
+  const reportingTo = financialPeriod.to;
 
   const hasAccountingReports = Boolean(
     trialBalance || balanceSheet || profitAndLoss || cashFlow,
@@ -1339,6 +1340,11 @@ export default function ReportsPage() {
             </Link>
           </div>
         </header>
+
+        <FinancialPeriodFilter
+          value={financialPeriod}
+          onApply={setFinancialPeriod}
+        />
 
         {/* ==================================================================
            WARNING
@@ -1430,6 +1436,14 @@ export default function ReportsPage() {
             </div>
           </div>
         </section>
+
+        <FinancialPerformanceCharts
+          monthly={monthlyAccounting}
+          creditQuality={qualityBreakdown}
+          cashFlow={cashFlow}
+          reportingFrom={reportingFrom}
+          reportingTo={reportingTo}
+        />
 
         {/* ==================================================================
            PORTFOLIO COMPOSITION
@@ -1671,6 +1685,52 @@ export default function ReportsPage() {
             description="Financial performance derived from the accounting records."
           />
 
+          {Number(profitAndLoss?.importedLoanCount ?? 0) > 0 && (
+            <section
+              className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-5"
+              aria-label="Historical import collections"
+            >
+              <h3 className="text-sm font-bold text-slate-900">
+                Historical legacy-import totals (lifetime)
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-700">
+                These amounts came from imported loan records, not dated
+                accounting transactions. They must not be treated as income or
+                cash collected during the selected month.
+              </p>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <span className="block text-xs text-slate-600">
+                    Application fees from Excel
+                  </span>
+                  <strong>
+                    {fmt(profitAndLoss?.historicalApplicationFees)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="block text-xs text-slate-600">
+                    Application fees marked paid in Excel
+                  </span>
+                  <strong>
+                    {fmt(profitAndLoss?.historicalApplicationFeesPaid)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="block text-xs text-slate-600">
+                    Historical loan repayments from Excel
+                  </span>
+                  <strong>{fmt(profitAndLoss?.historicalRepayments)}</strong>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-amber-900">
+                To report a specific month's historical collections or recognize
+                historical income, dated transaction-level records are required.
+                Importing aggregate lifetime totals cannot determine the
+                collection month.
+              </p>
+            </section>
+          )}
+
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="grid divide-y divide-slate-200 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
               <div className="p-6">
@@ -1697,7 +1757,8 @@ export default function ReportsPage() {
                 </p>
 
                 <p className="mt-2 text-xs text-slate-500">
-                  One-time fees recognized as income through GL 4100.
+                  Application fee income from dated disbursement journals;
+                  historical import totals are displayed separately.
                 </p>
               </div>
 
@@ -1843,7 +1904,7 @@ export default function ReportsPage() {
 
                 <tr>
                   <td className="px-5 py-4 text-xs font-semibold text-slate-700">
-                    Cash from fees
+                    Of which: application fees at disbursement
                   </td>
 
                   <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
@@ -2053,9 +2114,9 @@ export default function ReportsPage() {
                 />
 
                 <ExecutiveMetric
-                  label="Current period income"
+                  label="Net income (period)"
                   value={fmtPrecise(currentPeriodNetIncome)}
-                  detail="Financial position"
+                  detail="Profit & Loss"
                 />
 
                 <ExecutiveMetric
@@ -2124,6 +2185,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="ledger"
               endpoint="trial-balance"
+              period={financialPeriod}
               title="Trial Balance"
               description="Account balances and debit/credit control totals."
             />
@@ -2131,6 +2193,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="balance"
               endpoint="balance-sheet"
+              period={financialPeriod}
               title="Statement of Financial Position"
               description="Assets, liabilities and equity at the reporting date."
             />
@@ -2138,6 +2201,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="profit"
               endpoint="profit-and-loss"
+              period={financialPeriod}
               title="Statement of Profit or Loss"
               description="Income, expenses and net earnings for the period."
             />
@@ -2145,6 +2209,7 @@ export default function ReportsPage() {
             <ReportDocument
               icon="cash"
               endpoint="cash-flow"
+              period={financialPeriod}
               title="Statement of Cash Flows"
               description="Cash generated and used through lending and collections."
             />

@@ -66,6 +66,10 @@ public class Payment {
         @GeneratedValue(strategy = GenerationType.IDENTITY)
         private Long id;
 
+        /** Soft-delete marker retained in the payments table. */
+        @Column(name = "deleted_at")
+        private LocalDateTime deletedAt;
+
         @Column(unique = true, nullable = false, length = 150)
         private String paymentReference;
 

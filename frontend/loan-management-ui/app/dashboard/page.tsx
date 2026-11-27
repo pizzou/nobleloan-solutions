@@ -1,193 +1,505 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
-
-import { loanApi, taskApi } from "@/services/api";
-import { DashboardStats, Loan, WorkflowTaskKpi } from "@/types";
-
-import { StatCard, Card, CardHeader, CardBody } from "@/components/ui/Card";
-import { StatusBadge, RiskBadge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { Table, Thead, Th, Tbody, Tr, Td } from "@/components/ui/Table";
-
 import {
-  formatCurrency,
-  formatDate,
-  formatNumber,
-  LOAN_TYPE_META,
-} from "@/lib/utils";
-
-import { useAuth } from "@/hooks/useAuth";
-
-import {
-  BarChart,
   Bar,
-  XAxis,
-  YAxis,
+  BarChart,
   CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
   Cell,
   Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
+
+import { loanApi, taskApi } from "@/services/api";
+import { useAuth } from "@/hooks/useAuth";
 
 /* ============================================================
    NOBLE LOAN SOLUTIONS
-   BANK-GRADE EXECUTIVE DASHBOARD
+   PREMIUM FINANCE COMMAND CENTER
    ============================================================ */
 
-const BRAND = {
-  navy: "#0B1F3A",
-  navyDark: "#07152A",
-  navyLight: "#16365F",
-  yellow: "#F4C430",
-  yellowDark: "#C99A00",
-  green: "#15803D",
-  red: "#B91C1C",
-  amber: "#B45309",
-  blue: "#1D4ED8",
-  border: "#E2E8F0",
+type Money = number | string | null | undefined;
+
+interface CashflowMonth {
+  month?: string;
+  label?: string;
+  disbursed?: Money;
+  collected?: Money;
+}
+
+interface PortfolioAging {
+  label: string;
+  percentage?: Money;
+  principal?: Money;
+}
+
+interface FinancialIncome {
+  interestIncome?: Money;
+  managementFeeIncome?: Money;
+  applicationFeeIncome?: Money;
+  penaltyIncome?: Money;
+  operatingExpenses?: Money;
+  impairmentExpense?: Money;
+  operatingResult?: Money;
+}
+
+interface RecentLoan {
+  id?: string | number;
+  referenceNumber?: string;
+  borrowerName?: string;
+  amount?: Money;
+  status?: string;
+  nextDueDate?: string;
+  createdAt?: string;
+  borrower?: {
+    firstName?: string;
+    lastName?: string;
+  };
+}
+
+interface DashboardData {
+  reportingScope?: string;
+  asOfDate?: string;
+  currency?: string;
+
+  totalLoans?: Money;
+  totalBorrowers?: Money;
+  activeLoans?: Money;
+  pendingLoans?: Money;
+  overdueLoans?: Money;
+  defaultedLoans?: Money;
+  completedLoans?: Money;
+
+  totalDisbursed?: Money;
+  disbursedThisMonth?: Money;
+  totalCollected?: Money;
+  collectedThisMonth?: Money;
+  historicalCollected?: Money;
+  outstandingBalance?: Money;
+  totalReceivables?: Money;
+
+  portfolioAtRiskPct?: Money;
+  portfolioAtRiskAmount?: Money;
+  applicationFeesCollected?: Money;
+  latePaymentsCount?: Money;
+
+  ownerOnlyOutstanding?: Money;
+  ownerOnlyLoanCount?: Money;
+
+  // Optional extensions from the financial reporting API.
+  cashflowTrend?: CashflowMonth[];
+  portfolioAging?: PortfolioAging[];
+  incomeSummary?: FinancialIncome;
+
+  collectionEfficiencyPct?: Money;
+  principalGrowthPct?: Money;
+  disbursementGrowthPct?: Money;
+
+  kycRenewalsDue?: Money;
+  glReconciliationExceptions?: Money;
+
+  recentLoans?: RecentLoan[];
+}
+
+interface WorkflowKpi {
+  openTasks?: Money;
+  urgentTasks?: Money;
+  overdueTasks?: Money;
+}
+
+const THEME = {
+  navy: "#102A46",
+  blue: "#214B76",
+  gold: "#CCA252",
+  green: "#249778",
+  amber: "#D5A250",
+  orange: "#DD8D59",
+  red: "#C65E68",
 };
 
-const CHART_COLORS = [
-  BRAND.navy,
-  BRAND.yellow,
-  "#2563EB",
-  "#F59E0B",
-  "#1E40AF",
-  "#D97706",
-];
+const RISK_COLORS = [THEME.green, THEME.gold, THEME.orange, THEME.red];
 
 /* ============================================================
-   HELPERS
+   SAFE FINANCIAL FORMATTERS
    ============================================================ */
 
-function safeNumber(value: unknown): number {
+function numberValue(value: Money): number {
+  if (value === null || value === undefined || value === "") {
+    return 0;
+  }
+
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function hasValue(value: unknown): boolean {
-  if (value === null || value === undefined || value === "") {
-    return false;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed);
+function hasNumber(value: Money): boolean {
+  return (
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    Number.isFinite(Number(value))
+  );
 }
 
-function normalizeDashboardResponse(value: unknown): DashboardStats {
-  if (!value || typeof value !== "object") {
-    return value as DashboardStats;
+function formatCount(value: Money): string {
+  if (!hasNumber(value)) return "—";
+
+  return numberValue(value).toLocaleString("en-RW", {
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatMoney(value: Money, currency: string = "RWF"): string {
+  if (!hasNumber(value)) return "—";
+
+  return `${currency} ${numberValue(value).toLocaleString("en-RW", {
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function compactMoney(value: Money): string {
+  if (!hasNumber(value)) return "—";
+
+  const n = numberValue(value);
+  const absolute = Math.abs(n);
+
+  if (absolute >= 1_000_000_000) {
+    return `${(n / 1_000_000_000).toFixed(2)}B`;
   }
 
-  const root = value as Record<string, unknown>;
-  const nested = root.data;
+  if (absolute >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(2)}M`;
+  }
 
-  if (nested && typeof nested === "object") {
-    const candidate = nested as Record<string, unknown>;
+  if (absolute >= 1_000) {
+    return `${(n / 1_000).toFixed(1)}K`;
+  }
+
+  return n.toLocaleString("en-RW");
+}
+
+function percentage(value: Money): string {
+  return hasNumber(value) ? `${numberValue(value).toFixed(2)}%` : "—";
+}
+
+function unwrapDashboard(response: unknown): DashboardData {
+  let current: unknown = response;
+
+  // Supports direct API responses and normal response wrappers.
+  for (let i = 0; i < 3; i++) {
+    if (!current || typeof current !== "object") break;
+
+    const value = current as Record<string, unknown>;
 
     if (
-      "totalLoans" in candidate ||
-      "totalBorrowers" in candidate ||
-      "totalDisbursed" in candidate
+      "totalLoans" in value ||
+      "totalDisbursed" in value ||
+      "outstandingBalance" in value
     ) {
-      return candidate as unknown as DashboardStats;
+      return value as DashboardData;
     }
+
+    current = value.data;
   }
 
-  return value as DashboardStats;
+  throw new Error("Dashboard API did not return financial data.");
+}
+
+function isOwnerAccount(auth: unknown): boolean {
+  if (!auth || typeof auth !== "object") return false;
+
+  const context = auth as {
+    isBusinessOwner?: boolean;
+    user?: {
+      role?: string;
+      roles?: Array<string | { name?: string }>;
+    };
+  };
+
+  if (context.isBusinessOwner === true) return true;
+
+  const roles = [
+    context.user?.role || "",
+    ...(context.user?.roles || []).map((r) =>
+      typeof r === "string" ? r : r.name || "",
+    ),
+  ];
+
+  return roles.some(
+    (role) =>
+      role
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, "_") === "BUSINESS_OWNER",
+  );
 }
 
 /* ============================================================
-   PAGE
+   UI COMPONENTS
+   ============================================================ */
+
+function FinanceCard({
+  label,
+  value,
+  note,
+  trend,
+  symbol,
+  accent,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  trend?: string;
+  symbol: string;
+  accent: string;
+}) {
+  return (
+    <article className="relative min-w-0 overflow-hidden rounded-xl border border-[#DFE7F0] bg-white p-5 shadow-[0_4px_20px_rgba(15,34,60,0.035)]">
+      <div
+        className="absolute inset-x-0 top-0 h-[3px]"
+        style={{ backgroundColor: accent }}
+      />
+
+      <div className="flex items-start justify-between gap-3">
+        <span className="max-w-[175px] text-[12px] font-bold leading-5 text-[#677A92]">
+          {label}
+        </span>
+
+        <span
+          aria-hidden="true"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#F0F4F9] text-xl font-bold"
+          style={{ color: accent }}
+        >
+          {symbol}
+        </span>
+      </div>
+
+      <div className="mt-5 break-words text-[clamp(1.35rem,2vw,1.95rem)] font-black tracking-tight text-[#142C49]">
+        {value}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-[#8392A4]">
+        {trend && <strong className="mr-2 text-[#23876C]">{trend}</strong>}
+        {note}
+      </p>
+    </article>
+  );
+}
+
+function Panel({
+  title,
+  subtitle,
+  right,
+  children,
+  className = "",
+}: {
+  title: string;
+  subtitle?: string;
+  right?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={`min-w-0 overflow-hidden rounded-xl border border-[#DFE7F0] bg-white shadow-[0_4px_20px_rgba(15,34,60,0.03)] ${className}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#EDF1F5] px-5 py-4">
+        <div>
+          <h2 className="text-[14px] font-extrabold text-[#18334F]">{title}</h2>
+
+          {subtitle && (
+            <p className="mt-1.5 text-[11px] leading-5 text-[#8292A5]">
+              {subtitle}
+            </p>
+          )}
+        </div>
+
+        {right}
+      </div>
+
+      <div className="p-5">{children}</div>
+    </section>
+  );
+}
+
+function FinancialLine({
+  label,
+  value,
+  total = false,
+}: {
+  label: string;
+  value: string;
+  total?: boolean;
+}) {
+  return (
+    <div
+      className={
+        total
+          ? "mt-3 flex items-center justify-between gap-3 rounded-lg bg-[#EDF7F2] px-4 py-3.5"
+          : "flex items-center justify-between gap-3 border-b border-[#EEF1F5] py-3"
+      }
+    >
+      <span
+        className={
+          total
+            ? "text-xs font-extrabold text-[#2D6957]"
+            : "text-xs text-[#697B92]"
+        }
+      >
+        {label}
+      </span>
+
+      <strong
+        className={
+          total
+            ? "text-right text-lg font-black text-[#188768]"
+            : "text-right text-[13px] font-extrabold text-[#203B56]"
+        }
+      >
+        {value}
+      </strong>
+    </div>
+  );
+}
+
+function Unavailable({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="flex min-h-[190px] flex-col items-center justify-center px-4 text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#F0F4F9] text-2xl text-[#8396AA]">
+        ▤
+      </span>
+
+      <p className="mt-4 text-sm font-bold text-[#556E86]">{title}</p>
+
+      <p className="mt-2 max-w-sm text-[11px] leading-5 text-[#90A0B1]">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function ActionItem({
+  title,
+  detail,
+  value,
+  urgent,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  value: string;
+  urgent?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex w-full items-center justify-between gap-4 border-b border-[#EDF1F5] py-4 text-left last:border-0 hover:bg-[#FAFBFD] focus-visible:rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#CCA252]"
+    >
+      <div className="min-w-0">
+        <p className="text-[12px] font-extrabold text-[#183552]">{title}</p>
+
+        <p className="mt-1.5 text-[11px] text-[#8595A6]">{detail}</p>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        <span
+          className={
+            urgent
+              ? "rounded-lg bg-[#FFF0ED] px-3 py-2 text-xs font-extrabold text-[#B95859]"
+              : "rounded-lg bg-[#F0F4F8] px-3 py-2 text-xs font-extrabold text-[#365672]"
+          }
+        >
+          {value}
+        </span>
+
+        <span className="text-slate-400 transition-transform group-hover:translate-x-1">
+          →
+        </span>
+      </div>
+    </button>
+  );
+}
+
+/* ============================================================
+   DASHBOARD PAGE
    ============================================================ */
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { currency, locale, user } = useAuth();
+  const auth = useAuth();
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [workflow, setWorkflow] = useState<WorkflowKpi>({});
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [taskKpi, setTaskKpi] = useState<WorkflowTaskKpi>({
-    openTasks: 0,
-    overdueTasks: 0,
-    urgentTasks: 0,
-  });
 
-  /* ==========================================================
-     FORMATTERS
-     ========================================================== */
+  const [months, setMonths] = useState<6 | 12>(6);
+  const [retrievedAt, setRetrievedAt] = useState<Date | null>(null);
 
-  const fc = useCallback(
-    (value?: number | string | null) => {
-      if (!hasValue(value)) {
-        return "—";
-      }
+  const authenticatedOwner = isOwnerAccount(auth);
 
-      return formatCurrency(safeNumber(value), currency, locale);
-    },
-    [currency, locale],
+  // Reporting scope MUST originate from the backend.
+  const consolidatedView =
+    authenticatedOwner &&
+    data?.reportingScope === "BUSINESS_OWNER_CONSOLIDATED";
+
+  const currency = data?.currency || auth.currency || "RWF";
+
+  const money = useCallback(
+    (value: Money) => formatMoney(value, currency),
+    [currency],
   );
 
-  const fn = useCallback((value?: number | string | null) => {
-    if (!hasValue(value)) {
-      return "—";
+  /* ==========================================================
+     LOAD AUTHORITATIVE DASHBOARD DATA
+     ========================================================== */
+
+  const load = useCallback(async (refresh = false) => {
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    return formatNumber(safeNumber(value));
-  }, []);
+    setError("");
 
-  const today = useMemo(
-    () =>
-      new Date().toLocaleDateString(locale || "en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      }),
-    [locale],
-  );
-
-  /* ==========================================================
-     LOAD
-     ========================================================== */
-
-  const loadDashboard = useCallback(async (isRefresh = false) => {
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+      // No client-supplied includeOwnerOnly parameter.
+      const response = await loanApi.dashboard();
+      const payload = unwrapDashboard(response);
 
-      setError("");
-
-      const data = await loanApi.dashboard();
-
-      setStats(normalizeDashboardResponse(data));
+      setData(payload);
+      setRetrievedAt(new Date());
 
       try {
-        const taskData = await taskApi.kpi();
-        setTaskKpi({
-          openTasks: safeNumber(taskData?.openTasks),
-          overdueTasks: safeNumber(taskData?.overdueTasks),
-          urgentTasks: safeNumber(taskData?.urgentTasks),
-        });
+        const taskResult = await taskApi.kpi();
+        setWorkflow(taskResult as WorkflowKpi);
       } catch {
-        // The financial dashboard must remain usable if the operational task
-        // service is temporarily unavailable.
+        // Task service failure must not hide financial data.
       }
-      setLastUpdated(new Date());
-    } catch (e: any) {
-      console.error("Dashboard loading failed:", e);
-      setError(e?.message || "Unable to load dashboard information.");
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to retrieve dashboard financial data.",
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -195,1153 +507,834 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    void loadDashboard();
-
-    /*
-     * The dashboard can remain mounted while the operator navigates to a
-     * loan-detail page and disburses a loan. Next.js client navigation does
-     * not necessarily remount this page, so a one-time useEffect is not
-     * sufficient to refresh financial KPIs. Refresh whenever the dashboard
-     * becomes visible/focused, using the server-authoritative endpoint.
-     */
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") {
-        void loadDashboard(true);
-      }
-    };
-
-    window.addEventListener("focus", refreshWhenVisible);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-
-    return () => {
-      window.removeEventListener("focus", refreshWhenVisible);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [loadDashboard]);
+    void load();
+  }, [load]);
 
   /* ==========================================================
-     PORTFOLIO
+     CHART SERIES
      ========================================================== */
 
-  const portfolio = useMemo(() => {
-    if (!stats) {
-      return {
-        totalLoans: 0,
-        totalBorrowers: 0,
-        activeLoans: 0,
-        pendingLoans: 0,
-        overdueLoans: 0,
-        completedLoans: 0,
-        defaultedLoans: 0,
-        totalDisbursed: 0,
-        outstandingBalance: 0,
-        totalReceivables: 0,
-        totalCollected: 0,
-        historicalCollected: 0,
-        applicationFeesCollected: 0,
-        collectedThisMonth: 0,
-        latePaymentsCount: 0,
-        portfolioAtRiskAmount: 0,
-        portfolioAtRiskPct: null as number | null,
-      };
+  const hasMonthlyData =
+    Array.isArray(data?.cashflowTrend) && data.cashflowTrend.length > 0;
+
+  const cashflow = useMemo(() => {
+    if (data?.cashflowTrend?.length) {
+      return data.cashflowTrend.slice(-months).map((item) => ({
+        period: item.month || item.label || "Period",
+        disbursed: numberValue(item.disbursed),
+        collected: numberValue(item.collected),
+      }));
     }
 
-    const parValue = hasValue(stats.portfolioAtRiskPct)
-      ? safeNumber(stats.portfolioAtRiskPct)
-      : null;
+    // Fallback shows true cumulative values, not fake months.
+    if (hasNumber(data?.totalDisbursed) || hasNumber(data?.totalCollected)) {
+      return [
+        {
+          period: "To date",
+          disbursed: numberValue(data?.totalDisbursed),
+          collected: numberValue(data?.totalCollected),
+        },
+      ];
+    }
 
-    return {
-      totalLoans: safeNumber(stats.totalLoans),
-      totalBorrowers: safeNumber(stats.totalBorrowers),
-      activeLoans: safeNumber(stats.activeLoans),
-      pendingLoans: safeNumber(stats.pendingLoans),
-      overdueLoans: safeNumber(stats.overdueLoans),
-      completedLoans: safeNumber(stats.completedLoans),
-      defaultedLoans: safeNumber(stats.defaultedLoans),
-      totalDisbursed: safeNumber(stats.totalDisbursed),
-      outstandingBalance: safeNumber(stats.outstandingBalance),
-      totalReceivables: safeNumber(stats.totalReceivables),
-      totalCollected: safeNumber(stats.totalCollected),
-      historicalCollected: safeNumber(stats.historicalCollected),
-      applicationFeesCollected: safeNumber(stats.applicationFeesCollected),
-      collectedThisMonth: safeNumber(stats.collectedThisMonth),
-      latePaymentsCount: safeNumber(stats.latePaymentsCount),
-      portfolioAtRiskAmount: safeNumber(stats.portfolioAtRiskAmount),
-      portfolioAtRiskPct: parValue,
-    };
-  }, [stats]);
+    return [];
+  }, [data, months]);
 
-  const pieData = useMemo(
-    () =>
-      [
-        { name: "Active", value: portfolio.activeLoans },
-        { name: "Pending", value: portfolio.pendingLoans },
-        { name: "Overdue", value: portfolio.overdueLoans },
-        { name: "Paid", value: portfolio.completedLoans },
-        { name: "Defaulted", value: portfolio.defaultedLoans },
-      ].filter((item) => item.value > 0),
-    [portfolio],
+  const hasAging =
+    Array.isArray(data?.portfolioAging) && data.portfolioAging.length > 0;
+
+  const portfolioRisk = Math.max(
+    0,
+    Math.min(100, numberValue(data?.portfolioAtRiskPct)),
   );
 
-  const typeData = useMemo(
-    () =>
-      (stats?.loanTypeBreakdown || []).map((item) => ({
-        name: LOAN_TYPE_META[String(item.type)]?.label ?? String(item.type),
-        count: safeNumber(item.count),
-        amount: safeNumber(item.amount),
-      })),
-    [stats],
+  const agingData = useMemo(() => {
+    if (hasAging && data?.portfolioAging) {
+      const outstanding = numberValue(data.outstandingBalance);
+
+      return data.portfolioAging
+        .map((item) => {
+          let value = 0;
+
+          if (hasNumber(item.percentage)) {
+            value = numberValue(item.percentage);
+          } else if (hasNumber(item.principal) && outstanding > 0) {
+            value = (numberValue(item.principal) / outstanding) * 100;
+          }
+
+          return {
+            name: item.label,
+            value: Math.max(0, value),
+          };
+        })
+        .filter((item) => item.value > 0);
+    }
+
+    if (!hasNumber(data?.portfolioAtRiskPct)) {
+      return [];
+    }
+
+    return [
+      {
+        name: "Not at risk",
+        value: 100 - portfolioRisk,
+      },
+      {
+        name: "At risk",
+        value: portfolioRisk,
+      },
+    ].filter((item) => item.value > 0);
+  }, [data, hasAging, portfolioRisk]);
+
+  const riskColors = hasAging ? RISK_COLORS : [THEME.green, THEME.red];
+
+  const income = data?.incomeSummary;
+
+  const incomeAvailable =
+    !!income && Object.values(income).some((value) => hasNumber(value));
+
+  const ownerOnly = numberValue(data?.ownerOnlyOutstanding);
+
+  const normalOutstanding = Math.max(
+    0,
+    numberValue(data?.outstandingBalance) - ownerOnly,
   );
 
-  const recentLoans = useMemo(() => stats?.recentLoans || [], [stats]);
-
-  const attentionRequired =
-    portfolio.pendingLoans > 0 ||
-    portfolio.overdueLoans > 0 ||
-    portfolio.defaultedLoans > 0;
-
-  const hasPortfolio =
-    portfolio.totalLoans > 0 ||
-    portfolio.totalDisbursed > 0 ||
-    portfolio.outstandingBalance > 0;
+  const snapshotDate =
+    data?.asOfDate ||
+    (retrievedAt
+      ? retrievedAt.toLocaleDateString("en-RW", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : "—");
 
   /* ==========================================================
-     STATES
+     LOADING AND ERROR STATES
      ========================================================== */
 
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
-
-  if (error && !stats) {
+  if (loading && !data) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center bg-[#F8FAFC] px-4">
-        <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-xl font-bold text-red-600">
-            !
-          </div>
+      <main role="status" className="min-h-screen space-y-5 bg-[#F4F7FB] p-5">
+        <div className="h-28 animate-pulse rounded-xl bg-[#E5EBF3]" />
 
-          <h2 className="mt-5 text-xl font-extrabold text-[#0B1F3A]">
-            Dashboard unavailable
-          </h2>
-
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            We could not retrieve the portfolio dashboard from the lending
-            system.
-          </p>
-
-          <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-left">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-red-700">
-              Server response
-            </p>
-
-            <p className="mt-2 break-words text-sm leading-6 text-red-800">
-              {error}
-            </p>
-          </div>
-
-          <Button className="mt-6" onClick={() => loadDashboard(false)}>
-            Try Again
-          </Button>
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => (
+            <div
+              key={item}
+              className="h-36 animate-pulse rounded-xl bg-[#E5EBF3]"
+            />
+          ))}
         </div>
-      </div>
+
+        <div className="h-80 animate-pulse rounded-xl bg-[#E5EBF3]" />
+
+        <p className="text-xs text-slate-500">
+          Loading financial command center…
+        </p>
+      </main>
     );
   }
 
-  if (!stats) {
+  if (!data) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center bg-[#F8FAFC] px-4">
-        <div className="text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#EEF3F9] text-2xl text-[#0B1F3A]">
-            ▦
-          </div>
+      <main className="flex min-h-[70vh] items-center justify-center bg-[#F4F7FB] p-6">
+        <section className="max-w-md rounded-xl border border-[#E0E7F0] bg-white p-9 text-center">
+          <div className="text-3xl text-red-600">!</div>
 
-          <h2 className="mt-5 text-xl font-extrabold text-[#0B1F3A]">
-            No dashboard data
-          </h2>
+          <h1 className="mt-4 text-xl font-black text-[#142C49]">
+            Financial Dashboard Unavailable
+          </h1>
 
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-            There is currently no portfolio information available for this
-            organization.
-          </p>
-        </div>
-      </div>
+          <p className="mt-3 text-sm leading-6 text-slate-500">{error}</p>
+
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="mt-6 rounded-lg bg-[#102A46] px-5 py-3 text-xs font-extrabold text-white"
+          >
+            Try Again
+          </button>
+        </section>
+      </main>
     );
   }
 
   /* ==========================================================
-     RENDER
+     PREMIUM FINANCE COMMAND CENTER
      ========================================================== */
 
   return (
-    <main className="min-h-full bg-[#F8FAFC] pb-12">
-      <div className="space-y-7">
-        {/* ====================================================
-            REFRESH ERROR
-            ==================================================== */}
+    <main className="min-h-screen bg-[#F4F7FB] text-[#172E49]">
+      <div className="mx-auto max-w-[1600px] space-y-4 px-4 py-6 lg:px-7 lg:py-8">
+        {/* ================= HEADER ================= */}
+
+        <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#AB8438]">
+              Executive Financial Intelligence
+            </p>
+
+            <h1 className="text-[28px] font-black tracking-[-0.04em] text-[#102A46] md:text-[34px]">
+              Finance Command Center
+            </h1>
+
+            <p className="mt-2 text-[12px] leading-6 text-[#74849B]">
+              Financial performance, portfolio quality, collections, and the
+              priorities that matter today.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-lg border border-[#DFE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#435B76]">
+              {consolidatedView
+                ? "Business Owner · Consolidated"
+                : authenticatedOwner
+                  ? "Business Owner · Authorized view"
+                  : "Normal Portfolio"}
+            </span>
+
+            <span className="rounded-lg border border-[#DFE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#435B76]">
+              {snapshotDate}
+            </span>
+
+            <button
+              type="button"
+              disabled={refreshing}
+              onClick={() => void load(true)}
+              className="rounded-lg bg-[#102A46] px-4 py-2.5 text-[11px] font-extrabold text-white hover:bg-[#204263] disabled:opacity-50"
+            >
+              {refreshing ? "Refreshing…" : "↻ Refresh"}
+            </button>
+          </div>
+        </header>
+
+        <div className="flex flex-wrap justify-between gap-3 text-[10px] font-semibold text-[#8897AA]">
+          <span>
+            <span className="mr-1 text-emerald-600">●</span>
+            Authenticated financial reporting
+          </span>
+
+          <span>RWF financial reporting · Backend-controlled scope</span>
+        </div>
 
         {error && (
           <div
             role="alert"
-            className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
           >
-            <div>
-              <p className="text-sm font-bold text-red-800">
-                Dashboard refresh failed
-              </p>
-
-              <p className="mt-1 text-xs text-red-700">
-                Existing dashboard data remains visible.
-              </p>
-            </div>
-
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => loadDashboard(true)}
-              disabled={refreshing}
-            >
-              {refreshing ? "Refreshing..." : "Retry"}
-            </Button>
+            Financial refresh failed. Previously loaded figures remain visible.
           </div>
         )}
 
-        {/* ====================================================
-            EXECUTIVE HEADER
-            ==================================================== */}
+        {/* ============= OWNER CONSOLIDATION ============= */}
 
-        <section className="relative overflow-hidden rounded-[26px] bg-gradient-to-br from-[#07152A] via-[#0B1F3A] to-[#16365F] text-white shadow-[0_24px_70px_rgba(7,21,42,0.20)]">
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -right-24 -top-32 h-96 w-96 rounded-full bg-[#F4C430]/10 blur-3xl" />
-            <div className="absolute -bottom-32 right-[20%] h-80 w-80 rounded-full bg-blue-400/10 blur-3xl" />
-            <div className="absolute left-[45%] top-0 h-56 w-56 rounded-full bg-white/[0.025] blur-2xl" />
-            <div className="absolute inset-x-0 bottom-0 h-px bg-white/10" />
-          </div>
-
-          <div className="relative px-5 py-7 sm:px-7 lg:px-9 lg:py-9">
-            <div className="flex flex-col gap-8 xl:flex-row xl:items-center xl:justify-between">
-              <div className="min-w-0">
-                <div className="mb-5 flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center rounded-full bg-[#F4C430] px-3.5 py-1.5 text-[10px] font-black tracking-[0.16em] text-[#07152A] shadow-sm">
-                    NOBLE LOAN SOLUTIONS
-                  </span>
-
-                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.5 text-[10px] font-semibold text-blue-100">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
-                    Lending Operations
-                  </span>
-                </div>
-
-                <h1 className="text-3xl font-black tracking-[-0.03em] sm:text-4xl lg:text-[40px]">
-                  Welcome back
-                  {user?.name ? `, ${user.name}` : ""}
-                </h1>
-
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-blue-100 sm:text-[15px]">
-                  Monitor lending performance, collections, portfolio risk,
-                  borrower activity, and operational performance from one
-                  controlled workspace.
-                </p>
-
-                <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-blue-200">
-                  <span className="font-medium">
-                    {user?.organizationName || "Organization"}
-                  </span>
-
-                  <span className="hidden h-1 w-1 rounded-full bg-blue-300/40 sm:block" />
-
-                  <span>{today}</span>
-
-                  {lastUpdated && (
-                    <>
-                      <span className="hidden h-1 w-1 rounded-full bg-blue-300/40 sm:block" />
-
-                      <span>
-                        Updated{" "}
-                        {lastUpdated.toLocaleTimeString(locale || "en-US", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2.5">
-                <Button
-                  variant="secondary"
-                  icon="↻"
-                  onClick={() => loadDashboard(true)}
-                  disabled={refreshing}
-                >
-                  {refreshing ? "Refreshing..." : "Refresh"}
-                </Button>
-
-                <Button
-                  variant="secondary"
-                  icon="👥"
-                  onClick={() => router.push("/dashboard/borrowers")}
-                >
-                  Borrowers
-                </Button>
-
-                <Button
-                  icon="💼"
-                  onClick={() => router.push("/dashboard/loans")}
-                >
-                  View Loans
-                </Button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ====================================================
-            PORTFOLIO OVERVIEW
-            ==================================================== */}
-
-        <section>
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-sm font-black uppercase tracking-[0.10em] text-[#0B1F3A]">
-                Portfolio overview
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-400">
-                Authoritative portfolio figures supplied by the lending system.
-              </p>
-            </div>
-
-            {!hasPortfolio && (
-              <span className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 shadow-sm">
-                No active portfolio
-              </span>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              icon="💼"
-              label="Total Loans"
-              value={fn(portfolio.totalLoans)}
-              sub={`${fn(portfolio.activeLoans)} active`}
-              color={BRAND.navy}
-            />
-
-            <StatCard
-              icon="👥"
-              label="Total Borrowers"
-              value={fn(portfolio.totalBorrowers)}
-              sub="Registered clients"
-              color={BRAND.navyLight}
-            />
-
-            <StatCard
-              icon="💰"
-              label="Total Disbursed"
-              value={fc(portfolio.totalDisbursed)}
-              sub="Capital released"
-              color={BRAND.navy}
-            />
-
-            <StatCard
-              icon="📊"
-              label="Outstanding"
-              value={fc(portfolio.outstandingBalance)}
-              sub="Current portfolio balance"
-              color={BRAND.yellowDark}
-            />
-          </div>
-        </section>
-
-        {/* ====================================================
-            MY WORK QUEUE
-            ==================================================== */}
-
-        <section>
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-sm font-black uppercase tracking-[0.10em] text-[#0B1F3A]">
-                My work queue
-              </h2>
-              <p className="mt-1 text-xs text-slate-400">
-                Server-tracked actions assigned to your account.
-              </p>
-            </div>
-            <Button
-              variant="secondary"
-              onClick={() => router.push("/dashboard/tasks")}
-            >
-              Open task centre →
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <StatCard
-              icon="✓"
-              label="Open Tasks"
-              value={fn(taskKpi.openTasks)}
-              sub={taskKpi.openTasks > 0 ? "Action required" : "No open work"}
-              color={taskKpi.openTasks > 0 ? BRAND.navy : BRAND.green}
-            />
-            <StatCard
-              icon="!"
-              label="Overdue Tasks"
-              value={fn(taskKpi.overdueTasks)}
-              sub={
-                taskKpi.overdueTasks > 0
-                  ? "Needs immediate attention"
-                  : "Nothing overdue"
-              }
-              color={taskKpi.overdueTasks > 0 ? BRAND.red : BRAND.green}
-            />
-            <StatCard
-              icon="⚡"
-              label="Urgent Tasks"
-              value={fn(taskKpi.urgentTasks)}
-              sub={
-                taskKpi.urgentTasks > 0 ? "Priority work" : "No urgent tasks"
-              }
-              color={taskKpi.urgentTasks > 0 ? BRAND.amber : BRAND.navy}
-            />
-          </div>
-        </section>
-
-        {/* ====================================================
-            PERFORMANCE & RISK
-            ==================================================== */}
-
-        <section>
-          <div className="mb-4">
-            <h2 className="text-sm font-black uppercase tracking-[0.10em] text-[#0B1F3A]">
-              Performance & risk
+        {consolidatedView && (
+          <section className="overflow-hidden rounded-xl border border-[#E9D5A1] bg-[#FFFBF0] p-4">
+            <h2 className="text-xs font-black text-[#815E21]">
+              ◈ Business Owner · Consolidated Portfolio
             </h2>
 
-            <p className="mt-1 text-xs text-slate-400">
-              Operational indicators requiring management visibility.
+            <p className="mt-1 text-[11px] leading-5 text-[#92794A]">
+              Owner-only loans are included in management figures and remain
+              excluded from normal staff, accounting, BNR and CRB reporting.
             </p>
-          </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              icon="⏳"
-              label="Pending Review"
-              value={fn(portfolio.pendingLoans)}
-              sub="Awaiting action"
-              color={BRAND.yellowDark}
-            />
+            {hasNumber(data.ownerOnlyOutstanding) && (
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border border-[#EDE3CE] bg-white p-4">
+                  <p className="text-[11px] text-[#7C8A99]">
+                    Normal outstanding
+                  </p>
 
-            <StatCard
-              icon="⚠️"
-              label="Overdue Loans"
-              value={fn(portfolio.overdueLoans)}
-              sub={`${fn(portfolio.latePaymentsCount)} late payments`}
-              color="#DC2626"
-            />
-
-            <StatCard
-              icon="✓"
-              label="Total Collected"
-              value={fc(portfolio.totalCollected)}
-              sub={`${fc(portfolio.collectedThisMonth)} this month · ${fc(
-                portfolio.historicalCollected,
-              )} legacy`}
-              color={BRAND.green}
-            />
-
-            <StatCard
-              icon="🎯"
-              label="Portfolio at Risk"
-              value={
-                portfolio.portfolioAtRiskPct === null
-                  ? "—"
-                  : `${portfolio.portfolioAtRiskPct.toFixed(1)}%`
-              }
-              sub={
-                portfolio.portfolioAtRiskPct === null
-                  ? "Metric unavailable"
-                  : portfolio.portfolioAtRiskPct > 5
-                    ? "Requires attention"
-                    : "Within monitoring threshold"
-              }
-              color={
-                portfolio.portfolioAtRiskPct !== null &&
-                portfolio.portfolioAtRiskPct > 5
-                  ? "#DC2626"
-                  : BRAND.navy
-              }
-            />
-          </div>
-        </section>
-
-        {/* ====================================================
-            MANAGEMENT ATTENTION
-            ==================================================== */}
-
-        {attentionRequired && (
-          <Card className="overflow-hidden border-[#F4C430]/40 bg-gradient-to-r from-[#FFFDF2] via-white to-white shadow-[0_10px_35px_rgba(15,23,42,0.05)]">
-            <CardBody>
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex min-w-0 items-start gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#FFF3B0] text-lg shadow-sm">
-                    !
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-extrabold text-[#0B1F3A]">
-                        Management attention required
-                      </h3>
-
-                      <span className="rounded-full bg-[#FFF3B0] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-[#806200]">
-                        Action
-                      </span>
-                    </div>
-
-                    <p className="mt-1 text-sm leading-6 text-slate-500">
-                      The current portfolio contains items requiring operational
-                      review.
-                    </p>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {portfolio.pendingLoans > 0 && (
-                        <span className="rounded-full bg-[#FFF3B0] px-3 py-1.5 text-xs font-bold text-[#806200]">
-                          {fn(portfolio.pendingLoans)} pending
-                        </span>
-                      )}
-
-                      {portfolio.overdueLoans > 0 && (
-                        <span className="rounded-full bg-red-100 px-3 py-1.5 text-xs font-bold text-red-700">
-                          {fn(portfolio.overdueLoans)} overdue
-                        </span>
-                      )}
-
-                      {portfolio.defaultedLoans > 0 && (
-                        <span className="rounded-full bg-red-100 px-3 py-1.5 text-xs font-bold text-red-700">
-                          {fn(portfolio.defaultedLoans)} defaulted
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  <p className="mt-2 break-words text-lg font-black text-[#193A58]">
+                    {money(normalOutstanding)}
+                  </p>
                 </div>
 
-                <Button onClick={() => router.push("/dashboard/loans")}>
-                  Review Portfolio →
-                </Button>
+                <div className="rounded-lg border border-[#EDE3CE] bg-[#FFF4DC] p-4">
+                  <p className="text-[11px] text-[#9A7A3F]">
+                    Owner-only outstanding
+                  </p>
+
+                  <p className="mt-2 break-words text-lg font-black text-[#92702D]">
+                    {money(ownerOnly)}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-[#EDE3CE] bg-white p-4">
+                  <p className="text-[11px] text-[#7C8A99]">
+                    Consolidated outstanding
+                  </p>
+
+                  <p className="mt-2 break-words text-lg font-black text-[#193A58]">
+                    {money(data.outstandingBalance)}
+                  </p>
+                </div>
               </div>
-            </CardBody>
-          </Card>
+            )}
+          </section>
         )}
 
-        {/* ====================================================
-            ANALYTICS
-            ==================================================== */}
+        {/* ================= FINANCIAL KPIS ================= */}
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-          <Card className="overflow-hidden xl:col-span-2">
-            <CardHeader
-              title="Portfolio by loan type"
-              action={
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Loan count
-                </span>
-              }
-            />
+        <section
+          aria-label="Financial performance"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <FinanceCard
+            label="Outstanding Principal"
+            value={compactMoney(data.outstandingBalance)}
+            note={`${currency} · Current loan principal exposure`}
+            trend={
+              hasNumber(data.principalGrowthPct)
+                ? `${percentage(data.principalGrowthPct)} change`
+                : undefined
+            }
+            symbol="▣"
+            accent={THEME.gold}
+          />
 
-            <CardBody>
-              {typeData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={320}>
+          <FinanceCard
+            label={
+              hasNumber(data.disbursedThisMonth)
+                ? "Disbursed This Month"
+                : "Total Disbursements"
+            }
+            value={compactMoney(
+              hasNumber(data.disbursedThisMonth)
+                ? data.disbursedThisMonth
+                : data.totalDisbursed,
+            )}
+            note={
+              hasNumber(data.disbursedThisMonth)
+                ? `${currency} · Monthly gross principal`
+                : `${currency} · Cumulative disbursements`
+            }
+            trend={
+              hasNumber(data.disbursementGrowthPct)
+                ? `${percentage(data.disbursementGrowthPct)} change`
+                : undefined
+            }
+            symbol="↗"
+            accent={THEME.blue}
+          />
+
+          <FinanceCard
+            label="Collections This Month"
+            value={compactMoney(data.collectedThisMonth)}
+            note={`${currency} · Cash actually received`}
+            trend={
+              hasNumber(data.collectionEfficiencyPct)
+                ? `${percentage(data.collectionEfficiencyPct)} efficiency`
+                : undefined
+            }
+            symbol="↙"
+            accent={THEME.green}
+          />
+
+          <FinanceCard
+            label="Portfolio at Risk"
+            value={percentage(data.portfolioAtRiskPct)}
+            note={`At-risk exposure: ${money(data.portfolioAtRiskAmount)}`}
+            symbol="!"
+            accent={THEME.red}
+          />
+        </section>
+
+        {/* ================= PRIMARY CHARTS ================= */}
+
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
+          <Panel
+            className="xl:col-span-3"
+            title="Disbursements & Collections"
+            subtitle={
+              hasMonthlyData
+                ? "Monthly trend · RWF"
+                : "Cumulative financial movement · RWF"
+            }
+            right={
+              <select
+                value={months}
+                disabled={!hasMonthlyData}
+                onChange={(event) =>
+                  setMonths(Number(event.target.value) as 6 | 12)
+                }
+                aria-label="Reporting period"
+                className="rounded-lg border border-[#E0E7F0] bg-white px-3 py-2 text-[11px] font-bold text-[#435B76] disabled:opacity-50"
+              >
+                <option value={6}>Last 6 Months</option>
+                <option value={12}>Last 12 Months</option>
+              </select>
+            }
+          >
+            {cashflow.length > 0 ? (
+              <div className="h-[270px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={typeData}
-                    barSize={32}
+                    data={cashflow}
                     margin={{
-                      top: 15,
-                      right: 15,
+                      top: 10,
+                      right: 8,
+                      bottom: 4,
                       left: -10,
-                      bottom: 10,
                     }}
+                    barGap={5}
                   >
                     <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#E5E7EB"
+                      stroke="#EDF1F5"
                       vertical={false}
+                      strokeDasharray="3 3"
                     />
 
                     <XAxis
-                      dataKey="name"
-                      tick={{
-                        fontSize: 10,
-                        fill: "#64748B",
-                      }}
+                      dataKey="period"
                       axisLine={false}
                       tickLine={false}
+                      tick={{
+                        fill: "#8292A5",
+                        fontSize: 11,
+                      }}
                     />
 
                     <YAxis
-                      allowDecimals={false}
-                      tick={{
-                        fontSize: 10,
-                        fill: "#94A3B8",
-                      }}
                       axisLine={false}
                       tickLine={false}
+                      tick={{
+                        fill: "#8292A5",
+                        fontSize: 10,
+                      }}
+                      tickFormatter={(value) => compactMoney(value)}
                     />
 
                     <Tooltip
-                      formatter={(value: number) =>
-                        formatNumber(safeNumber(value))
-                      }
+                      formatter={(value) => money(value as Money)}
                       contentStyle={{
-                        borderRadius: 14,
-                        border: "1px solid #E2E8F0",
-                        boxShadow: "0 18px 45px rgba(15,23,42,0.12)",
+                        border: "1px solid #E0E7F0",
+                        borderRadius: 10,
                         fontSize: 12,
                       }}
                     />
 
+                    <Legend
+                      verticalAlign="top"
+                      height={38}
+                      wrapperStyle={{
+                        fontSize: 11,
+                      }}
+                    />
+
                     <Bar
-                      dataKey="count"
-                      fill={BRAND.navy}
-                      radius={[7, 7, 0, 0]}
-                      name="Loans"
+                      name="Disbursed"
+                      dataKey="disbursed"
+                      fill={THEME.blue}
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={32}
+                    />
+
+                    <Bar
+                      name="Collected"
+                      dataKey="collected"
+                      fill={THEME.gold}
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={32}
                     />
                   </BarChart>
                 </ResponsiveContainer>
-              ) : (
-                <ChartEmptyState
-                  title="No loan type data"
-                  description="Loan type analytics will appear once portfolio data is available."
-                />
-              )}
-            </CardBody>
-          </Card>
-
-          <Card className="overflow-hidden">
-            <CardHeader
-              title="Loan status"
-              action={
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Distribution
-                </span>
-              }
-            />
-
-            <CardBody>
-              {pieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={320}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="43%"
-                      outerRadius={90}
-                      innerRadius={55}
-                      paddingAngle={3}
-                      stroke="none"
-                    >
-                      {pieData.map((_, index) => (
-                        <Cell
-                          key={`status-${index}`}
-                          fill={CHART_COLORS[index % CHART_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-
-                    <Tooltip />
-
-                    <Legend
-                      iconSize={8}
-                      wrapperStyle={{
-                        fontSize: 11,
-                        paddingTop: 10,
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <ChartEmptyState
-                  title="No status data"
-                  description="Loan status distribution will appear here."
-                />
-              )}
-            </CardBody>
-          </Card>
-        </div>
-
-        {/* ====================================================
-            COLLECTION PERFORMANCE
-            ==================================================== */}
-
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <Card className="overflow-hidden lg:col-span-2">
-            <CardHeader
-              title="Collections performance"
-              action={
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Current portfolio
-                </span>
-              }
-            />
-
-            <CardBody>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <FinancialMetric
-                  label="Total collected"
-                  value={fc(portfolio.totalCollected)}
-                  description="All recorded collections"
-                  tone="navy"
-                />
-
-                <FinancialMetric
-                  label="This month"
-                  value={fc(portfolio.collectedThisMonth)}
-                  description="Collections in current month"
-                  tone="yellow"
-                />
-
-                <FinancialMetric
-                  label="Outstanding principal"
-                  value={fc(portfolio.outstandingBalance)}
-                  description="Principal balance in the loan portfolio"
-                  tone="slate"
-                />
-
-                <FinancialMetric
-                  label="Total receivables"
-                  value={fc(portfolio.totalReceivables)}
-                  description="Principal plus unpaid contractual charges"
-                  tone="navy"
-                />
-
-                <FinancialMetric
-                  label="Overdue loans"
-                  value={fn(portfolio.overdueLoans)}
-                  description="Loans requiring follow-up"
-                  tone="red"
-                />
               </div>
-            </CardBody>
-          </Card>
+            ) : (
+              <Unavailable
+                title="Cash-flow figures unavailable"
+                detail="No successful disbursement or posted collection totals were returned."
+              />
+            )}
 
-          <Card className="overflow-hidden">
-            <CardHeader title="Quick actions" />
+            <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#EDF1F5] pt-4 sm:grid-cols-2">
+              <div>
+                <p className="text-[11px] text-[#8292A5]">
+                  Cumulative disbursed
+                </p>
 
-            <CardBody>
-              <div className="space-y-2">
-                <QuickAction
-                  icon="💼"
-                  title="Manage Loans"
-                  description="Review loan portfolio"
-                  onClick={() => router.push("/dashboard/loans")}
-                />
-
-                <QuickAction
-                  icon="👥"
-                  title="Borrowers"
-                  description="Manage customer profiles"
-                  onClick={() => router.push("/dashboard/borrowers")}
-                  tone="yellow"
-                />
-
-                <QuickAction
-                  icon="💳"
-                  title="Payments"
-                  description="Track collections"
-                  onClick={() => router.push("/dashboard/payments")}
-                />
-
-                <QuickAction
-                  icon="📑"
-                  title="Reports"
-                  description="Review portfolio reports"
-                  onClick={() => router.push("/dashboard/reports")}
-                />
+                <p className="mt-1 text-sm font-black text-[#183552]">
+                  {money(data.totalDisbursed)}
+                </p>
               </div>
-            </CardBody>
-          </Card>
-        </div>
 
-        {/* ====================================================
-            RECENT LOANS
-            ==================================================== */}
+              <div className="sm:text-right">
+                <p className="text-[11px] text-[#8292A5]">
+                  Cumulative collected
+                </p>
 
-        <Card className="overflow-hidden">
-          <CardHeader
-            title="Recent loan applications"
-            action={
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.push("/dashboard/loans")}
-              >
-                See all →
-              </Button>
+                <p className="mt-1 text-sm font-black text-[#183552]">
+                  {money(data.totalCollected)}
+                </p>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel
+            className="xl:col-span-2"
+            title="Portfolio Quality"
+            subtitle={
+              hasAging
+                ? "Outstanding principal by delinquency category"
+                : "Current credit-risk classification"
             }
+            right={
+              <span className="text-[10px] font-extrabold uppercase tracking-wide text-[#A77E38]">
+                Credit Risk
+              </span>
+            }
+          >
+            {agingData.length > 0 ? (
+              <div className="flex flex-col items-center justify-center gap-4 sm:flex-row xl:flex-col 2xl:flex-row">
+                <div className="relative h-[200px] w-[200px] shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={agingData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={66}
+                        outerRadius={90}
+                        stroke="#FFFFFF"
+                        strokeWidth={3}
+                      >
+                        {agingData.map((item, index) => (
+                          <Cell
+                            key={`${item.name}-${index}`}
+                            fill={riskColors[index % riskColors.length]}
+                          />
+                        ))}
+                      </Pie>
+
+                      <Tooltip
+                        formatter={(value) =>
+                          `${numberValue(value as Money).toFixed(2)}%`
+                        }
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <strong className="text-3xl font-black text-[#C15B65]">
+                      {percentage(data.portfolioAtRiskPct)}
+                    </strong>
+
+                    <span className="mt-1 text-[11px] text-[#8795A5]">
+                      At risk
+                    </span>
+                  </div>
+                </div>
+
+                <div className="w-full flex-1 space-y-3">
+                  {agingData.map((item, index) => (
+                    <div
+                      key={`${item.name}-${index}`}
+                      className="flex items-center justify-between gap-3 text-[11px]"
+                    >
+                      <span className="flex items-center gap-2 text-[#6F8197]">
+                        <span
+                          className="h-2.5 w-2.5 rounded-sm"
+                          style={{
+                            backgroundColor:
+                              riskColors[index % riskColors.length],
+                          }}
+                        />
+                        {item.name}
+                      </span>
+
+                      <strong className="text-[#1D3854]">
+                        {item.value.toFixed(1)}%
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Unavailable
+                title="Credit-risk data unavailable"
+                detail="Portfolio quality metrics were not returned."
+              />
+            )}
+
+            <div className="mt-5 rounded-lg border border-[#F3DFDA] bg-[#FFF4F1] p-3 text-[11px] leading-5 text-[#A75D59]">
+              <strong>Credit watch:</strong> At-risk principal exposure is{" "}
+              {money(data.portfolioAtRiskAmount)}. Review recovery and
+              provisioning requirements.
+            </div>
+          </Panel>
+        </div>
+
+        {/* ================= FINANCE & OPERATIONS ================= */}
+
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <Panel
+            title="Income & Operating Result"
+            subtitle="Recognized general-ledger performance"
+            right={
+              <span className="text-[10px] font-bold text-[#9BA5B2]">
+                {currency}
+              </span>
+            }
+          >
+            {incomeAvailable ? (
+              <>
+                <FinancialLine
+                  label="Interest income"
+                  value={money(income?.interestIncome)}
+                />
+
+                <FinancialLine
+                  label="Management fee income"
+                  value={money(income?.managementFeeIncome)}
+                />
+
+                <FinancialLine
+                  label="Application fee income · GL 4100"
+                  value={money(income?.applicationFeeIncome)}
+                />
+
+                <FinancialLine
+                  label="Penalty income"
+                  value={money(income?.penaltyIncome)}
+                />
+
+                <FinancialLine
+                  label="Operating expenses"
+                  value={money(income?.operatingExpenses)}
+                />
+
+                <FinancialLine
+                  label="Impairment / provision expense"
+                  value={money(income?.impairmentExpense)}
+                />
+
+                <FinancialLine
+                  label="Operating result"
+                  value={money(income?.operatingResult)}
+                  total
+                />
+              </>
+            ) : (
+              <>
+                <Unavailable
+                  title="Accounting results not yet available"
+                  detail="Recognized income, operating expenses and impairment must be provided by the general ledger. Cash collections are not treated as profit."
+                />
+
+                <div className="border-t border-[#EDF1F5] pt-2">
+                  <FinancialLine
+                    label="Collections this month"
+                    value={money(data.collectedThisMonth)}
+                  />
+
+                  <FinancialLine
+                    label="Total collections"
+                    value={money(data.totalCollected)}
+                  />
+                </div>
+              </>
+            )}
+          </Panel>
+
+          <Panel
+            title="Requires Attention"
+            subtitle="High-priority financial operations"
+            right={
+              <span className="rounded-md bg-[#FFF2E1] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#A67934]">
+                Action Queue
+              </span>
+            }
+          >
+            <ActionItem
+              title="Overdue Repayments"
+              detail="Review aging and recovery assignments"
+              value={`${formatCount(data.overdueLoans)} loans`}
+              urgent={numberValue(data.overdueLoans) > 0}
+              onClick={() => router.push("/dashboard/loans")}
+            />
+
+            <ActionItem
+              title="Pending Lending Approvals"
+              detail="Applications awaiting credit decisions"
+              value={`${formatCount(data.pendingLoans)} loans`}
+              onClick={() => router.push("/dashboard/loans")}
+            />
+
+            <ActionItem
+              title="Open Workflow Tasks"
+              detail="Assigned operational work"
+              value={formatCount(workflow.openTasks)}
+              urgent={numberValue(workflow.urgentTasks) > 0}
+              onClick={() => router.push("/dashboard/tasks")}
+            />
+
+            <ActionItem
+              title="KYC Documents Requiring Renewal"
+              detail="Expired, missing or rejected borrower documents"
+              value={
+                hasNumber(data.kycRenewalsDue)
+                  ? `${formatCount(data.kycRenewalsDue)} files`
+                  : "Review"
+              }
+              onClick={() => router.push("/dashboard/borrowers")}
+            />
+
+            <ActionItem
+              title="GL Reconciliation Exceptions"
+              detail="Review differences between finance systems"
+              value={formatCount(data.glReconciliationExceptions)}
+              urgent={numberValue(data.glReconciliationExceptions) > 0}
+              onClick={() => router.push("/dashboard/accounting")}
+            />
+          </Panel>
+        </div>
+
+        {/* ================= SECONDARY METRICS ================= */}
+
+        <section
+          aria-label="Portfolio summary"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <FinanceCard
+            label="Total Loan Receivables"
+            value={compactMoney(data.totalReceivables)}
+            note={`${currency} · Total contractual receivables`}
+            symbol="◈"
+            accent={THEME.blue}
           />
 
-          <Table>
-            <Thead>
-              <tr>
-                <Th>Reference</Th>
-                <Th>Borrower</Th>
-                <Th>Type</Th>
-                <Th>Amount</Th>
-                <Th>Rate</Th>
-                <Th>Risk</Th>
-                <Th>Status</Th>
-                <Th>Applied</Th>
-              </tr>
-            </Thead>
+          <FinanceCard
+            label="Active Loans"
+            value={formatCount(data.activeLoans)}
+            note="Current active lending accounts"
+            symbol="✓"
+            accent={THEME.green}
+          />
 
-            <Tbody>
-              {recentLoans.length === 0 ? (
-                <Tr>
-                  <Td colSpan={8} className="py-16 text-center">
-                    <div className="flex flex-col items-center">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF3F9] text-xl">
-                        💼
-                      </div>
+          <FinanceCard
+            label="Borrowers"
+            value={formatCount(data.totalBorrowers)}
+            note="Borrowers in the authorized portfolio"
+            symbol="♙"
+            accent={THEME.gold}
+          />
 
-                      <span className="mt-4 text-sm font-bold text-slate-600">
-                        No recent loan applications
-                      </span>
+          <FinanceCard
+            label="Defaulted Loans"
+            value={formatCount(data.defaultedLoans)}
+            note="Accounts requiring recovery"
+            symbol="!"
+            accent={THEME.red}
+          />
+        </section>
 
-                      <span className="mt-1 text-xs text-slate-400">
-                        New applications will appear here.
-                      </span>
-                    </div>
-                  </Td>
-                </Tr>
-              ) : (
-                recentLoans.map((loan: Loan) => (
-                  <Tr
-                    key={loan.id}
-                    onClick={() => router.push(`/dashboard/loans/${loan.id}`)}
-                    className="cursor-pointer transition-colors hover:bg-[#F8FAFC]"
-                  >
-                    <Td>
-                      <code className="rounded-lg border border-[#DCE5F0] bg-[#EEF3F9] px-2.5 py-1.5 text-[11px] font-bold text-[#0B1F3A]">
-                        {loan.referenceNumber || "—"}
-                      </code>
-                    </Td>
+        {/* ================= RECENT LENDING ================= */}
 
-                    <Td>
-                      <div className="flex min-w-[190px] items-center gap-3">
-                        <BorrowerAvatar
-                          firstName={loan.borrower?.firstName}
-                          lastName={loan.borrower?.lastName}
-                          borrowerName={loan.borrowerName}
-                        />
+        <Panel
+          title="Recent Lending Activity"
+          subtitle="Latest loan records within your authorized reporting scope"
+          right={
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard/loans")}
+              className="text-[11px] font-extrabold text-[#A27A34] hover:underline"
+            >
+              View Portfolio →
+            </button>
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] text-left">
+              <thead>
+                <tr className="bg-[#F4F7FA] text-[10px] font-extrabold uppercase tracking-wide text-[#77899C]">
+                  <th className="px-4 py-3">Loan Reference</th>
+                  <th className="px-4 py-3">Borrower</th>
+                  <th className="px-4 py-3 text-right">Principal</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Due Date</th>
+                </tr>
+              </thead>
 
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-bold text-slate-900">
-                            {loan.borrowerName ||
-                              (loan.borrower?.firstName ||
-                              loan.borrower?.lastName
-                                ? `${loan.borrower?.firstName || ""} ${
-                                    loan.borrower?.lastName || ""
-                                  }`.trim()
-                                : "Unnamed borrower")}
-                          </div>
+              <tbody>
+                {(data.recentLoans || []).length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-4 py-12 text-center text-xs text-slate-400"
+                    >
+                      No recent lending activity is available.
+                    </td>
+                  </tr>
+                ) : (
+                  data.recentLoans?.map((loan, index) => {
+                    const borrowerName =
+                      loan.borrowerName ||
+                      [loan.borrower?.firstName, loan.borrower?.lastName]
+                        .filter(Boolean)
+                        .join(" ") ||
+                      "Borrower";
 
-                          <div className="mt-0.5 truncate text-xs text-slate-400">
-                            {loan.borrower?.nationalId ||
-                              loan.borrower?.email ||
-                              (loan.borrowerId
-                                ? `Borrower #${loan.borrowerId}`
-                                : "No identifier")}
-                          </div>
-                        </div>
-                      </div>
-                    </Td>
+                    const loanStatus = (loan.status || "UNKNOWN").toUpperCase();
 
-                    <Td>
-                      <span className="text-xs font-semibold text-slate-600">
-                        {LOAN_TYPE_META[loan.loanType]?.icon}{" "}
-                        {LOAN_TYPE_META[loan.loanType]?.label ??
-                          loan.loanType ??
-                          "—"}
-                      </span>
-                    </Td>
+                    const overdue =
+                      loanStatus === "OVERDUE" || loanStatus === "DEFAULTED";
 
-                    <Td>
-                      <span className="font-extrabold text-slate-900">
-                        {fc(loan.amount)}
-                      </span>
-                    </Td>
+                    return (
+                      <tr
+                        key={String(loan.id ?? index)}
+                        className="border-b border-[#EDF1F5] text-xs last:border-0 hover:bg-[#F9FBFD]"
+                      >
+                        <td className="px-4 py-4 font-extrabold text-[#285580]">
+                          {loan.referenceNumber || "—"}
+                        </td>
 
-                    <Td>
-                      <span className="text-sm font-medium text-slate-600">
-                        {hasValue(loan.interestRate)
-                          ? `${loan.interestRate}%`
-                          : "—"}
-                      </span>
-                    </Td>
+                        <td className="px-4 py-4 font-semibold text-[#415B74]">
+                          {borrowerName}
+                        </td>
 
-                    <Td>
-                      {loan.riskCategory ? (
-                        <RiskBadge
-                          category={loan.riskCategory}
-                          score={loan.riskScore}
-                        />
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </Td>
+                        <td className="px-4 py-4 text-right font-extrabold text-[#1C3954]">
+                          {money(loan.amount)}
+                        </td>
 
-                    <Td>
-                      {loan.status ? (
-                        <StatusBadge status={loan.status} />
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </Td>
+                        <td className="px-4 py-4">
+                          <span
+                            className={
+                              overdue
+                                ? "rounded-md bg-[#FFF0ED] px-2.5 py-1.5 text-[10px] font-black text-[#BD5C59]"
+                                : "rounded-md bg-[#EAF7F0] px-2.5 py-1.5 text-[10px] font-black text-[#168063]"
+                            }
+                          >
+                            {loanStatus.replaceAll("_", " ")}
+                          </span>
+                        </td>
 
-                    <Td className="whitespace-nowrap text-xs font-medium text-slate-400">
-                      {loan.startDate || loan.createdAt
-                        ? formatDate(loan.startDate || loan.createdAt, locale)
-                        : "—"}
-                    </Td>
-                  </Tr>
-                ))
-              )}
-            </Tbody>
-          </Table>
-        </Card>
-
-        {/* ====================================================
-            CONTROL FOOTER
-            ==================================================== */}
-
-        <div className="flex flex-col gap-2 border-t border-slate-200 px-1 pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-bold text-[#0B1F3A]">
-              Noble Loan Solutions
-            </p>
-
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              Loan Management Platform
-            </p>
+                        <td className="px-4 py-4 text-[#64798E]">
+                          {loan.nextDueDate?.slice(0, 10) || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
+        </Panel>
 
-          <p className="text-[11px] text-slate-400">
-            Dashboard figures are supplied by the organization lending system.
-          </p>
-        </div>
+        {/* ================= FOOTER ================= */}
+
+        <footer className="flex flex-col justify-between gap-2 border-t border-[#E1E8F0] pt-4 text-[10px] text-[#8999AB] sm:flex-row">
+          <span>Noble Loan Solutions Ltd · Finance Command Center</span>
+
+          <span>
+            {consolidatedView
+              ? "Business Owner consolidated management reporting"
+              : "Authorized standard portfolio reporting"}
+          </span>
+        </footer>
       </div>
     </main>
-  );
-}
-
-/* ============================================================
-   FINANCIAL METRIC
-   ============================================================ */
-
-function FinancialMetric({
-  label,
-  value,
-  description,
-  tone,
-}: {
-  label: string;
-  value: string;
-  description: string;
-  tone: "navy" | "yellow" | "slate" | "red";
-}) {
-  const styles = {
-    navy: {
-      wrapper: "border-[#DCE5F0] bg-[#F8FAFC]",
-      label: "text-[#16365F]",
-      value: "text-[#0B1F3A]",
-    },
-
-    yellow: {
-      wrapper: "border-[#F4C430]/30 bg-[#FFFDF2]",
-      label: "text-[#806200]",
-      value: "text-[#665000]",
-    },
-
-    slate: {
-      wrapper: "border-slate-200 bg-slate-50",
-      label: "text-slate-600",
-      value: "text-slate-900",
-    },
-
-    red: {
-      wrapper: "border-red-100 bg-red-50",
-      label: "text-red-600",
-      value: "text-red-900",
-    },
-  };
-
-  const style = styles[tone];
-
-  return (
-    <div
-      className={`rounded-2xl border p-4 transition-shadow duration-200 hover:shadow-sm ${style.wrapper}`}
-    >
-      <p className={`text-xs font-bold ${style.label}`}>{label}</p>
-
-      <p className={`mt-1.5 text-lg font-black tracking-tight ${style.value}`}>
-        {value}
-      </p>
-
-      <p className="mt-1 text-[10px] text-slate-400">{description}</p>
-    </div>
-  );
-}
-
-/* ============================================================
-   QUICK ACTION
-   ============================================================ */
-
-function QuickAction({
-  icon,
-  title,
-  description,
-  onClick,
-  tone = "navy",
-}: {
-  icon: string;
-  title: string;
-  description: string;
-  onClick: () => void;
-  tone?: "navy" | "yellow";
-}) {
-  const isYellow = tone === "yellow";
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group flex w-full items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition-all duration-200 ${
-        isYellow
-          ? "border-gray-100 hover:border-[#F4C430]/50 hover:bg-[#FFFDF2]"
-          : "border-gray-100 hover:border-[#C7D5E5] hover:bg-[#F8FAFC]"
-      }`}
-    >
-      <span
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm transition-transform duration-200 group-hover:scale-105 ${
-          isYellow ? "bg-[#FFF3B0]" : "bg-[#E1EAF4]"
-        }`}
-      >
-        {icon}
-      </span>
-
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-bold text-slate-900">{title}</span>
-
-        <span className="mt-0.5 block truncate text-xs text-slate-400">
-          {description}
-        </span>
-      </span>
-
-      <span className="text-slate-300 transition-transform duration-200 group-hover:translate-x-1">
-        →
-      </span>
-    </button>
-  );
-}
-
-/* ============================================================
-   BORROWER AVATAR
-   ============================================================ */
-
-function BorrowerAvatar({
-  firstName,
-  lastName,
-  borrowerName,
-}: {
-  firstName?: string | null;
-  lastName?: string | null;
-  borrowerName?: string | null;
-}) {
-  const directInitials =
-    `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`
-      .trim()
-      .toUpperCase();
-
-  const parts = (borrowerName || "").trim().split(/\s+/).filter(Boolean);
-
-  const nameInitials =
-    parts.length >= 2
-      ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
-      : parts[0]?.slice(0, 2).toUpperCase();
-
-  const initials = directInitials || nameInitials || "B";
-
-  return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E1EAF4] text-xs font-black text-[#0B1F3A] ring-2 ring-white shadow-sm">
-      {initials}
-    </div>
-  );
-}
-
-/* ============================================================
-   EMPTY CHART
-   ============================================================ */
-
-function ChartEmptyState({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex h-[320px] flex-col items-center justify-center text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF3F9] text-xl text-[#0B1F3A]">
-        ▦
-      </div>
-
-      <p className="mt-4 text-sm font-bold text-slate-600">{title}</p>
-
-      <p className="mt-1 max-w-xs text-xs leading-5 text-slate-400">
-        {description}
-      </p>
-    </div>
-  );
-}
-
-/* ============================================================
-   DASHBOARD SKELETON
-   ============================================================ */
-
-function DashboardSkeleton() {
-  return (
-    <div className="min-h-[70vh] animate-pulse space-y-7 bg-[#F8FAFC] pb-10">
-      <div className="h-60 rounded-[26px] bg-[#0B1F3A]" />
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[1, 2, 3, 4].map((item) => (
-          <div
-            key={item}
-            className="h-32 rounded-2xl border border-slate-200 bg-white"
-          />
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[1, 2, 3, 4].map((item) => (
-          <div
-            key={item}
-            className="h-32 rounded-2xl border border-slate-200 bg-white"
-          />
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="h-96 rounded-2xl border border-slate-200 bg-white xl:col-span-2" />
-
-        <div className="h-96 rounded-2xl border border-slate-200 bg-white" />
-      </div>
-
-      <div className="h-80 rounded-2xl border border-slate-200 bg-white" />
-
-      <div className="h-96 rounded-2xl border border-slate-200 bg-white" />
-    </div>
   );
 }

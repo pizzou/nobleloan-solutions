@@ -1,7 +1,7 @@
 # Noble Loan Solutions Ltd — Loan Platform
 
 Single-tenant loan management platform for Noble Loan Solutions Ltd.
-Built with Spring Boot 3.3 (Java 21) · Next.js 14 · PostgreSQL 16 · Docker.
+Built with Spring Boot 3.5 (Java 21) · Next.js 14 · PostgreSQL 16 · Docker.
 
 This deployment serves exactly one institution. The public site is at the
 root URL — there is no tenant picker and no `/nobleloansolutions` path prefix.
@@ -12,18 +12,35 @@ real customer funds or data.
 
 ## Quick Start (Local Dev — no Docker needed)
 
+Install JDK 21 and Node.js 22 or later first. Set `BOOTSTRAP_ADMIN_EMAIL` and
+`BOOTSTRAP_ADMIN_PASSWORD` in the terminal that starts the backend. Use
+credentials created for local development.
+
 ```bash
 # Terminal 1: Backend (uses H2 in-memory, no PostgreSQL needed)
 cd backend/loan-management-api/loan-backend
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -Pdev spring-boot:run -Dspring-boot.run.profiles=dev
 
 # Terminal 2: Frontend
 cd frontend/loan-management-ui
-npm install && npm run dev
+npm ci
+NEXT_PUBLIC_API_URL=http://localhost:8080/api npm run dev
 ```
 
 Open http://localhost:3000 for the public site, or http://localhost:3000/login
-with `admin@nobleloansolutions.rw` / `Admin@1234` for the staff dashboard.
+to sign in with your bootstrap administrator account. Staff login requires
+access to the email verification code. For local login testing, start the
+backend with `MAIL_ENABLED=true`, `BREVO_API_KEY` and a verified `MAIL_FROM`,
+and use a bootstrap email address you control.
+
+---
+
+## Local Development with Docker
+
+Set the same local bootstrap variables, then run
+`docker compose -f docker-compose.dev.yml up --build` and open
+http://localhost:3000. The backend uses an in-memory H2 database. Its data
+is cleared when the backend stops.
 
 ---
 
@@ -76,20 +93,7 @@ This will:
 | API                | https://nobleloansolutions.rw/api                       |
 | Swagger UI          | internal/VPN only — see BANK_READINESS.md          |
 | Health check        | internal only (private IP ranges)                  |
-| H2 Console          | http://localhost:8080/h2-console (dev profile only) |
-
----
-
-## Demo Login Credentials (dev/staging only — remove before go-live)
-
-| Role    | Email                     | Password      |
-|---------|---------------------------|---------------|
-| Admin   | admin@nobleloansolutions.rw    | Admin@1234    |
-| Officer | officer@nobleloansolutions.rw  | Officer@1234  |
-
-These are seeded by `DataSeeder.java` for local/dev use. Disable or remove
-this seeder path before running against real customer data — see
-BANK_READINESS.md.
+| H2 Console          | http://localhost:8080/h2-console (dev profile with `EXPOSE_H2=true`) |
 
 ---
 
@@ -138,7 +142,7 @@ Query the `flyway_schema_history` table directly, or use the authenticated
 `/actuator/flyway` endpoint (internal network only).
 
 ### Add a new migration
-Create `src/main/resources/db/migration/V15__your_change.sql`.
+Create a migration under `src/main/resources/db/migration/` using the next unused version number.
 Flyway auto-runs it on next startup.
 
 ### Switch to PostgreSQL locally (without Docker)

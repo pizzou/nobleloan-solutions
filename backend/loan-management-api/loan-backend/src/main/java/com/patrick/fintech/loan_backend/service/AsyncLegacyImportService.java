@@ -28,8 +28,10 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,7 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class AsyncLegacyImportService {
 
-        private static final long MAX_ROWS = 100_000L;
+        private static final long MAX_ROWS = 10_000L;
         private static final int PROGRESS_UPDATE_EVERY = 100;
         private static final int MAX_STORED_ROW_RESULTS = 10_000;
 
@@ -195,6 +197,7 @@ public class AsyncLegacyImportService {
                 AtomicInteger failed = new AtomicInteger(0);
                 List<ImportRowResult> storedResults = new ArrayList<>();
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
+                LegacyImportReferenceSession sessionLoanReferences = new LegacyImportReferenceSession();
 
                 // ---------------------------------------------------------------
                 // PASS 1 — COUNT UNIQUE SUPPORTED RECORDS
@@ -254,7 +257,8 @@ public class AsyncLegacyImportService {
                                                                                 organization,
                                                                                 batchId,
                                                                                 true,
-                                                                                sessionBorrowers);
+                                                                                sessionBorrowers,
+                                                                                sessionLoanReferences);
                                                         } catch (Exception e) {
                                                                 log.error(
                                                                                 "Unexpected legacy import row failure. batchId={}, rowNumber={}",
@@ -268,6 +272,13 @@ public class AsyncLegacyImportService {
                                                                                 .build();
                                                         }
 
+                                                        if (result != null) {
+                                                                result.setSourceSheet(row.get("__source_sheet"));
+                                                                result.setDuplicateRowsIgnored(
+                                                                                Integer.parseInt(row.getOrDefault(
+                                                                                                "__duplicate_count",
+                                                                                                "0")));
+                                                        }
                                                         if (result != null && result.isSuccess()) {
                                                                 success.incrementAndGet();
                                                         } else {

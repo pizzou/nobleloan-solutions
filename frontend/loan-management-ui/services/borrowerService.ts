@@ -1,5 +1,6 @@
-import { get, post, put } from './api';
-import { Borrower } from '../types';
+import type { OptionalSupportingDocument } from "../components/OptionalSupportingDocuments";
+import { get, post, put } from "./api";
+import { Borrower } from "../types";
 
 /**
  * ============================================================
@@ -17,14 +18,10 @@ import { Borrower } from '../types';
  * ============================================================
  */
 
-export const getBorrowers = (
-  search?: string,
-): Promise<Borrower[]> =>
+export const getBorrowers = (search?: string): Promise<Borrower[]> =>
   get(
     `/borrowers?page=0&size=5000${
-      search
-        ? `&q=${encodeURIComponent(search)}`
-        : ''
+      search ? `&q=${encodeURIComponent(search)}` : ""
     }`,
   ).then((response: any) => {
     /*
@@ -46,16 +43,12 @@ export const getBorrowers = (
       return response as Borrower[];
     }
 
-    if (
-      response &&
-      Array.isArray(response.content)
-    ) {
+    if (response && Array.isArray(response.content)) {
       return response.content as Borrower[];
     }
 
     return [];
   });
-
 
 /**
  * ============================================================
@@ -63,11 +56,8 @@ export const getBorrowers = (
  * ============================================================
  */
 
-export const getBorrowerById = (
-  id: number,
-): Promise<Borrower> =>
+export const getBorrowerById = (id: number): Promise<Borrower> =>
   get(`/borrowers/${id}`) as Promise<Borrower>;
-
 
 /**
  * ============================================================
@@ -85,13 +75,14 @@ export const getBorrowerById = (
  */
 
 export const createBorrower = (
-  payload: Partial<Borrower>,
-): Promise<Borrower> =>
-  post(
-    '/borrowers',
-    payload,
-  ) as Promise<Borrower>;
-
+  payload: Partial<Borrower> & {
+    singleCertificateNumber?: string;
+    spouseFullName?: string;
+    spouseNationalId?: string;
+    spousePhone?: string;
+    spouseConsent?: boolean;
+  },
+): Promise<Borrower> => post("/borrowers", payload) as Promise<Borrower>;
 
 /**
  * ============================================================
@@ -102,8 +93,30 @@ export const createBorrower = (
 export const updateBorrower = (
   id: number,
   payload: Partial<Borrower>,
-): Promise<Borrower> =>
-  put(
-    `/borrowers/${id}`,
-    payload,
-  ) as Promise<Borrower>;
+): Promise<Borrower> => put(`/borrowers/${id}`, payload) as Promise<Borrower>;
+
+/** Save profile, mandatory documents, and optional evidence atomically. */
+export const createBorrowerWithDocuments = (
+  payload: Parameters<typeof createBorrower>[0],
+  documents: Record<string, File>,
+  supportingDocuments: OptionalSupportingDocument[] = [],
+): Promise<Borrower> => {
+  const form = new FormData();
+  form.append(
+    "borrower",
+    new Blob([JSON.stringify(payload)], { type: "application/json" }),
+  );
+  Object.entries(documents).forEach(([type, file]) => form.append(type, file));
+  supportingDocuments.forEach(({ category, file }) =>
+    form.append(
+      category === "COLLATERAL_DOCUMENT" || category === "COLLATERAL_EXPERTISE"
+        ? "collateralDocuments"
+        : "otherSupportingDocuments",
+      file,
+      file.name,
+    ),
+  );
+  return post("/borrowers/with-documents", form, {
+    timeout: 120000,
+  }) as Promise<Borrower>;
+};

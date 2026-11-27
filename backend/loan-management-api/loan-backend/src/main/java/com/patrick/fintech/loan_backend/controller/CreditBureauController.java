@@ -14,6 +14,7 @@ import com.patrick.fintech.loan_backend.service.ReportExportService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/credit-bureau")
 @RequiredArgsConstructor
@@ -594,9 +596,8 @@ public class CreditBureauController {
                          * logged for investigation.
                          */
 
-                        System.err.println(
-                                        "Credit Bureau export audit failed: "
-                                                        + exception.getMessage());
+                        log.error("Credit Bureau export audit failed; exceptionType={}",
+                                        exception.getClass().getSimpleName());
                 }
         }
 

@@ -6,9 +6,14 @@ import {
   bankAccountApi,
   branchApi,
   loanApi,
+  get,
 } from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
+import FinancialPeriodFilter, {
+  financialPeriodPreset,
+  type FinancialPeriod,
+} from "@/components/reports/FinancialPeriodFilter";
 import { toast } from "@/hooks/useToast";
 
 /* =========================================================
@@ -88,6 +93,31 @@ interface ProfitAndLoss {
   totalIncome: number;
   totalExpense: number;
   netIncome: number;
+  applicationFeeIncome?: number;
+  historicalApplicationFeeIncome?: number;
+  penaltyIncome?: number;
+  managementFeeIncome?: number;
+  otherFeeIncome?: number;
+}
+
+interface HistoricalPortfolioPerformance {
+  basis: string;
+  note: string;
+  loanCount: number;
+  principalPaid: number;
+  interestPaid: number;
+  managementFeePaid: number;
+  extensionFeePaid: number;
+  penaltiesAssessed: number;
+  penaltiesRecordedPaid: number;
+  penaltyLoanCount: number;
+  penaltyAllocationRequiresVerification: boolean;
+  applicationFeePaid: number;
+  principalOutstanding: number;
+  interestOutstanding: number;
+  managementFeeOutstanding: number;
+  penaltiesOutstanding: number;
+  recordedHistoricCollections: number;
 }
 
 interface CashFlow {
@@ -154,8 +184,23 @@ type Tab = (typeof TABS)[number];
    MAIN ACCOUNTING PAGE
 ========================================================= */
 
+type ReceivableReconciliation = {
+  asOf: string;
+  subledger: Record<string, {
+    accountCode: string;
+    accountName: string | null;
+    operationalBalance: number;
+    glBalance: number;
+    reconciles: boolean;
+  }>;
+};
+
 export default function AccountingPage() {
-  const { currency } = useAuth();
+  const { currency, user } = useAuth();
+  const canOpenPostingPeriod = user?.role === "ADMIN" || user?.role === "ACCOUNTANT";
+  const [postingMonth, setPostingMonth] = useState("");
+  const [postingPeriodBusy, setPostingPeriodBusy] = useState(false);
+  const [postingPeriodError, setPostingPeriodError] = useState("");
 
   const [tab, setTab] = useState<Tab>("Trial Balance");
 
@@ -164,7 +209,11 @@ export default function AccountingPage() {
   const [trial, setTrial] = useState<TrialBalance | null>(null);
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
   const [pnl, setPnl] = useState<ProfitAndLoss | null>(null);
+  const [historical, setHistorical] = useState<HistoricalPortfolioPerformance | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlow | null>(null);
+  const [financialPeriod, setFinancialPeriod] = useState<FinancialPeriod>(() =>
+    financialPeriodPreset("this-month"),
+  );
   const [branchSummary, setBranchSummary] = useState<BranchSummaryRow[]>([]);
   const [controlTotals, setControlTotals] = useState<{
     totalDisbursed?: number | string;
@@ -220,6 +269,7 @@ export default function AccountingPage() {
         trialResponse,
         balanceSheetResponse,
         pnlResponse,
+        historicalResponse,
         cashFlowResponse,
         branchSummaryResponse,
         bankAccountsResponse,
@@ -228,11 +278,18 @@ export default function AccountingPage() {
       ] = await Promise.all([
         accountingApi.chartOfAccounts().catch(() => []),
         accountingApi.journal().catch(() => []),
-        accountingApi.trialBalance().catch(() => null),
-        accountingApi.balanceSheet().catch(() => null),
-        accountingApi.profitAndLoss().catch(() => null),
-        accountingApi.cashFlow().catch(() => null),
-        accountingApi.branchSummary().catch(() => []),
+        accountingApi.trialBalance(financialPeriod.to).catch(() => null),
+        accountingApi.balanceSheet(financialPeriod.to).catch(() => null),
+        accountingApi
+          .profitAndLoss(financialPeriod.from, financialPeriod.to)
+          .catch(() => null),
+        accountingApi.historicalPortfolioPerformance().catch(() => null),
+        accountingApi
+          .cashFlow(financialPeriod.from, financialPeriod.to)
+          .catch(() => null),
+        accountingApi
+          .branchSummary(financialPeriod.from, financialPeriod.to)
+          .catch(() => []),
         bankAccountApi.list().catch(() => []),
         branchApi.list().catch(() => []),
         loanApi.dashboard().catch(() => null),
@@ -245,6 +302,7 @@ export default function AccountingPage() {
       setBalanceSheet(balanceSheetResponse as BalanceSheet | null);
 
       setPnl(pnlResponse as ProfitAndLoss | null);
+      setHistorical(historicalResponse as HistoricalPortfolioPerformance | null);
 
       setCashFlow(cashFlowResponse as CashFlow | null);
 
@@ -261,7 +319,7 @@ export default function AccountingPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [financialPeriod.from, financialPeriod.to]);
 
   useEffect(() => {
     void loadAll();
@@ -464,6 +522,41 @@ export default function AccountingPage() {
      LOADING
   ======================================================= */
 
+  const visibleJournal = journal.filter((entry) => {
+    const date = String(entry.entryDate ?? "").slice(0, 10);
+    return date >= financialPeriod.from && date <= financialPeriod.to;
+  });
+
+  const cashLedgerBalance = balanceSheet?.assets.find(
+    (account) => account.code === "1000",
+  )?.balance;
+
+  const comparisonDate = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Kigali" });
+  const canCompareReceivables = financialPeriod.to === comparisonDate;
+  const [receivableReport, setReceivableReport] = useState<ReceivableReconciliation | null>(null);
+  const [checkingReceivables, setCheckingReceivables] = useState(false);
+  const [receivableError, setReceivableError] = useState("");
+  const receivableRows = receivableReport?.asOf === comparisonDate
+    ? Object.values(receivableReport.subledger)
+    : [];
+
+  async function checkReceivables() {
+    setCheckingReceivables(true);
+    setReceivableError("");
+    setReceivableReport(null);
+    try {
+      const report = await get(`/accounting/reconciliation?asOf=${comparisonDate}`) as ReceivableReconciliation;
+      if (report?.asOf !== comparisonDate || !Object.keys(report.subledger ?? {}).length) {
+        throw new Error("The reconciliation returned no account balances.");
+      }
+      setReceivableReport(report);
+    } catch (error) {
+      setReceivableError(error instanceof Error ? error.message : "Receivables check failed.");
+    } finally {
+      setCheckingReceivables(false);
+    }
+  }
+
   if (loading) {
     return <PageSpinner />;
   }
@@ -473,24 +566,28 @@ export default function AccountingPage() {
   ======================================================= */
 
   return (
-    <div className="space-y-6">
+    <div className="nls-finance-page nls-accounting-workspace space-y-6">
       {/* ===================================================
           PAGE HEADER
       =================================================== */}
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Accounting</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Finance</p>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#0B1F3A]">Accounting</h1>
 
           <p className="text-gray-500 text-sm mt-1">
-            General ledger, chart of accounts, cash management, and financial
-            reports — {currency}.
+            Ledger and financial statements · {currency}
           </p>
         </div>
 
         <button
           type="button"
-          onClick={handleLegacyReconciliation}
+          onClick={() => {
+            if (window.confirm("This reconciliation can create accounting journal adjustments. Have you reviewed and approved the proposed financial corrections and ensured a restorable database backup exists?")) {
+              void handleLegacyReconciliation();
+            }
+          }}
           disabled={reconcilingLegacy}
           className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -499,6 +596,64 @@ export default function AccountingPage() {
             : "Reconcile Imported Loans"}
         </button>
       </div>
+
+      <div className="nls-accounting-period"><FinancialPeriodFilter
+        value={financialPeriod}
+        onApply={setFinancialPeriod}
+      /></div>
+
+      {canOpenPostingPeriod && (
+        <form
+          id="posting-period"
+          className="rounded-xl border border-slate-200 bg-white p-4"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(postingMonth)) {
+              setPostingPeriodError("Enter a posting month in YYYY-MM format.");
+              return;
+            }
+            if (!window.confirm(`Open ${postingMonth} for ledger posting?`)) return;
+            const [year, month] = postingMonth.split("-").map(Number);
+            setPostingPeriodError("");
+            setPostingPeriodBusy(true);
+            try {
+              await accountingApi.openPeriod(year, month);
+              toast("success", `Accounting period ${postingMonth} is open for posting.`);
+            } catch (error) {
+              setPostingPeriodError(error instanceof Error ? error.message : "Could not open the accounting period.");
+            } finally {
+              setPostingPeriodBusy(false);
+            }
+          }}
+        >
+          <label htmlFor="posting-month" className="block text-sm font-semibold text-slate-800">
+            Open a posting month
+          </label>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              id="posting-month"
+              type="month"
+              required
+              placeholder="YYYY-MM"
+              value={postingMonth}
+              disabled={postingPeriodBusy}
+              onChange={(event) => setPostingMonth(event.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={postingPeriodBusy}
+              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {postingPeriodBusy ? "Opening…" : "Open period"}
+            </button>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">
+            Select the month of the actual transaction. A closed month requires a controlled adjustment.
+          </p>
+          {postingPeriodError && <p role="alert" className="mt-2 text-sm text-red-700">{postingPeriodError}</p>}
+        </form>
+      )}
 
       {reconciliationSummary && (
         <div
@@ -638,50 +793,124 @@ export default function AccountingPage() {
       {/* ===================================================
           OPERATIONAL CONTROL TOTALS
       =================================================== */}
-      {controlTotals ? (
-        <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {[
-            ["Gross disbursed", controlTotals.totalDisbursed],
-            ["Cash collected", controlTotals.totalCollected],
-            ["Outstanding principal", controlTotals.outstandingBalance],
-            ["Total receivables", controlTotals.totalReceivables],
-            [
-              "Application fees collected",
-              controlTotals.applicationFeesCollected,
-            ],
-          ].map(([label, value]) => (
-            <div
-              key={String(label)}
-              className="rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
-            >
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
-                {label as string}
-              </div>
-              <div className="mt-2 text-xl font-black text-gray-950">
-                {fmt(value as number)}
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                Canonical operational control total used across portfolio and
-                reporting.
-              </div>
-            </div>
-          ))}
+      <section className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-slate-900">Receivables reconciliation</h2>
+          {canCompareReceivables && (
+            <button type="button" disabled={checkingReceivables} onClick={() => void checkReceivables()}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 disabled:opacity-60">
+              {checkingReceivables ? "Checking…" : "Check balances"}
+            </button>
+          )}
+        </div>
+        <p className="mt-2 text-sm text-slate-600">
+          {canCompareReceivables
+            ? "Compares accrued charges and historical opening balances with the ledger. Portfolio totals include scheduled charges."
+            : "Select today as the statement date to reconcile the current loan subledger."}
+        </p>
+        {canCompareReceivables && receivableError && <p role="alert" className="mt-3 text-sm text-red-700">{receivableError}</p>}
+        {canCompareReceivables && receivableRows.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <p role="status" className="mb-2 text-sm font-semibold text-slate-800">
+              {receivableRows.every(row => row.reconciles) ? "All receivable accounts reconcile." : "Review the account differences below."}
+            </p>
+            <table className="w-full text-sm">
+              <thead className="border-b bg-slate-50 text-slate-700">
+                <tr>
+                  <th scope="col" className="p-2 text-left">Account</th>
+                  <th scope="col" className="p-2 text-right">Subledger</th>
+                  <th scope="col" className="p-2 text-right">General ledger</th>
+                  <th scope="col" className="p-2 text-right">Difference</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receivableRows.map(row => (
+                  <tr key={row.accountCode} className="border-b">
+                    <th scope="row" className="p-2 text-left font-medium">{row.accountCode} {row.accountName}</th>
+                    <td className="p-2 text-right">{fmt(Number(row.operationalBalance))}</td>
+                    <td className="p-2 text-right">{fmt(Number(row.glBalance))}</td>
+                    <td className={`p-2 text-right ${row.reconciles ? "" : "font-semibold text-amber-800"}`}>
+                      {fmt(Number(row.operationalBalance) - Number(row.glBalance))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section aria-label="General ledger control overview" className="nls-accounting-ledger-overview">
+        <div><span>Trial balance</span><strong>{trial ? (trial.balanced ? "Debits = credits" : "Out of balance") : "Unavailable"}</strong></div>
+        <div><span>Cash ledger · GL 1000</span><strong>{cashLedgerBalance == null ? "Unavailable" : `${fmt(Math.abs(cashLedgerBalance))} ${cashLedgerBalance < 0 ? "CR" : "DR"}`}</strong><small>Ledger balance only</small></div>
+        <div><span>Statement date</span><strong>{financialPeriod.to}</strong></div>
+      </section>
+
+      {cashLedgerBalance != null && cashLedgerBalance < 0 && (
+        <section
+          role="alert"
+          className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950"
+        >
+          <div className="text-sm font-bold">Cash reconciliation required</div>
+          <p className="mt-2 text-sm">
+            GL 1000 · {fmt(Math.abs(cashLedgerBalance))} {currency} credit · {financialPeriod.to}
+          </p>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-semibold">Cash reconciliation details</summary>
+            <p className="mt-2 text-xs leading-5">
+              Verify opening balances, funding, transfers and loan cash movements against bank statements before reporting. Post corrections only when supported by records.
+            </p>
+          </details>
         </section>
+      )}
+
+      {controlTotals ? (
+        <details className="rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">
+            Portfolio totals <span className="ml-2 font-normal text-slate-600">{currency} · Current and lifetime</span>
+          </summary>
+          <p className="border-t border-slate-200 px-5 pt-3 text-xs text-slate-600">
+            These figures reflect current and lifetime loan records regardless of the selected statement period.
+          </p>
+          <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              ["Lifetime gross disbursed", controlTotals.totalDisbursed],
+              ["Lifetime recorded collections", controlTotals.totalCollected],
+              ["Current outstanding principal", controlTotals.outstandingBalance],
+              ["Contractual receivables", controlTotals.totalReceivables],
+              ["Lifetime application fees paid", controlTotals.applicationFeesCollected],
+            ].map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="nls-accounting-kpi rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
+              >
+                <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                  {label as string}
+                </div>
+                <div className="mt-2 break-words text-lg font-semibold tabular-nums text-slate-950">
+                  {value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "Unavailable" : fmt(Number(value))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
       ) : null}
 
       {/* ===================================================
           TABS
       =================================================== */}
 
-      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+      <div role="tablist" aria-label="Accounting sections" className="nls-accounting-tabs flex gap-1 border-b border-gray-200 overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t}
             type="button"
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
               tab === t
-                ? "border-[#0D6B3E] text-[#0D6B3E]"
+                ? "border-[#0B1F3A] text-[#0B1F3A]"
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
@@ -701,7 +930,7 @@ export default function AccountingPage() {
               <div className="font-bold text-gray-900">Trial Balance</div>
 
               <p className="text-xs text-gray-500 mt-1">
-                Verification that total debits equal total credits.
+                Verification that total debits equal total credits. Balanced does not guarantee completeness.
               </p>
             </div>
 
@@ -793,7 +1022,7 @@ export default function AccountingPage() {
               <div className="font-bold text-gray-900">Balance Sheet</div>
 
               <p className="text-xs text-gray-500 mt-1">
-                Financial position as of today.
+                Financial position as of {financialPeriod.to}.
               </p>
             </div>
 
@@ -864,12 +1093,13 @@ export default function AccountingPage() {
       =================================================== */}
 
       {tab === "Profit & Loss" && pnl && (
+        <div className="space-y-5">
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-6">
           <div>
             <div className="font-bold text-gray-900">Profit &amp; Loss</div>
 
             <p className="text-xs text-gray-500 mt-1">
-              Current month-to-date income and expenses.
+              Income and expenses for the selected reporting period.
             </p>
           </div>
 
@@ -919,9 +1149,76 @@ export default function AccountingPage() {
             }`}
           >
             <span>Net Income</span>
-
             <span className="font-mono">{fmt(pnl.netIncome)}</span>
           </div>
+          <div className="border-t border-gray-100 pt-4">
+            <h3 className="text-sm font-semibold text-gray-900">Recognized fee income — GL 4100 breakdown</h3>
+            <p className="text-xs text-gray-500 mt-1">Posted journal income for the selected period; not extra amounts added to P&amp;L.</p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+              {[
+                ["Application fees", pnl.applicationFeeIncome],
+                ["Penalty income", pnl.penaltyIncome],
+                ["Management fees", pnl.managementFeeIncome],
+                ["Other fee income", pnl.otherFeeIncome],
+              ].map(([label, amount]) => (
+                <div key={String(label)} className="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
+                  <p className="text-xs text-gray-600">{label}</p>
+                  <p className="text-base font-semibold text-gray-900 mt-1 font-mono">{fmt(Number(amount ?? 0))}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              Historical application fee adjustments included above: {fmt(Number(pnl.historicalApplicationFeeIncome ?? 0))}. GL 4100 totals remain unchanged.
+            </p>
+          </div>
+        </div>
+        <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex flex-wrap gap-3 justify-between items-start">
+            <div>
+              <h3 className="font-bold text-gray-900">Imported historical portfolio — operational record</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Cumulative imported loan totals, not restricted to the selected P&amp;L period and not added to current-period income.
+              </p>
+            </div>
+            <span className="rounded-full border border-gray-200 bg-gray-50 text-gray-600 px-3 py-1 text-xs font-medium">
+              {historical ? `${historical.loanCount} imported loans` : "Unavailable"}
+            </span>
+          </div>
+          {historical ? (
+            <>
+              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                {[
+                  ["Interest recorded paid", historical.interestPaid],
+                  ["Management fees recorded paid", historical.managementFeePaid],
+                  ["Penalties marked paid", historical.penaltiesRecordedPaid],
+                  ["Application fees recorded paid", historical.applicationFeePaid],
+                  ["Principal repayments recorded", historical.principalPaid],
+                  ["Extension fees recorded paid", historical.extensionFeePaid],
+                  ["Interest still receivable", historical.interestOutstanding],
+                  ["Management still receivable", historical.managementFeeOutstanding],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="border border-gray-100 bg-gray-50/60 rounded-lg p-3">
+                    <p className="text-xs text-gray-600">{label}</p>
+                    <p className="font-mono text-base font-semibold text-gray-900 mt-1">{fmt(Number(value ?? 0))}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+                <span className="text-sm font-medium text-gray-700">Total collections recorded on imported loans (including principal)</span>
+                <span className="font-mono font-bold text-gray-900">{fmt(historical.recordedHistoricCollections)}</span>
+              </div>
+              {historical.penaltyAllocationRequiresVerification && (
+                <p className="text-xs text-amber-800 border border-amber-200 bg-amber-50 rounded-lg px-4 py-3">
+                  Penalty amounts for {historical.penaltyLoanCount} imported loans require verification against original receipts.
+                  Recorded paid amounts may reflect earlier Excel-import allocation errors.
+                </p>
+              )}
+              <p className="text-xs text-gray-500 leading-relaxed">{historical.note}</p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">Historical portfolio figures could not be loaded. GL Profit &amp; Loss above is still available.</p>
+          )}
+        </section>
         </div>
       )}
 
@@ -930,39 +1227,86 @@ export default function AccountingPage() {
       =================================================== */}
 
       {tab === "Cash Flow" && cashFlow && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
-          <div className="mb-3">
-            <div className="font-bold text-gray-900">Cash Flow</div>
-
-            <p className="text-xs text-gray-500 mt-1">
-              Current month-to-date cash movement.
-            </p>
-          </div>
-
-          {[
-            [
-              "Cash Used for Lending (disbursements)",
-              cashFlow.cashUsedForLending,
-            ],
-            ["Cash From Collections", cashFlow.cashFromCollections],
-            ["Cash From Fees", cashFlow.cashFromFees],
-            ["Other Cash Movement", cashFlow.otherCashMovement],
-          ].map(([label, value]) => (
-            <div
-              key={label as string}
-              className="flex justify-between px-4 py-2 text-sm border-b border-gray-100"
-            >
-              <span className="text-gray-600">{label as string}</span>
-
-              <span className="font-mono">{fmt(value as number)}</span>
+        <div className="space-y-5">
+          <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+            <div>
+              <h2 className="font-bold text-gray-900">Cash Flow — General Ledger</h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Posted cash movements for the selected reporting period. These figures reconcile to GL Cash and Bank (1000).
+              </p>
             </div>
-          ))}
+            {[
+              ["Gross loan disbursements", cashFlow.cashUsedForLending],
+              ["Total GL cash collections, including fees", cashFlow.cashFromCollections],
+              ["Of which: application fees deducted at disbursement", cashFlow.cashFromFees],
+              ["Other cash movement", cashFlow.otherCashMovement],
+            ].map(([label, value], index) => (
+              <div key={String(label)} className={`flex items-center justify-between gap-3 px-4 py-2 text-sm border-b border-gray-100 ${index === 2 ? "pl-7 bg-gray-50/70" : ""}`}>
+                <span className={index === 2 ? "text-gray-500" : "text-gray-700"}>{label as string}</span>
+                <span className="font-mono text-gray-900">{fmt(Number(value ?? 0))}</span>
+              </div>
+            ))}
+            <p className="text-xs text-gray-500">
+              The application-fee line is a breakdown of cash collections, not an additional inflow. Gross disbursements include fees deducted from the amount delivered to borrowers.
+            </p>
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg font-bold text-sm bg-gray-50">
+              <span>Net Change in GL Cash</span>
+              <span className={`font-mono ${cashFlow.netChangeInCash < 0 ? "text-red-700" : "text-gray-900"}`}>
+                {fmt(cashFlow.netChangeInCash)}
+              </span>
+            </div>
+          </section>
 
-          <div className="flex justify-between px-4 py-3 rounded-lg font-bold text-sm bg-gray-50 mt-2">
-            <span>Net Change in Cash</span>
-
-            <span className="font-mono">{fmt(cashFlow.netChangeInCash)}</span>
-          </div>
+          <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <div className="flex flex-wrap justify-between items-start gap-3">
+              <div>
+                <h2 className="font-bold text-gray-900">Imported loans — recorded historical collections</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Cumulative pre-system loan records, shown for business performance. Not included in GL cash movement above.
+                </p>
+              </div>
+              <span className="text-xs font-medium px-3 py-1 rounded-full bg-gray-100 text-gray-600">
+                {historical ? `${historical.loanCount} imported loans` : "Unavailable"}
+              </span>
+            </div>
+            {historical ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {[
+                    ["Principal repayments recorded", historical.principalPaid],
+                    ["Interest recorded paid", historical.interestPaid],
+                    ["Management fees recorded paid", historical.managementFeePaid],
+                    ["Penalties marked paid", historical.penaltiesRecordedPaid],
+                    ["Application fees recorded paid", historical.applicationFeePaid],
+                    ["Extension fees recorded paid", historical.extensionFeePaid],
+                  ].map(([label, amount]) => (
+                    <div key={String(label)} className="rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3">
+                      <p className="text-xs text-gray-600">{label}</p>
+                      <p className="mt-1 text-lg font-semibold font-mono text-gray-900">{fmt(Number(amount ?? 0))}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
+                  <span className="text-sm font-medium text-gray-700">Total historical collections recorded (including principal)</span>
+                  <span className="font-mono font-bold text-gray-900">{fmt(historical.recordedHistoricCollections)}</span>
+                </div>
+                {historical.penaltyAllocationRequiresVerification && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                    Historical penalty payments for {historical.penaltyLoanCount} loans need verification against receipts.
+                    The old importer could have marked assessed penalties as fully paid.
+                  </p>
+                )}
+                <p className="text-xs leading-relaxed text-gray-600">
+                  Historical totals are not dated bank transactions. They cannot be assigned to the selected reporting period
+                  or added to GL cash without validated bank statements and opening balances.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">
+                The historical portfolio summary is temporarily unavailable. The General Ledger cash flow remains authoritative.
+              </p>
+            )}
+          </section>
         </div>
       )}
 
@@ -1051,13 +1395,13 @@ export default function AccountingPage() {
 
       {tab === "Journal" && (
         <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-          {journal.length === 0 && (
+          {visibleJournal.length === 0 && (
             <div className="px-5 py-8 text-center text-gray-400 text-sm">
               No journal entries yet.
             </div>
           )}
 
-          {journal.map((entry) => (
+          {visibleJournal.map((entry) => (
             <div key={entry.id}>
               <div
                 role="button"
@@ -1662,7 +2006,7 @@ function AddBankAccountModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Account Name *
+            Account Name <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <input
@@ -1685,7 +2029,7 @@ function AddBankAccountModal({
           <>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                Bank Name *
+                Bank Name <span className="text-red-700" aria-hidden="true">*</span>
               </label>
 
               <input
@@ -1978,7 +2322,7 @@ function BankTransactionModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Amount *
+            Amount <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <div className="relative">
@@ -2003,7 +2347,7 @@ function BankTransactionModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Counter GL Account *
+            Counter GL Account <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <select
@@ -2269,7 +2613,7 @@ function TransferModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Destination Account *
+            Destination Account <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <select
@@ -2303,7 +2647,7 @@ function TransferModal({
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Transfer Amount *
+            Transfer Amount <span className="text-red-700" aria-hidden="true">*</span>
           </label>
 
           <div className="relative">

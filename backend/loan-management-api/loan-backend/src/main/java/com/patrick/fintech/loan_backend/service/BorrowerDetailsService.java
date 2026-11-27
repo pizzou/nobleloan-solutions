@@ -16,7 +16,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -28,7 +27,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 
 /**
  * ============================================================
@@ -67,1926 +65,1513 @@ import java.util.Set;
 @Transactional(readOnly = true)
 public class BorrowerDetailsService {
 
+        private final BorrowerRepository borrowerRepository;
 
-    private final BorrowerRepository borrowerRepository;
+        private final LoanRepository loanRepository;
 
-    private final LoanRepository loanRepository;
+        private final PaymentRepository paymentRepository;
 
-    private final PaymentRepository paymentRepository;
+        // ============================================================
+        // MAIN METHOD
+        // ============================================================
 
+        public BorrowerDetailsResponse getBorrowerDetails(
+                        Long borrowerId,
+                        Long organizationId) {
 
-    // ============================================================
-    // MAIN METHOD
-    // ============================================================
+                if (borrowerId == null) {
 
-    public BorrowerDetailsResponse getBorrowerDetails(
-            Long borrowerId,
-            Long organizationId
-    ) {
-
-        if (borrowerId == null) {
-
-            throw new IllegalArgumentException(
-                    "borrowerId is required."
-            );
-        }
-
-
-        if (organizationId == null) {
-
-            throw new IllegalArgumentException(
-                    "organizationId is required."
-            );
-        }
-
-
-        // ========================================================
-        // BORROWER
-        // ========================================================
-
-        Borrower borrower =
-                borrowerRepository
-                        .findById(borrowerId)
-                        .orElseThrow(
-                                () ->
-                                        new IllegalArgumentException(
-                                                "Borrower not found: "
-                                                        + borrowerId
-                                        )
-                        );
-
-
-        // ========================================================
-        // TENANT SECURITY
-        // ========================================================
-
-        Organization borrowerOrganization =
-                borrower.getOrganization();
-
-
-        if (
-                borrowerOrganization == null
-                        ||
-                borrowerOrganization.getId() == null
-                        ||
-                !organizationId.equals(
-                        borrowerOrganization.getId()
-                )
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Access denied."
-            );
-        }
-
-
-        // ========================================================
-        // LOANS
-        // ========================================================
-
-        List<Loan> loans =
-                loanRepository
-                        .findVisibleByBorrowerIdAndOrganizationId(
-                                borrowerId,
-                                organizationId,
-                                ReportingScopeService.includeBusinessOwnerOnly()
-                        );
-
-
-        if (loans == null) {
-
-            loans =
-                    new ArrayList<>();
-        }
-
-
-        loans =
-                loans.stream()
-                        .filter(
-                                loan -> loan != null
-                        )
-                        .toList();
-
-
-        // ========================================================
-        // LOAN SUMMARY VARIABLES
-        // ========================================================
-
-        int totalLoans = 0;
-
-        int activeLoans = 0;
-
-        int completedLoans = 0;
-
-        int overdueLoans = 0;
-
-        int defaultedLoans = 0;
-
-        int writtenOffLoans = 0;
-
-
-        BigDecimal totalBorrowed = BigDecimal.ZERO;
-
-        BigDecimal totalDisbursed = BigDecimal.ZERO;
-
-        BigDecimal totalOutstanding = BigDecimal.ZERO;
-
-        BigDecimal totalPrincipalPaid = BigDecimal.ZERO;
-
-        BigDecimal totalInterestPaid = BigDecimal.ZERO;
-
-        BigDecimal totalFeesPaid = BigDecimal.ZERO;
-
-        BigDecimal totalPaid = BigDecimal.ZERO;
-
-
-        int currentDaysPastDue = 0;
-
-        int maximumDaysPastDue = 0;
-
-
-        boolean hasDefaultHistory = false;
-
-        boolean currentlyOverdue = false;
-
-
-        boolean hasMultipleActiveLoans =
-                false;
-
-
-        // ========================================================
-        // LOAN RESPONSE LIST
-        // ========================================================
-
-        List<BorrowerDetailsResponse.LoanSummary>
-                loanSummaries =
-                new ArrayList<>();
-
-
-        // ========================================================
-        // PAYMENT RESPONSE LIST
-        // ========================================================
-
-        List<BorrowerDetailsResponse.PaymentSummary>
-                paymentSummaries =
-                new ArrayList<>();
-
-
-        // ========================================================
-        // PAYMENT COUNTERS
-        // ========================================================
-
-        int totalPayments = 0;
-
-        int successfulPayments = 0;
-
-        int missedPayments = 0;
-
-        int overduePayments = 0;
-
-
-        // ========================================================
-        // ACTIVE LOAN COUNTER
-        // ========================================================
-
-        int activeLoanCounter = 0;
-
-
-        // ========================================================
-        // PROCESS LOANS
-        // ========================================================
-
-        for (Loan loan : loans) {
-
-            if (loan == null) {
-                continue;
-            }
-
-
-            totalLoans++;
-
-
-            // ----------------------------------------------------
-            // LOAN AMOUNTS
-            // ----------------------------------------------------
-
-            BigDecimal loanAmount =
-                    money(loan.getAmountDecimal());
-
-
-            BigDecimal disbursedAmount =
-                    money(loan.getDisbursedAmountDecimal());
-
-
-            BigDecimal outstandingBalance =
-                    money(loan.getOutstandingBalanceDecimal()).max(BigDecimal.ZERO);
-
-
-            totalBorrowed =
-                    totalBorrowed.add(loanAmount);
-
-
-            totalDisbursed =
-                    totalDisbursed.add(disbursedAmount);
-
-
-            totalOutstanding =
-                    totalOutstanding.add(outstandingBalance);
-
-
-            // ----------------------------------------------------
-            // STATUS
-            // ----------------------------------------------------
-
-            LoanStatus status =
-                    loan.getStatus();
-
-
-            if (isActiveStatus(status)) {
-
-                activeLoans++;
-
-                activeLoanCounter++;
-            }
-
-
-            if (isCompletedStatus(status)) {
-
-                completedLoans++;
-            }
-
-
-            if (
-                    status == LoanStatus.DEFAULTED
-            ) {
-
-                defaultedLoans++;
-
-                hasDefaultHistory = true;
-            }
-
-
-            if (
-                    status == LoanStatus.WRITTEN_OFF
-            ) {
-
-                writtenOffLoans++;
-
-                hasDefaultHistory = true;
-            }
-
-
-            // ----------------------------------------------------
-            // DAYS PAST DUE
-            // ----------------------------------------------------
-
-            int daysPastDue =
-                    safeDaysPastDue(
-                            loan
-                    );
-
-
-            if (daysPastDue > 0) {
-
-                overdueLoans++;
-
-                currentlyOverdue = true;
-            }
-
-
-            if (
-                    daysPastDue > maximumDaysPastDue
-            ) {
-
-                maximumDaysPastDue =
-                        daysPastDue;
-            }
-
-
-            if (
-                    daysPastDue > currentDaysPastDue
-            ) {
-
-                currentDaysPastDue =
-                        daysPastDue;
-            }
-
-
-            // ----------------------------------------------------
-            // PAYMENT DATA FOR THIS LOAN
-            // ----------------------------------------------------
-
-            List<Payment> loanPayments =
-                    paymentRepository
-                            .findByLoanId(
-                                    loan.getId()
-                            );
-
-
-            if (loanPayments == null) {
-
-                loanPayments =
-                        new ArrayList<>();
-            }
-
-
-            BigDecimal loanPrincipalPaid = BigDecimal.ZERO;
-
-            BigDecimal loanInterestPaid = BigDecimal.ZERO;
-
-            BigDecimal loanFeesPaid = BigDecimal.ZERO;
-
-            BigDecimal loanTotalPaid = BigDecimal.ZERO;
-
-
-            LocalDate lastPaymentDate =
-                    loan.getLastPaymentDate();
-
-
-            // ----------------------------------------------------
-            // PROCESS PAYMENTS
-            // ----------------------------------------------------
-
-            for (
-                    Payment payment :
-                    loanPayments
-            ) {
-
-                if (payment == null) {
-                    continue;
+                        throw new IllegalArgumentException(
+                                        "borrowerId is required.");
                 }
 
+                if (organizationId == null) {
 
-                totalPayments++;
-
-
-                boolean completed =
-                        isCompletedPayment(
-                                payment
-                        );
-
-
-                BigDecimal principal =
-                        money(payment.getPrincipalComponentDecimal());
-
-
-                BigDecimal interest =
-                        money(payment.getInterestComponentDecimal());
-
-
-                BigDecimal penalty =
-                        money(payment.getPenaltyDecimal());
-
-
-                BigDecimal amountPaid =
-                        money(payment.getAmountPaidDecimal());
-
-
-                /*
-                 * Some Payment models do not expose a separate
-                 * fee component. Therefore fees are kept at zero
-                 * instead of inventing a getter that may not exist.
-                 */
-                BigDecimal fees = BigDecimal.ZERO;
-
-
-                if (completed) {
-
-                    successfulPayments++;
-
-
-                    loanPrincipalPaid =
-                            loanPrincipalPaid.add(principal);
-
-
-                    loanInterestPaid =
-                            loanInterestPaid.add(interest);
-
-
-                    loanFeesPaid =
-                            loanFeesPaid.add(fees);
-
-
-                    BigDecimal effectiveAmount =
-                            amountPaid.signum() > 0
-                                    ? amountPaid
-                                    : principal
-                                    .add(interest)
-                                    .add(penalty);
-
-
-                    loanTotalPaid =
-                            loanTotalPaid.add(effectiveAmount);
-
-
-                    totalPrincipalPaid =
-                            totalPrincipalPaid.add(principal);
-
-
-                    totalInterestPaid =
-                            totalInterestPaid.add(interest);
-
-
-                    totalFeesPaid =
-                            totalFeesPaid.add(fees);
-
-
-                    totalPaid =
-                            totalPaid.add(effectiveAmount);
+                        throw new IllegalArgumentException(
+                                        "organizationId is required.");
                 }
 
+                // ========================================================
+                // BORROWER
+                // ========================================================
 
-                // ------------------------------------------------
-                // PAYMENT DATES
-                // ------------------------------------------------
+                Borrower borrower = borrowerRepository
+                                .findById(borrowerId)
+                                .orElseThrow(
+                                                () -> new IllegalArgumentException(
+                                                                "Borrower not found: "
+                                                                                + borrowerId));
 
-                LocalDate dueDate =
-                        payment.getDueDate();
+                // ========================================================
+                // TENANT SECURITY
+                // ========================================================
 
+                Organization borrowerOrganization = borrower.getOrganization();
 
-                LocalDate paidDate =
-                        resolvePaidDate(
-                                payment,
-                                completed
-                        );
+                if (borrowerOrganization == null
+                                ||
+                                borrowerOrganization.getId() == null
+                                ||
+                                !organizationId.equals(
+                                                borrowerOrganization.getId())) {
 
-
-                int daysLate =
-                        calculateDaysLate(
-                                dueDate,
-                                paidDate,
-                                completed
-                        );
-
-
-                boolean onTime =
-                        completed
-                                &&
-                        (
-                                dueDate == null
-                                        ||
-                                paidDate == null
-                                        ||
-                                !paidDate.isAfter(
-                                        dueDate
-                                )
-                        );
-
-
-                if (
-                        completed
-                                &&
-                        !onTime
-                ) {
-
-                    overduePayments++;
+                        throw new IllegalArgumentException(
+                                        "Access denied.");
                 }
 
+                // ========================================================
+                // LOANS
+                // ========================================================
 
-                if (
-                        !completed
-                                &&
-                        dueDate != null
-                                &&
-                        dueDate.isBefore(
-                                        LocalDate.now()
-                                )
-                ) {
+                List<Loan> loans = loanRepository
+                                .findVisibleByBorrowerIdAndOrganizationId(
+                                                borrowerId,
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly());
 
-                    missedPayments++;
+                if (loans == null) {
+
+                        loans = new ArrayList<>();
                 }
 
+                loans = loans.stream()
+                                .filter(
+                                                loan -> loan != null)
+                                .toList();
 
-                // ------------------------------------------------
-                // PAYMENT SUMMARY
-                // ------------------------------------------------
+                // ========================================================
+                // LOAN SUMMARY VARIABLES
+                // ========================================================
 
-                paymentSummaries.add(
+                int totalLoans = 0;
 
-                        BorrowerDetailsResponse
-                                .PaymentSummary
-                                .builder()
+                int activeLoans = 0;
 
-                                .paymentId(
-                                        payment.getId()
-                                )
+                int completedLoans = 0;
 
-                                .loanId(
-                                        loan.getId()
-                                )
+                int overdueLoans = 0;
 
-                                .loanNumber(
-                                        loan.getReferenceNumber()
-                                )
+                int defaultedLoans = 0;
 
-                                .borrowerName(
-                                        buildFullName(
-                                                borrower
-                                        )
-                                )
+                int writtenOffLoans = 0;
 
-                                .amount(
-                                        amountPaid
-                                )
+                BigDecimal totalBorrowed = BigDecimal.ZERO;
 
-                                .principal(
-                                        principal
-                                )
+                BigDecimal totalDisbursed = BigDecimal.ZERO;
 
-                                .interest(
-                                        interest
-                                )
+                BigDecimal totalOutstanding = BigDecimal.ZERO;
 
-                                .fees(
-                                        fees
-                                )
+                BigDecimal totalPrincipalPaid = BigDecimal.ZERO;
 
-                                .penalty(
-                                        penalty
-                                )
+                BigDecimal totalInterestPaid = BigDecimal.ZERO;
 
-                                .totalPaid(
-                                        completed
-                                                ? (
-                                                    amountPaid.signum() > 0
-                                                        ? amountPaid
-                                                        : principal
-                                                        .add(interest)
-                                                        .add(penalty)
-                                                )
-                                                : BigDecimal.ZERO
-                                )
+                BigDecimal totalFeesPaid = BigDecimal.ZERO;
 
-                                .dueDate(
-                                        dueDate
-                                )
+                BigDecimal totalPaid = BigDecimal.ZERO;
 
-                                .paidDate(
-                                        paidDate
-                                )
+                int currentDaysPastDue = 0;
+
+                int maximumDaysPastDue = 0;
+
+                boolean hasDefaultHistory = false;
+
+                boolean currentlyOverdue = false;
+
+                boolean hasMultipleActiveLoans = false;
+
+                // ========================================================
+                // LOAN RESPONSE LIST
+                // ========================================================
+
+                List<BorrowerDetailsResponse.LoanSummary> loanSummaries = new ArrayList<>();
+
+                // ========================================================
+                // PAYMENT RESPONSE LIST
+                // ========================================================
+
+                List<BorrowerDetailsResponse.PaymentSummary> paymentSummaries = new ArrayList<>();
+
+                // ========================================================
+                // PAYMENT COUNTERS
+                // ========================================================
+
+                int totalPayments = 0;
+
+                int successfulPayments = 0;
+
+                int missedPayments = 0;
+
+                int overduePayments = 0;
+
+                // ========================================================
+                // ACTIVE LOAN COUNTER
+                // ========================================================
+
+                int activeLoanCounter = 0;
+
+                // ========================================================
+                // PROCESS LOANS
+                // ========================================================
+
+                for (Loan loan : loans) {
+
+                        if (loan == null) {
+                                continue;
+                        }
+
+                        totalLoans++;
+
+                        // ----------------------------------------------------
+                        // LOAN AMOUNTS
+                        // ----------------------------------------------------
+
+                        BigDecimal loanAmount = money(loan.getAmountDecimal());
+
+                        BigDecimal disbursedAmount = money(loan.getDisbursedAmountDecimal());
+
+                        BigDecimal outstandingBalance = money(loan.getOutstandingBalanceDecimal()).max(BigDecimal.ZERO);
+
+                        totalBorrowed = totalBorrowed.add(loanAmount);
+
+                        totalDisbursed = totalDisbursed.add(disbursedAmount);
+
+                        BigDecimal loanTotalOutstanding = outstandingBalance
+                                        .add(money(loan.getInterestOutstandingDecimal()))
+                                        .add(money(loan.getManagementFeeOutstandingDecimal()))
+                                        .add(money(loan.getExtensionFeeOutstandingDecimal()))
+                                        .add(money(loan.getPenaltiesAssessedDecimal())
+                                                        .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                                        .max(BigDecimal.ZERO));
+
+                        totalOutstanding = totalOutstanding.add(loanTotalOutstanding);
+
+                        // ----------------------------------------------------
+                        // STATUS
+                        // ----------------------------------------------------
+
+                        LoanStatus status = loan.getStatus();
+
+                        if (isActiveStatus(status)) {
+
+                                activeLoans++;
+
+                                activeLoanCounter++;
+                        }
+
+                        if (isCompletedStatus(status)) {
+
+                                completedLoans++;
+                        }
+
+                        if (status == LoanStatus.DEFAULTED) {
+
+                                defaultedLoans++;
+
+                                hasDefaultHistory = true;
+                        }
+
+                        if (status == LoanStatus.WRITTEN_OFF) {
+
+                                writtenOffLoans++;
+
+                                hasDefaultHistory = true;
+                        }
+
+                        // ----------------------------------------------------
+                        // DAYS PAST DUE
+                        // ----------------------------------------------------
+
+                        int daysPastDue = safeDaysPastDue(
+                                        loan);
+
+                        if (daysPastDue > 0) {
+
+                                overdueLoans++;
+
+                                currentlyOverdue = true;
+                        }
+
+                        if (daysPastDue > maximumDaysPastDue) {
+
+                                maximumDaysPastDue = daysPastDue;
+                        }
+
+                        if (daysPastDue > currentDaysPastDue) {
+
+                                currentDaysPastDue = daysPastDue;
+                        }
+
+                        // ----------------------------------------------------
+                        // PAYMENT DATA FOR THIS LOAN
+                        // ----------------------------------------------------
+
+                        List<Payment> loanPayments = paymentRepository
+                                        .findByLoanId(
+                                                        loan.getId());
+
+                        if (loanPayments == null) {
+
+                                loanPayments = new ArrayList<>();
+                        }
+
+                        BigDecimal loanPrincipalPaid = BigDecimal.ZERO;
+
+                        BigDecimal loanInterestPaid = BigDecimal.ZERO;
+
+                        BigDecimal loanFeesPaid = BigDecimal.ZERO;
+
+                        BigDecimal loanTotalPaid = BigDecimal.ZERO;
+
+                        LocalDate lastPaymentDate = loan.getLastPaymentDate();
+
+                        // ----------------------------------------------------
+                        // PROCESS PAYMENTS
+                        // ----------------------------------------------------
+
+                        for (Payment payment : loanPayments) {
+
+                                if (payment == null) {
+                                        continue;
+                                }
+
+                                totalPayments++;
+
+                                boolean completed = isCompletedPayment(
+                                                payment);
+
+                                BigDecimal principal = money(payment.getPrincipalComponentDecimal());
+
+                                BigDecimal interest = money(payment.getInterestComponentDecimal());
+
+                                BigDecimal penalty = money(payment.getPenaltyDecimal());
+
+                                BigDecimal amountPaid = money(payment.getAmountPaidDecimal());
 
                                 /*
-                                 * Payment method is resolved safely.
-                                 * See resolvePaymentMethod().
+                                 * Some Payment models do not expose a separate
+                                 * fee component. Therefore fees are kept at zero
+                                 * instead of inventing a getter that may not exist.
                                  */
-                                .paymentMethod(
-                                        resolvePaymentMethod(
-                                                payment
-                                        )
-                                )
+                                BigDecimal fees = BigDecimal.ZERO;
+
+                                if (completed) {
+
+                                        successfulPayments++;
+
+                                        loanPrincipalPaid = loanPrincipalPaid.add(principal);
+
+                                        loanInterestPaid = loanInterestPaid.add(interest);
+
+                                        loanFeesPaid = loanFeesPaid.add(fees);
+
+                                        BigDecimal effectiveAmount = amountPaid.signum() > 0
+                                                        ? amountPaid
+                                                        : principal
+                                                                        .add(interest)
+                                                                        .add(penalty);
+
+                                        loanTotalPaid = loanTotalPaid.add(effectiveAmount);
+
+                                        totalPrincipalPaid = totalPrincipalPaid.add(principal);
+
+                                        totalInterestPaid = totalInterestPaid.add(interest);
+
+                                        totalFeesPaid = totalFeesPaid.add(fees);
+
+                                        totalPaid = totalPaid.add(effectiveAmount);
+                                }
+
+                                // ------------------------------------------------
+                                // PAYMENT DATES
+                                // ------------------------------------------------
+
+                                LocalDate dueDate = payment.getDueDate();
+
+                                LocalDate paidDate = resolvePaidDate(
+                                                payment,
+                                                completed);
+
+                                int daysLate = calculateDaysLate(
+                                                dueDate,
+                                                paidDate,
+                                                completed);
+
+                                boolean onTime = completed
+                                                &&
+                                                (dueDate == null
+                                                                ||
+                                                                paidDate == null
+                                                                ||
+                                                                !paidDate.isAfter(
+                                                                                dueDate));
+
+                                if (completed
+                                                &&
+                                                !onTime) {
+
+                                        overduePayments++;
+                                }
+
+                                if (!completed
+                                                &&
+                                                dueDate != null
+                                                &&
+                                                dueDate.isBefore(
+                                                                LocalDate.now())) {
+
+                                        missedPayments++;
+                                }
+
+                                // ------------------------------------------------
+                                // PAYMENT SUMMARY
+                                // ------------------------------------------------
+
+                                paymentSummaries.add(
+
+                                                BorrowerDetailsResponse.PaymentSummary
+                                                                .builder()
+
+                                                                .paymentId(
+                                                                                payment.getId())
+
+                                                                .loanId(
+                                                                                loan.getId())
+
+                                                                .loanNumber(
+                                                                                loan.getReferenceNumber())
+
+                                                                .borrowerName(
+                                                                                buildFullName(
+                                                                                                borrower))
+
+                                                                .amount(
+                                                                                amountPaid)
+
+                                                                .principal(
+                                                                                principal)
+
+                                                                .interest(
+                                                                                interest)
+
+                                                                .fees(
+                                                                                fees)
+
+                                                                .penalty(
+                                                                                penalty)
+
+                                                                .totalPaid(
+                                                                                completed
+                                                                                                ? (amountPaid.signum() > 0
+                                                                                                                ? amountPaid
+                                                                                                                : principal
+                                                                                                                                .add(interest)
+                                                                                                                                .add(penalty))
+                                                                                                : BigDecimal.ZERO)
+
+                                                                .dueDate(
+                                                                                dueDate)
+
+                                                                .paidDate(
+                                                                                paidDate)
+
+                                                                /*
+                                                                 * Payment method is resolved safely.
+                                                                 * See resolvePaymentMethod().
+                                                                 */
+                                                                .paymentMethod(
+                                                                                resolvePaymentMethod(
+                                                                                                payment))
+
+                                                                .status(
+                                                                                payment.getStatus() != null
+                                                                                                ? payment
+                                                                                                                .getStatus()
+                                                                                                                .name()
+                                                                                                : completed
+                                                                                                                ? "COMPLETED"
+                                                                                                                : "PENDING")
+
+                                                                .onTime(
+                                                                                onTime)
+
+                                                                .daysLate(
+                                                                                daysLate)
+
+                                                                .build());
+
+                                // ------------------------------------------------
+                                // LAST PAYMENT DATE
+                                // ------------------------------------------------
+
+                                if (paidDate != null) {
+
+                                        if (lastPaymentDate == null
+                                                        ||
+                                                        paidDate.isAfter(
+                                                                        lastPaymentDate)) {
+
+                                                lastPaymentDate = paidDate;
+                                        }
+                                }
+                        }
+
+                        // ====================================================
+                        // LOAN SUMMARY
+                        // ====================================================
+
+                        String classification = classifyLoan(
+                                        loan,
+                                        daysPastDue);
+
+                        loanSummaries.add(
+
+                                        BorrowerDetailsResponse.LoanSummary
+                                                        .builder()
+
+                                                        .loanId(
+                                                                        loan.getId())
+
+                                                        .loanNumber(
+                                                                        loan.getReferenceNumber())
+
+                                                        .loanType(
+                                                                        loan.getLoanType() != null
+                                                                                        ? loan
+                                                                                                        .getLoanType()
+                                                                                                        .name()
+                                                                                        : null)
+
+                                                        .status(
+                                                                        status != null
+                                                                                        ? status.name()
+                                                                                        : null)
+
+                                                        .loanAmount(
+                                                                        loanAmount)
+
+                                                        .disbursedAmount(
+                                                                        disbursedAmount)
+
+                                                        .outstandingBalance(
+                                                                        outstandingBalance)
+
+                                                        .totalOutstanding(loanTotalOutstanding)
+
+                                                        .managementFeePaid(money(loan.getManagementFeePaidDecimal()))
+
+                                                        .nextDueDate(loan.getNextDueDate())
+
+                                                        .principalPaid(
+                                                                        loanPrincipalPaid)
+
+                                                        .interestPaid(
+                                                                        loanInterestPaid)
+
+                                                        .totalPaid(
+                                                                        loanTotalPaid)
+
+                                                        .interestRate(
+                                                                        number(
+                                                                                        loan.getInterestRate()))
+
+                                                        .durationMonths(
+                                                                        loan.getDurationMonths() != null
+                                                                                        ? loan
+                                                                                                        .getDurationMonths()
+                                                                                        : 0)
+
+                                                        .daysPastDue(
+                                                                        daysPastDue)
+
+                                                        .repaymentClassification(
+                                                                        classification)
+
+                                                        .dateOpened(
+                                                                        loan.getDisbursedAt() != null
+                                                                                        ? loan.getDisbursedAt()
+                                                                                                        .toLocalDate()
+                                                                                        : loan.getStartDate())
+
+                                                        .maturityDate(
+                                                                        loan.getMaturityDate())
+
+                                                        .lastPaymentDate(
+                                                                        lastPaymentDate)
+
+                                                        .branchName(
+                                                                        loan.getBranch() != null
+                                                                                        ? loan
+                                                                                                        .getBranch()
+                                                                                                        .getName()
+                                                                                        : null)
+
+                                                        .currency(
+                                                                        loan.getCurrency())
+
+                                                        .build());
+                }
+
+                // ========================================================
+                // MULTIPLE ACTIVE LOANS
+                // ========================================================
+
+                hasMultipleActiveLoans = activeLoanCounter > 1;
+
+                // ========================================================
+                // PAYMENT RATES
+                // ========================================================
+
+                double repaymentRate = totalPayments == 0
+                                ? 0.0
+                                : (successfulPayments
+                                                * 100.0)
+                                                / totalPayments;
+
+                double onTimePaymentRate = successfulPayments == 0
+                                ? 0.0
+                                : (successfulPayments
+                                                - overduePayments)
+                                                * 100.0
+                                                / successfulPayments;
+
+                if (onTimePaymentRate < 0) {
+
+                        onTimePaymentRate = 0.0;
+                }
+
+                // ========================================================
+                // REPAYMENT BEHAVIOUR
+                // ========================================================
+
+                String repaymentBehaviour = determineRepaymentBehaviour(
+                                repaymentRate,
+                                onTimePaymentRate,
+                                maximumDaysPastDue,
+                                missedPayments,
+                                hasDefaultHistory);
+
+                // ========================================================
+                // GOOD PAYER
+                // ========================================================
+
+                boolean goodPayer = determineGoodPayer(
+                                repaymentRate,
+                                onTimePaymentRate,
+                                maximumDaysPastDue,
+                                missedPayments,
+                                hasDefaultHistory);
+
+                // ========================================================
+                // RISK LEVEL
+                // ========================================================
+
+                String riskLevel = determineRiskLevel(
+                                borrower,
+                                repaymentRate,
+                                onTimePaymentRate,
+                                currentDaysPastDue,
+                                maximumDaysPastDue,
+                                missedPayments,
+                                hasDefaultHistory,
+                                hasMultipleActiveLoans,
+                                totalOutstanding);
+
+                // ========================================================
+                // SORT LOANS
+                // ========================================================
+
+                loanSummaries.sort(
+                                Comparator
+                                                .comparing(
+                                                                BorrowerDetailsResponse.LoanSummary::getDateOpened,
+                                                                Comparator.nullsLast(
+                                                                                Comparator.reverseOrder())));
+
+                // ========================================================
+                // SORT PAYMENTS
+                // ========================================================
+
+                paymentSummaries.sort(
+                                Comparator
+                                                .comparing(
+                                                                BorrowerDetailsResponse.PaymentSummary::getPaidDate,
+                                                                Comparator.nullsLast(
+                                                                                Comparator.reverseOrder())));
+
+                // ========================================================
+                // BORROWER ADDRESS
+                // ========================================================
+
+                String address = buildAddress(
+                                borrower);
+
+                // ========================================================
+                // CREATED DATE
+                // ========================================================
+
+                LocalDate createdAt = resolveCreatedDate(
+                                borrower);
+
+                // ========================================================
+                // FINAL RESPONSE
+                // ========================================================
+
+                return BorrowerDetailsResponse
+                                .builder()
+
+                                // ------------------------------------------------
+                                // BORROWER
+                                // ------------------------------------------------
+
+                                .borrowerId(
+                                                borrower.getId())
+
+                                .fullName(
+                                                buildFullName(
+                                                                borrower))
+
+                                .firstName(
+                                                borrower.getFirstName())
+
+                                .lastName(
+                                                borrower.getLastName())
+
+                                .email(
+                                                borrower.getEmail())
+
+                                .phone(
+                                                borrower.getPhone())
+
+                                .alternatePhone(
+                                                borrower.getAlternatePhone())
+
+                                .nationalId(
+                                                borrower.getNationalId())
+
+                                .passportNumber(
+                                                borrower.getPassportNumber())
+
+                                .dateOfBirth(
+                                                borrower.getDateOfBirth())
+
+                                .gender(
+                                                borrower.getGender())
+
+                                .maritalStatus(
+                                                borrower.getMaritalStatus())
+
+                                .nationality(
+                                                borrower.getNationality())
+
+                                .placeOfBirth(
+                                                borrower.getPlaceOfBirth())
+
+                                .country(
+                                                borrower.getCountry())
+
+                                .address(
+                                                address)
+
+                                .addressLine1(borrower.getAddressLine1())
+                                .addressLine2(borrower.getAddressLine2())
+                                .city(borrower.getCity())
+                                .stateProvince(borrower.getStateProvince())
+                                .physicalAddressProvince(borrower.getPhysicalAddressProvince())
+                                .physicalAddressDistrict(borrower.getPhysicalAddressDistrict())
+                                .physicalAddressSector(borrower.getPhysicalAddressSector())
+                                .physicalAddressCell(borrower.getPhysicalAddressCell())
+                                .physicalAddressVillage(borrower.getPhysicalAddressVillage())
+                                .postalCode(borrower.getPostalCode())
+
+                                // ------------------------------------------------
+                                // EMPLOYMENT
+                                // ------------------------------------------------
+
+                                .employerName(
+                                                borrower.getEmployerName())
+
+                                .employmentType(
+                                                borrower.getEmploymentType())
+
+                                .jobTitle(
+                                                borrower.getJobTitle())
+
+                                .monthlyIncome(
+                                                number(
+                                                                borrower.getMonthlyIncome()))
+
+                                .monthlyExpenses(
+                                                number(
+                                                                borrower.getMonthlyExpenses()))
+
+                                .netWorth(
+                                                number(
+                                                                borrower.getNetWorth()))
+
+                                // ------------------------------------------------
+                                // CREDIT
+                                // ------------------------------------------------
+
+                                .creditScore(
+                                                borrower.getCreditScore())
+
+                                .creditBureau(
+                                                borrower.getCreditBureau())
+
+                                .creditReportDate(
+                                                borrower.getCreditReportDate())
+
+                                // ------------------------------------------------
+                                // STATUS
+                                // ------------------------------------------------
 
                                 .status(
-                                        payment.getStatus() != null
-                                                ? payment
-                                                    .getStatus()
-                                                    .name()
-                                                : completed
-                                                ? "COMPLETED"
-                                                : "PENDING"
-                                )
+                                                borrower.getStatus() != null
+                                                                ? borrower
+                                                                                .getStatus()
+                                                                                .name()
+                                                                : null)
 
-                                .onTime(
-                                        onTime
-                                )
+                                .createdAt(
+                                                createdAt)
 
-                                .daysLate(
-                                        daysLate
-                                )
+                                // ------------------------------------------------
+                                // LOAN SUMMARY
+                                // ------------------------------------------------
 
-                                .build()
-                );
+                                .totalLoans(
+                                                totalLoans)
 
+                                .activeLoans(
+                                                activeLoans)
 
-                // ------------------------------------------------
-                // LAST PAYMENT DATE
-                // ------------------------------------------------
+                                .completedLoans(
+                                                completedLoans)
 
-                if (
-                        paidDate != null
-                ) {
+                                .overdueLoans(
+                                                overdueLoans)
 
-                    if (
-                            lastPaymentDate == null
-                                    ||
-                            paidDate.isAfter(
-                                    lastPaymentDate
-                            )
-                    ) {
+                                .defaultedLoans(
+                                                defaultedLoans)
 
-                        lastPaymentDate =
-                                paidDate;
-                    }
+                                .writtenOffLoans(
+                                                writtenOffLoans)
+
+                                .totalBorrowed(
+                                                totalBorrowed)
+
+                                .totalDisbursed(
+                                                totalDisbursed)
+
+                                .totalOutstanding(
+                                                totalOutstanding)
+
+                                .totalPrincipalPaid(
+                                                totalPrincipalPaid)
+
+                                .totalInterestPaid(
+                                                totalInterestPaid)
+
+                                .totalFeesPaid(
+                                                totalFeesPaid)
+
+                                .totalPaid(
+                                                totalPaid)
+
+                                // ------------------------------------------------
+                                // PAYMENT PERFORMANCE
+                                // ------------------------------------------------
+
+                                .totalPayments(
+                                                totalPayments)
+
+                                .successfulPayments(
+                                                successfulPayments)
+
+                                .missedPayments(
+                                                missedPayments)
+
+                                .overduePayments(
+                                                overduePayments)
+
+                                .repaymentRate(
+                                                round(
+                                                                repaymentRate))
+
+                                .onTimePaymentRate(
+                                                round(
+                                                                onTimePaymentRate))
+
+                                .currentDaysPastDue(
+                                                currentDaysPastDue)
+
+                                .maximumDaysPastDue(
+                                                maximumDaysPastDue)
+
+                                // ------------------------------------------------
+                                // RISK
+                                // ------------------------------------------------
+
+                                .riskLevel(
+                                                riskLevel)
+
+                                .repaymentBehaviour(
+                                                repaymentBehaviour)
+
+                                .goodPayer(
+                                                goodPayer)
+
+                                .currentlyOverdue(
+                                                currentlyOverdue)
+
+                                .hasDefaultHistory(
+                                                hasDefaultHistory)
+
+                                .hasMultipleActiveLoans(
+                                                hasMultipleActiveLoans)
+
+                                // ------------------------------------------------
+                                // DETAILS
+                                // ------------------------------------------------
+
+                                .loans(
+                                                loanSummaries)
+
+                                .payments(
+                                                paymentSummaries)
+
+                                .build();
+        }
+
+        // ============================================================
+        // ACTIVE STATUS
+        // ============================================================
+
+        private boolean isActiveStatus(
+                        LoanStatus status) {
+
+                return status == LoanStatus.ACTIVE
+                                ||
+                                status == LoanStatus.DISBURSED
+                                ||
+                                status == LoanStatus.OVERDUE;
+        }
+
+        // ============================================================
+        // COMPLETED STATUS
+        // ============================================================
+
+        private boolean isCompletedStatus(
+                        LoanStatus status) {
+
+                return status == LoanStatus.CLOSED
+                                ||
+                                status == LoanStatus.PAID;
+        }
+
+        // ============================================================
+        // COMPLETED PAYMENT
+        // ============================================================
+
+        private boolean isCompletedPayment(
+                        Payment payment) {
+
+                if (payment == null) {
+                        return false;
                 }
-            }
 
-
-            // ====================================================
-            // LOAN SUMMARY
-            // ====================================================
-
-            String classification =
-                    classifyLoan(
-                            loan,
-                            daysPastDue
-                    );
-
-
-            loanSummaries.add(
-
-                    BorrowerDetailsResponse
-                            .LoanSummary
-                            .builder()
-
-                            .loanId(
-                                    loan.getId()
-                            )
-
-                            .loanNumber(
-                                    loan.getReferenceNumber()
-                            )
-
-                            .loanType(
-                                    loan.getLoanType() != null
-                                            ? loan
-                                                .getLoanType()
-                                                .name()
-                                            : null
-                            )
-
-                            .status(
-                                    status != null
-                                            ? status.name()
-                                            : null
-                            )
-
-                            .loanAmount(
-                                    loanAmount
-                            )
-
-                            .disbursedAmount(
-                                    disbursedAmount
-                            )
-
-                            .outstandingBalance(
-                                    outstandingBalance
-                            )
-
-                            .principalPaid(
-                                    loanPrincipalPaid
-                            )
-
-                            .interestPaid(
-                                    loanInterestPaid
-                            )
-
-                            .totalPaid(
-                                    loanTotalPaid
-                            )
-
-                            .interestRate(
-                                    number(
-                                            loan.getInterestRate()
-                                    )
-                            )
-
-                            .durationMonths(
-                                    loan.getDurationMonths() != null
-                                            ? loan
-                                                .getDurationMonths()
-                                            : 0
-                            )
-
-                            .daysPastDue(
-                                    daysPastDue
-                            )
-
-                            .repaymentClassification(
-                                    classification
-                            )
-
-                            .dateOpened(
-        loan.getDisbursedAt() != null
-                ? loan.getDisbursedAt().toLocalDate()
-                : loan.getStartDate()
-)
-
-                            .maturityDate(
-                                    loan.getMaturityDate()
-                            )
-
-                            .lastPaymentDate(
-                                    lastPaymentDate
-                            )
-
-                            .branchName(
-                                    loan.getBranch() != null
-                                            ? loan
-                                                .getBranch()
-                                                .getName()
-                                            : null
-                            )
-
-                            .currency(
-                                    loan.getCurrency()
-                            )
-
-                            .build()
-            );
+                return Boolean.TRUE.equals(
+                                payment.getPaid())
+                                ||
+                                payment.getStatus() == Payment.PaymentStatus.COMPLETED;
         }
 
+        // ============================================================
+        // DAYS PAST DUE
+        // ============================================================
 
-        // ========================================================
-        // MULTIPLE ACTIVE LOANS
-        // ========================================================
+        private int safeDaysPastDue(
+                        Loan loan) {
 
-        hasMultipleActiveLoans =
-                activeLoanCounter > 1;
+                if (loan == null) {
+                        return 0;
+                }
 
+                Integer days = loan.getDaysOverdue();
 
-        // ========================================================
-        // PAYMENT RATES
-        // ========================================================
-
-        double repaymentRate =
-                totalPayments == 0
-                        ? 0.0
-                        : (
-                            successfulPayments
-                                    * 100.0
-                        )
-                        / totalPayments;
-
-
-        double onTimePaymentRate =
-                successfulPayments == 0
-                        ? 0.0
-                        : (
-                            successfulPayments
-                                    - overduePayments
-                        )
-                        * 100.0
-                        / successfulPayments;
-
-
-        if (onTimePaymentRate < 0) {
-
-            onTimePaymentRate = 0.0;
+                return days == null
+                                ? 0
+                                : Math.max(
+                                                0,
+                                                days);
         }
 
+        // ============================================================
+        // CRB CLASSIFICATION
+        // ============================================================
 
-        // ========================================================
-        // REPAYMENT BEHAVIOUR
-        // ========================================================
+        private String classifyLoan(
+                        Loan loan,
+                        int daysPastDue) {
 
-        String repaymentBehaviour =
-                determineRepaymentBehaviour(
-                        repaymentRate,
-                        onTimePaymentRate,
-                        maximumDaysPastDue,
-                        missedPayments,
-                        hasDefaultHistory
-                );
+                if (loan == null) {
+                        return "UNKNOWN";
+                }
 
+                if (loan.getStatus() == LoanStatus.WRITTEN_OFF) {
 
-        // ========================================================
+                        return "WRITTEN_OFF";
+                }
+
+                if (loan.getStatus() == LoanStatus.DEFAULTED) {
+
+                        return "DEFAULT";
+                }
+
+                if (daysPastDue > 90) {
+
+                        return "NPL";
+                }
+
+                if (daysPastDue > 30) {
+
+                        return "SUBSTANDARD";
+                }
+
+                if (daysPastDue > 0) {
+
+                        return "PAST_DUE";
+                }
+
+                return "CURRENT";
+        }
+
+        // ============================================================
         // GOOD PAYER
-        // ========================================================
-
-        boolean goodPayer =
-                determineGoodPayer(
-                        repaymentRate,
-                        onTimePaymentRate,
-                        maximumDaysPastDue,
-                        missedPayments,
-                        hasDefaultHistory
-                );
-
-
-        // ========================================================
-        // RISK LEVEL
-        // ========================================================
-
-        String riskLevel =
-                determineRiskLevel(
-                        borrower,
-                        repaymentRate,
-                        onTimePaymentRate,
-                        currentDaysPastDue,
-                        maximumDaysPastDue,
-                        missedPayments,
-                        hasDefaultHistory,
-                        hasMultipleActiveLoans,
-                        totalOutstanding
-                );
-
-
-        // ========================================================
-        // SORT LOANS
-        // ========================================================
-
-        loanSummaries.sort(
-                Comparator
-                        .comparing(
-                                BorrowerDetailsResponse.LoanSummary::getDateOpened,
-                                Comparator.nullsLast(
-                                        Comparator.reverseOrder()
-                                )
-                        )
-        );
-
-
-        // ========================================================
-        // SORT PAYMENTS
-        // ========================================================
-
-        paymentSummaries.sort(
-                Comparator
-                        .comparing(
-                                BorrowerDetailsResponse.PaymentSummary::getPaidDate,
-                                Comparator.nullsLast(
-                                        Comparator.reverseOrder()
-                                )
-                        )
-        );
-
-
-        // ========================================================
-        // BORROWER ADDRESS
-        // ========================================================
-
-        String address =
-                buildAddress(
-                        borrower
-                );
-
-
-        // ========================================================
-        // CREATED DATE
-        // ========================================================
-
-        LocalDate createdAt =
-                resolveCreatedDate(
-                        borrower
-                );
-
-
-        // ========================================================
-        // FINAL RESPONSE
-        // ========================================================
-
-        return BorrowerDetailsResponse
-                .builder()
-
-                // ------------------------------------------------
-                // BORROWER
-                // ------------------------------------------------
-
-                .borrowerId(
-                        borrower.getId()
-                )
-
-                .fullName(
-                        buildFullName(
-                                borrower
-                        )
-                )
-
-                .firstName(
-                        borrower.getFirstName()
-                )
-
-                .lastName(
-                        borrower.getLastName()
-                )
-
-                .email(
-                        borrower.getEmail()
-                )
-
-                .phone(
-                        borrower.getPhone()
-                )
-
-                .alternatePhone(
-                        borrower.getAlternatePhone()
-                )
-
-                .nationalId(
-                        borrower.getNationalId()
-                )
-
-                .passportNumber(
-                        borrower.getPassportNumber()
-                )
-
-                .dateOfBirth(
-                        borrower.getDateOfBirth()
-                )
-
-                .gender(
-                        borrower.getGender()
-                )
-
-                .maritalStatus(
-                        borrower.getMaritalStatus()
-                )
-
-                .nationality(
-                        borrower.getNationality()
-                )
-
-                .placeOfBirth(
-                        borrower.getPlaceOfBirth()
-                )
-
-                .country(
-                        borrower.getCountry()
-                )
-
-                .address(
-                        address
-                )
-
-                .addressLine1(borrower.getAddressLine1())
-                .addressLine2(borrower.getAddressLine2())
-                .city(borrower.getCity())
-                .stateProvince(borrower.getStateProvince())
-                .physicalAddressProvince(borrower.getPhysicalAddressProvince())
-                .physicalAddressDistrict(borrower.getPhysicalAddressDistrict())
-                .physicalAddressSector(borrower.getPhysicalAddressSector())
-                .physicalAddressCell(borrower.getPhysicalAddressCell())
-                .physicalAddressVillage(borrower.getPhysicalAddressVillage())
-                .postalCode(borrower.getPostalCode())
-
-                // ------------------------------------------------
-                // EMPLOYMENT
-                // ------------------------------------------------
-
-                .employerName(
-                        borrower.getEmployerName()
-                )
-
-                .employmentType(
-                        borrower.getEmploymentType()
-                )
-
-                .jobTitle(
-                        borrower.getJobTitle()
-                )
-
-                .monthlyIncome(
-                        number(
-                                borrower.getMonthlyIncome()
-                        )
-                )
-
-                .monthlyExpenses(
-                        number(
-                                borrower.getMonthlyExpenses()
-                        )
-                )
-
-                .netWorth(
-                        number(
-                                borrower.getNetWorth()
-                        )
-                )
-
-                // ------------------------------------------------
-                // CREDIT
-                // ------------------------------------------------
-
-                .creditScore(
-                        borrower.getCreditScore()
-                )
-
-                .creditBureau(
-                        borrower.getCreditBureau()
-                )
-
-                .creditReportDate(
-                        borrower.getCreditReportDate()
-                )
-
-                // ------------------------------------------------
-                // STATUS
-                // ------------------------------------------------
-
-                .status(
-                        borrower.getStatus() != null
-                                ? borrower
-                                    .getStatus()
-                                    .name()
-                                : null
-                )
-
-                .createdAt(
-                        createdAt
-                )
-
-                // ------------------------------------------------
-                // LOAN SUMMARY
-                // ------------------------------------------------
-
-                .totalLoans(
-                        totalLoans
-                )
-
-                .activeLoans(
-                        activeLoans
-                )
-
-                .completedLoans(
-                        completedLoans
-                )
-
-                .overdueLoans(
-                        overdueLoans
-                )
-
-                .defaultedLoans(
-                        defaultedLoans
-                )
-
-                .writtenOffLoans(
-                        writtenOffLoans
-                )
-
-                .totalBorrowed(
-                        totalBorrowed
-                )
-
-                .totalDisbursed(
-                        totalDisbursed
-                )
-
-                .totalOutstanding(
-                        totalOutstanding
-                )
-
-                .totalPrincipalPaid(
-                        totalPrincipalPaid
-                )
-
-                .totalInterestPaid(
-                        totalInterestPaid
-                )
-
-                .totalFeesPaid(
-                        totalFeesPaid
-                )
-
-                .totalPaid(
-                        totalPaid
-                )
-
-                // ------------------------------------------------
-                // PAYMENT PERFORMANCE
-                // ------------------------------------------------
-
-                .totalPayments(
-                        totalPayments
-                )
-
-                .successfulPayments(
-                        successfulPayments
-                )
-
-                .missedPayments(
-                        missedPayments
-                )
-
-                .overduePayments(
-                        overduePayments
-                )
-
-                .repaymentRate(
-                        round(
-                                repaymentRate
-                        )
-                )
-
-                .onTimePaymentRate(
-                        round(
-                                onTimePaymentRate
-                        )
-                )
-
-                .currentDaysPastDue(
-                        currentDaysPastDue
-                )
-
-                .maximumDaysPastDue(
-                        maximumDaysPastDue
-                )
-
-                // ------------------------------------------------
-                // RISK
-                // ------------------------------------------------
-
-                .riskLevel(
-                        riskLevel
-                )
-
-                .repaymentBehaviour(
-                        repaymentBehaviour
-                )
-
-                .goodPayer(
-                        goodPayer
-                )
-
-                .currentlyOverdue(
-                        currentlyOverdue
-                )
-
-                .hasDefaultHistory(
-                        hasDefaultHistory
-                )
-
-                .hasMultipleActiveLoans(
-                        hasMultipleActiveLoans
-                )
-
-                // ------------------------------------------------
-                // DETAILS
-                // ------------------------------------------------
-
-                .loans(
-                        loanSummaries
-                )
-
-                .payments(
-                        paymentSummaries
-                )
-
-                .build();
-    }
-
-
-    // ============================================================
-    // ACTIVE STATUS
-    // ============================================================
-
-    private boolean isActiveStatus(
-            LoanStatus status
-    ) {
-
-        return status == LoanStatus.ACTIVE
-                ||
-                status == LoanStatus.DISBURSED
-                ||
-                status == LoanStatus.OVERDUE;
-    }
-
-
-    // ============================================================
-    // COMPLETED STATUS
-    // ============================================================
-
-    private boolean isCompletedStatus(
-            LoanStatus status
-    ) {
-
-        return status == LoanStatus.CLOSED
-                ||
-                status == LoanStatus.PAID;
-    }
-
-
-    // ============================================================
-    // COMPLETED PAYMENT
-    // ============================================================
-
-    private boolean isCompletedPayment(
-            Payment payment
-    ) {
-
-        if (payment == null) {
-            return false;
+        // ============================================================
+
+        private boolean determineGoodPayer(
+                        double repaymentRate,
+                        double onTimeRate,
+                        int maximumDaysPastDue,
+                        int missedPayments,
+                        boolean hasDefaultHistory) {
+
+                /*
+                 * No payment history means we should NOT call the borrower
+                 * a good payer.
+                 */
+
+                if (repaymentRate == 0.0) {
+                        return false;
+                }
+
+                if (hasDefaultHistory) {
+                        return false;
+                }
+
+                if (missedPayments > 0) {
+                        return false;
+                }
+
+                if (maximumDaysPastDue > 30) {
+                        return false;
+                }
+
+                return repaymentRate >= 90.0
+                                &&
+                                onTimeRate >= 85.0;
         }
 
+        // ============================================================
+        // REPAYMENT BEHAVIOUR
+        // ============================================================
 
-        return Boolean.TRUE.equals(
-                payment.getPaid()
-        )
-                ||
-                payment.getStatus()
-                        == Payment.PaymentStatus.COMPLETED;
-    }
+        private String determineRepaymentBehaviour(
+                        double repaymentRate,
+                        double onTimeRate,
+                        int maximumDaysPastDue,
+                        int missedPayments,
+                        boolean hasDefaultHistory) {
 
+                if (hasDefaultHistory) {
 
-    // ============================================================
-    // DAYS PAST DUE
-    // ============================================================
+                        return "DEFAULT_HISTORY";
+                }
 
-    private int safeDaysPastDue(
-            Loan loan
-    ) {
+                if (missedPayments > 0) {
 
-        if (loan == null) {
-            return 0;
-        }
+                        if (onTimeRate < 60.0) {
+                                return "POOR";
+                        }
 
+                        return "IRREGULAR";
+                }
 
-        Integer days =
-                loan.getDaysOverdue();
+                if (maximumDaysPastDue > 30) {
 
+                        return "HIGH_RISK";
+                }
 
-        return days == null
-                ? 0
-                : Math.max(
-                        0,
-                        days
-                );
-    }
+                if (repaymentRate >= 95.0
+                                &&
+                                onTimeRate >= 95.0) {
 
+                        return "EXCELLENT";
+                }
 
-    // ============================================================
-    // CRB CLASSIFICATION
-    // ============================================================
+                if (repaymentRate >= 90.0
+                                &&
+                                onTimeRate >= 85.0) {
 
-    private String classifyLoan(
-            Loan loan,
-            int daysPastDue
-    ) {
+                        return "GOOD";
+                }
 
-        if (loan == null) {
-            return "UNKNOWN";
-        }
+                if (repaymentRate >= 75.0) {
 
+                        return "FAIR";
+                }
 
-        if (
-                loan.getStatus()
-                        == LoanStatus.WRITTEN_OFF
-        ) {
-
-            return "WRITTEN_OFF";
-        }
-
-
-        if (
-                loan.getStatus()
-                        == LoanStatus.DEFAULTED
-        ) {
-
-            return "DEFAULT";
-        }
-
-
-        if (daysPastDue > 90) {
-
-            return "NPL";
-        }
-
-
-        if (daysPastDue > 30) {
-
-            return "SUBSTANDARD";
-        }
-
-
-        if (daysPastDue > 0) {
-
-            return "PAST_DUE";
-        }
-
-
-        return "CURRENT";
-    }
-
-
-    // ============================================================
-    // GOOD PAYER
-    // ============================================================
-
-    private boolean determineGoodPayer(
-            double repaymentRate,
-            double onTimeRate,
-            int maximumDaysPastDue,
-            int missedPayments,
-            boolean hasDefaultHistory
-    ) {
-
-        /*
-         * No payment history means we should NOT call the borrower
-         * a good payer.
-         */
-
-        if (repaymentRate == 0.0) {
-            return false;
-        }
-
-
-        if (hasDefaultHistory) {
-            return false;
-        }
-
-
-        if (missedPayments > 0) {
-            return false;
-        }
-
-
-        if (maximumDaysPastDue > 30) {
-            return false;
-        }
-
-
-        return repaymentRate >= 90.0
-                &&
-                onTimeRate >= 85.0;
-    }
-
-
-    // ============================================================
-    // REPAYMENT BEHAVIOUR
-    // ============================================================
-
-    private String determineRepaymentBehaviour(
-            double repaymentRate,
-            double onTimeRate,
-            int maximumDaysPastDue,
-            int missedPayments,
-            boolean hasDefaultHistory
-    ) {
-
-        if (hasDefaultHistory) {
-
-            return "DEFAULT_HISTORY";
-        }
-
-
-        if (missedPayments > 0) {
-
-            if (onTimeRate < 60.0) {
                 return "POOR";
-            }
-
-            return "IRREGULAR";
         }
 
+        // ============================================================
+        // RISK LEVEL
+        // ============================================================
 
-        if (
-                maximumDaysPastDue > 30
-        ) {
+        private String determineRiskLevel(
+                        Borrower borrower,
+                        double repaymentRate,
+                        double onTimeRate,
+                        int currentDaysPastDue,
+                        int maximumDaysPastDue,
+                        int missedPayments,
+                        boolean hasDefaultHistory,
+                        boolean hasMultipleActiveLoans,
+                        BigDecimal outstanding) {
 
-            return "HIGH_RISK";
+                int riskPoints = 0;
+
+                // --------------------------------------------------------
+                // CREDIT SCORE
+                // --------------------------------------------------------
+
+                Integer creditScore = borrower != null
+                                ? borrower.getCreditScore()
+                                : null;
+
+                if (creditScore != null) {
+
+                        if (creditScore < 500) {
+
+                                riskPoints += 40;
+
+                        } else if (creditScore < 600) {
+
+                                riskPoints += 25;
+
+                        } else if (creditScore < 700) {
+
+                                riskPoints += 10;
+                        }
+                }
+
+                // --------------------------------------------------------
+                // CURRENT DPD
+                // --------------------------------------------------------
+
+                if (currentDaysPastDue > 90) {
+
+                        riskPoints += 50;
+
+                } else if (currentDaysPastDue > 60) {
+
+                        riskPoints += 35;
+
+                } else if (currentDaysPastDue > 30) {
+
+                        riskPoints += 25;
+
+                } else if (currentDaysPastDue > 0) {
+
+                        riskPoints += 10;
+                }
+
+                // --------------------------------------------------------
+                // HISTORICAL DPD
+                // --------------------------------------------------------
+
+                if (maximumDaysPastDue > 90) {
+
+                        riskPoints += 35;
+
+                } else if (maximumDaysPastDue > 60) {
+
+                        riskPoints += 25;
+
+                } else if (maximumDaysPastDue > 30) {
+
+                        riskPoints += 15;
+                }
+
+                // --------------------------------------------------------
+                // MISSED PAYMENTS
+                // --------------------------------------------------------
+
+                if (missedPayments >= 5) {
+
+                        riskPoints += 30;
+
+                } else if (missedPayments >= 3) {
+
+                        riskPoints += 20;
+
+                } else if (missedPayments > 0) {
+
+                        riskPoints += 10;
+                }
+
+                // --------------------------------------------------------
+                // DEFAULT
+                // --------------------------------------------------------
+
+                if (hasDefaultHistory) {
+
+                        riskPoints += 50;
+                }
+
+                // --------------------------------------------------------
+                // MULTIPLE LOANS
+                // --------------------------------------------------------
+
+                if (hasMultipleActiveLoans) {
+
+                        riskPoints += 10;
+                }
+
+                // --------------------------------------------------------
+                // PAYMENT PERFORMANCE
+                // --------------------------------------------------------
+
+                if (repaymentRate > 0) {
+
+                        if (repaymentRate < 60.0) {
+
+                                riskPoints += 25;
+
+                        } else if (repaymentRate < 75.0) {
+
+                                riskPoints += 15;
+
+                        } else if (repaymentRate < 90.0) {
+
+                                riskPoints += 5;
+                        }
+                }
+
+                if (onTimeRate > 0) {
+
+                        if (onTimeRate < 60.0) {
+
+                                riskPoints += 20;
+
+                        } else if (onTimeRate < 75.0) {
+
+                                riskPoints += 10;
+
+                        } else if (onTimeRate < 85.0) {
+
+                                riskPoints += 5;
+                        }
+                }
+
+                // --------------------------------------------------------
+                // RISK RESULT
+                // --------------------------------------------------------
+
+                if (riskPoints >= 80) {
+
+                        return "CRITICAL";
+                }
+
+                if (riskPoints >= 55) {
+
+                        return "HIGH";
+                }
+
+                if (riskPoints >= 30) {
+
+                        return "MEDIUM";
+                }
+
+                return "LOW";
         }
 
+        // ============================================================
+        // PAYMENT DATE
+        // ============================================================
 
-        if (
-                repaymentRate >= 95.0
-                        &&
-                onTimeRate >= 95.0
-        ) {
+        private LocalDate resolvePaidDate(
+                        Payment payment,
+                        boolean completed) {
 
-            return "EXCELLENT";
+                if (payment == null
+                                ||
+                                !completed) {
+
+                        return null;
+                }
+
+                /*
+                 * Your Payment model may use a different property for the
+                 * actual payment date.
+                 *
+                 * If your entity has getPaidDate(), use:
+                 *
+                 * return payment.getPaidDate();
+                 *
+                 * If it has getPaymentDate(), use:
+                 *
+                 * return payment.getPaymentDate();
+                 *
+                 * The fallback below intentionally uses the loan/payment
+                 * due date only if the actual date is unavailable.
+                 */
+
+                return payment.getDueDate();
         }
 
+        // ============================================================
+        // DAYS LATE
+        // ============================================================
 
-        if (
-                repaymentRate >= 90.0
-                        &&
-                onTimeRate >= 85.0
-        ) {
+        private int calculateDaysLate(
+                        LocalDate dueDate,
+                        LocalDate paidDate,
+                        boolean completed) {
 
-            return "GOOD";
+                if (!completed
+                                ||
+                                dueDate == null
+                                ||
+                                paidDate == null) {
+
+                        return 0;
+                }
+
+                if (!paidDate.isAfter(
+                                dueDate)) {
+
+                        return 0;
+                }
+
+                return (int) ChronoUnit.DAYS.between(
+                                dueDate,
+                                paidDate);
         }
 
+        // ============================================================
+        // PAYMENT METHOD
+        // ============================================================
 
-        if (
-                repaymentRate >= 75.0
-        ) {
+        private String resolvePaymentMethod(
+                        Payment payment) {
 
-            return "FAIR";
+                if (payment == null) {
+                        return null;
+                }
+
+                /*
+                 * If your Payment entity has:
+                 *
+                 * getPaymentMethod()
+                 *
+                 * replace this method with:
+                 *
+                 * return payment.getPaymentMethod() != null
+                 * ? payment.getPaymentMethod().toString()
+                 * : null;
+                 *
+                 * This safe version avoids assuming the exact enum/string
+                 * type until the Payment entity is confirmed.
+                 */
+
+                return null;
         }
 
+        // ============================================================
+        // ADDRESS
+        // ============================================================
 
-        return "POOR";
-    }
+        private String buildAddress(
+                        Borrower borrower) {
 
+                if (borrower == null) {
+                        return null;
+                }
 
-    // ============================================================
-    // RISK LEVEL
-    // ============================================================
+                List<String> parts = new ArrayList<>();
 
-    private String determineRiskLevel(
-            Borrower borrower,
-            double repaymentRate,
-            double onTimeRate,
-            int currentDaysPastDue,
-            int maximumDaysPastDue,
-            int missedPayments,
-            boolean hasDefaultHistory,
-            boolean hasMultipleActiveLoans,
-            BigDecimal outstanding
-    ) {
+                if (borrower.getAddressLine1() != null
+                                &&
+                                !borrower
+                                                .getAddressLine1()
+                                                .isBlank()) {
 
-        int riskPoints = 0;
+                        parts.add(
+                                        borrower.getAddressLine1());
+                }
 
+                if (borrower.getAddressLine2() != null
+                                &&
+                                !borrower
+                                                .getAddressLine2()
+                                                .isBlank()) {
 
-        // --------------------------------------------------------
-        // CREDIT SCORE
-        // --------------------------------------------------------
+                        parts.add(
+                                        borrower.getAddressLine2());
+                }
 
-        Integer creditScore =
-                borrower != null
-                        ? borrower.getCreditScore()
-                        : null;
+                if (borrower.getCity() != null
+                                &&
+                                !borrower
+                                                .getCity()
+                                                .isBlank()) {
 
+                        parts.add(
+                                        borrower.getCity());
+                }
 
-        if (creditScore != null) {
+                if (borrower.getStateProvince() != null
+                                &&
+                                !borrower
+                                                .getStateProvince()
+                                                .isBlank()) {
 
-            if (creditScore < 500) {
+                        parts.add(
+                                        borrower.getStateProvince());
+                }
 
-                riskPoints += 40;
+                if (borrower.getPostalCode() != null
+                                &&
+                                !borrower
+                                                .getPostalCode()
+                                                .isBlank()) {
 
-            } else if (creditScore < 600) {
+                        parts.add(
+                                        borrower.getPostalCode());
+                }
 
-                riskPoints += 25;
+                if (borrower.getCountry() != null
+                                &&
+                                !borrower
+                                                .getCountry()
+                                                .isBlank()) {
 
-            } else if (creditScore < 700) {
+                        parts.add(
+                                        borrower.getCountry());
+                }
 
-                riskPoints += 10;
-            }
+                return parts.isEmpty()
+                                ? null
+                                : String.join(
+                                                ", ",
+                                                parts);
         }
 
+        // ============================================================
+        // FULL NAME
+        // ============================================================
 
-        // --------------------------------------------------------
-        // CURRENT DPD
-        // --------------------------------------------------------
+        private String buildFullName(
+                        Borrower borrower) {
 
-        if (currentDaysPastDue > 90) {
+                if (borrower == null) {
+                        return null;
+                }
 
-            riskPoints += 50;
+                String first = borrower.getFirstName() == null
+                                ? ""
+                                : borrower
+                                                .getFirstName()
+                                                .trim();
 
-        } else if (currentDaysPastDue > 60) {
+                String last = borrower.getLastName() == null
+                                ? ""
+                                : borrower
+                                                .getLastName()
+                                                .trim();
 
-            riskPoints += 35;
-
-        } else if (currentDaysPastDue > 30) {
-
-            riskPoints += 25;
-
-        } else if (currentDaysPastDue > 0) {
-
-            riskPoints += 10;
+                return (first
+                                + " "
+                                + last).trim();
         }
 
+        // ============================================================
+        // CREATED DATE
+        // ============================================================
 
-        // --------------------------------------------------------
-        // HISTORICAL DPD
-        // --------------------------------------------------------
+        private LocalDate resolveCreatedDate(
+                        Borrower borrower) {
 
-        if (maximumDaysPastDue > 90) {
+                /*
+                 * If Borrower exposes getCreatedAt(), this converts the
+                 * timestamp into a LocalDate.
+                 */
 
-            riskPoints += 35;
+                try {
 
-        } else if (maximumDaysPastDue > 60) {
+                        LocalDateTime createdAt = borrower.getCreatedAt();
 
-            riskPoints += 25;
+                        return createdAt != null
+                                        ? createdAt.toLocalDate()
+                                        : null;
 
-        } else if (maximumDaysPastDue > 30) {
+                } catch (Exception ignored) {
 
-            riskPoints += 15;
+                        return null;
+                }
         }
 
+        // ============================================================
+        // MONEY
+        // ============================================================
 
-        // --------------------------------------------------------
-        // MISSED PAYMENTS
-        // --------------------------------------------------------
+        private BigDecimal money(Number value) {
+                if (value == null) {
+                        return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+                }
 
-        if (missedPayments >= 5) {
+                if (value instanceof BigDecimal decimal) {
+                        return decimal.setScale(2, RoundingMode.HALF_UP);
+                }
 
-            riskPoints += 30;
-
-        } else if (missedPayments >= 3) {
-
-            riskPoints += 20;
-
-        } else if (missedPayments > 0) {
-
-            riskPoints += 10;
+                return BigDecimal.valueOf(value.doubleValue())
+                                .setScale(2, RoundingMode.HALF_UP);
         }
 
+        // ============================================================
+        // NUMBER
+        // ============================================================
 
-        // --------------------------------------------------------
-        // DEFAULT
-        // --------------------------------------------------------
+        private double number(
+                        Number value) {
 
-        if (hasDefaultHistory) {
+                if (value == null) {
+                        return 0.0;
+                }
 
-            riskPoints += 50;
+                return value.doubleValue();
         }
 
+        // ============================================================
+        // ROUND
+        // ============================================================
 
-        // --------------------------------------------------------
-        // MULTIPLE LOANS
-        // --------------------------------------------------------
+        private double round(
+                        double value) {
 
-        if (hasMultipleActiveLoans) {
-
-            riskPoints += 10;
+                return Math.round(
+                                value * 100.0) / 100.0;
         }
-
-
-        // --------------------------------------------------------
-        // PAYMENT PERFORMANCE
-        // --------------------------------------------------------
-
-        if (repaymentRate > 0) {
-
-            if (repaymentRate < 60.0) {
-
-                riskPoints += 25;
-
-            } else if (repaymentRate < 75.0) {
-
-                riskPoints += 15;
-
-            } else if (repaymentRate < 90.0) {
-
-                riskPoints += 5;
-            }
-        }
-
-
-        if (onTimeRate > 0) {
-
-            if (onTimeRate < 60.0) {
-
-                riskPoints += 20;
-
-            } else if (onTimeRate < 75.0) {
-
-                riskPoints += 10;
-
-            } else if (onTimeRate < 85.0) {
-
-                riskPoints += 5;
-            }
-        }
-
-
-        // --------------------------------------------------------
-        // RISK RESULT
-        // --------------------------------------------------------
-
-        if (riskPoints >= 80) {
-
-            return "CRITICAL";
-        }
-
-
-        if (riskPoints >= 55) {
-
-            return "HIGH";
-        }
-
-
-        if (riskPoints >= 30) {
-
-            return "MEDIUM";
-        }
-
-
-        return "LOW";
-    }
-
-
-    // ============================================================
-    // PAYMENT DATE
-    // ============================================================
-
-    private LocalDate resolvePaidDate(
-            Payment payment,
-            boolean completed
-    ) {
-
-        if (
-                payment == null
-                        ||
-                !completed
-        ) {
-
-            return null;
-        }
-
-
-        /*
-         * Your Payment model may use a different property for the
-         * actual payment date.
-         *
-         * If your entity has getPaidDate(), use:
-         *
-         * return payment.getPaidDate();
-         *
-         * If it has getPaymentDate(), use:
-         *
-         * return payment.getPaymentDate();
-         *
-         * The fallback below intentionally uses the loan/payment
-         * due date only if the actual date is unavailable.
-         */
-
-        return payment.getDueDate();
-    }
-
-
-    // ============================================================
-    // DAYS LATE
-    // ============================================================
-
-    private int calculateDaysLate(
-            LocalDate dueDate,
-            LocalDate paidDate,
-            boolean completed
-    ) {
-
-        if (
-                !completed
-                        ||
-                dueDate == null
-                        ||
-                paidDate == null
-        ) {
-
-            return 0;
-        }
-
-
-        if (
-                !paidDate.isAfter(
-                        dueDate
-                )
-        ) {
-
-            return 0;
-        }
-
-
-        return (int)
-                ChronoUnit.DAYS.between(
-                        dueDate,
-                        paidDate
-                );
-    }
-
-
-    // ============================================================
-    // PAYMENT METHOD
-    // ============================================================
-
-    private String resolvePaymentMethod(
-            Payment payment
-    ) {
-
-        if (payment == null) {
-            return null;
-        }
-
-
-        /*
-         * If your Payment entity has:
-         *
-         * getPaymentMethod()
-         *
-         * replace this method with:
-         *
-         * return payment.getPaymentMethod() != null
-         *      ? payment.getPaymentMethod().toString()
-         *      : null;
-         *
-         * This safe version avoids assuming the exact enum/string
-         * type until the Payment entity is confirmed.
-         */
-
-        return null;
-    }
-
-
-    // ============================================================
-    // ADDRESS
-    // ============================================================
-
-    private String buildAddress(
-            Borrower borrower
-    ) {
-
-        if (borrower == null) {
-            return null;
-        }
-
-
-        List<String> parts =
-                new ArrayList<>();
-
-
-        if (
-                borrower.getAddressLine1() != null
-                        &&
-                !borrower
-                        .getAddressLine1()
-                        .isBlank()
-        ) {
-
-            parts.add(
-                    borrower.getAddressLine1()
-            );
-        }
-
-
-        if (
-                borrower.getAddressLine2() != null
-                        &&
-                !borrower
-                        .getAddressLine2()
-                        .isBlank()
-        ) {
-
-            parts.add(
-                    borrower.getAddressLine2()
-            );
-        }
-
-
-        if (
-                borrower.getCity() != null
-                        &&
-                !borrower
-                        .getCity()
-                        .isBlank()
-        ) {
-
-            parts.add(
-                    borrower.getCity()
-            );
-        }
-
-
-        if (
-                borrower.getStateProvince() != null
-                        &&
-                !borrower
-                        .getStateProvince()
-                        .isBlank()
-        ) {
-
-            parts.add(
-                    borrower.getStateProvince()
-            );
-        }
-
-
-        if (
-                borrower.getPostalCode() != null
-                        &&
-                !borrower
-                        .getPostalCode()
-                        .isBlank()
-        ) {
-
-            parts.add(
-                    borrower.getPostalCode()
-            );
-        }
-
-
-        if (
-                borrower.getCountry() != null
-                        &&
-                !borrower
-                        .getCountry()
-                        .isBlank()
-        ) {
-
-            parts.add(
-                    borrower.getCountry()
-            );
-        }
-
-
-        return parts.isEmpty()
-                ? null
-                : String.join(
-                        ", ",
-                        parts
-                );
-    }
-
-
-    // ============================================================
-    // FULL NAME
-    // ============================================================
-
-    private String buildFullName(
-            Borrower borrower
-    ) {
-
-        if (borrower == null) {
-            return null;
-        }
-
-
-        String first =
-                borrower.getFirstName() == null
-                        ? ""
-                        : borrower
-                                .getFirstName()
-                                .trim();
-
-
-        String last =
-                borrower.getLastName() == null
-                        ? ""
-                        : borrower
-                                .getLastName()
-                                .trim();
-
-
-        return (
-                first
-                        + " "
-                        + last
-        ).trim();
-    }
-
-
-    // ============================================================
-    // CREATED DATE
-    // ============================================================
-
-    private LocalDate resolveCreatedDate(
-            Borrower borrower
-    ) {
-
-        /*
-         * If Borrower exposes getCreatedAt(), this converts the
-         * timestamp into a LocalDate.
-         */
-
-        try {
-
-            LocalDateTime createdAt =
-                    borrower.getCreatedAt();
-
-            return createdAt != null
-                    ? createdAt.toLocalDate()
-                    : null;
-
-        } catch (Exception ignored) {
-
-            return null;
-        }
-    }
-
-
-    // ============================================================
-    // MONEY
-    // ============================================================
-
-    private BigDecimal money(Number value) {
-        if (value == null) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        }
-
-        if (value instanceof BigDecimal decimal) {
-            return decimal.setScale(2, RoundingMode.HALF_UP);
-        }
-
-        return BigDecimal.valueOf(value.doubleValue())
-                .setScale(2, RoundingMode.HALF_UP);
-    }
-
-
-    // ============================================================
-    // NUMBER
-    // ============================================================
-
-    private double number(
-            Number value
-    ) {
-
-        if (value == null) {
-            return 0.0;
-        }
-
-
-        return value.doubleValue();
-    }
-
-
-    // ============================================================
-    // ROUND
-    // ============================================================
-
-    private double round(
-            double value
-    ) {
-
-        return Math.round(
-                value * 100.0
-        ) / 100.0;
-    }
 }

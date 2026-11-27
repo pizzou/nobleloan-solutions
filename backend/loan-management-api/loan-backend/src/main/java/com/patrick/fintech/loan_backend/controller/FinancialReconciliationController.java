@@ -39,6 +39,7 @@ public class FinancialReconciliationController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<FinancialReconciliationService.ReconciliationReport>> reconcile(
             @RequestParam(required = false) String asOf,
             @RequestParam(required = false) String from) {

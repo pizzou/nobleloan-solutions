@@ -45,7 +45,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,7 +52,6 @@ import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -83,15 +81,19 @@ public class LoanService {
         private final PaymentTransactionRepository paymentTransactionRepo;
         private final DashboardService dashboardService;
         private final LoanAdministrationService loanAdministrationService;
+        private final LoanReferenceService loanReferenceService;
 
         @Value("${app.environment:development}")
         private String applicationEnvironment;
+
+        @Value("${app.loan.admin-self-approval-enabled:true}")
+        private boolean adminSelfApprovalEnabled;
 
         private static final int MAX_LOAN_DURATION_MONTHS = 6;
 
         private static final int DEFAULT_LOAN_DURATION_MONTHS = 1;
 
-        private static final BigDecimal MIN_LOAN_AMOUNT = bd("500000");
+        private static final BigDecimal MIN_LOAN_AMOUNT = bd("1000000");
 
         private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 
@@ -142,37 +144,8 @@ public class LoanService {
                         return DEFAULT_REQUIRED_DOCS;
                 }
 
-                Borrower borrower = loan.getBorrower();
-                List<DocumentType> required = new ArrayList<>();
-
-                // Mandatory for every public application.
-                required.add(DocumentType.NATIONAL_ID);
-                required.add(DocumentType.BANK_STATEMENT);
-                required.add(DocumentType.SELFIE);
-
-                String maritalStatus = borrower.getMaritalStatus();
-                if ("MARRIED".equalsIgnoreCase(maritalStatus)) {
-                        required.add(DocumentType.MARRIAGE_CERTIFICATE);
-                } else {
-                        required.add(DocumentType.SINGLE_CERTIFICATE);
-                }
-
-                String employmentType = borrower.getEmploymentType();
-                if (employmentType != null) {
-                        String normalized = employmentType.trim().toUpperCase(Locale.ROOT)
-                                        .replace('-', '_').replace(' ', '_');
-
-                        if (Set.of("EMPLOYEE", "EMPLOYED", "PERMANENT", "CONTRACT", "SALARIED")
-                                        .contains(normalized)) {
-                                required.add(DocumentType.PAYSLIP);
-                        } else if (Set.of("SELF_EMPLOYED", "SELFEMPLOYED", "BUSINESS",
-                                        "BUSINESS_OWNER", "COMPANY", "COMPANY_OWNER")
-                                        .contains(normalized)) {
-                                required.add(DocumentType.BUSINESS_REGISTRATION);
-                        }
-                }
-
-                return required;
+                return BorrowerDocumentRequirements.required(
+                                loan.getBorrower().getMaritalStatus(), loan.getBorrower().getEmploymentType());
         }
 
         // BORROWER DASHBOARD
@@ -685,6 +658,28 @@ public class LoanService {
                 // BUILD LOAN
                 // ============================================================
 
+                String collateralType = req.getCollateralType() == null
+                                ? "NONE"
+                                : req.getCollateralType().trim().toUpperCase(java.util.Locale.ROOT);
+                if (!java.util.Set.of("NONE", "MOVABLE", "IMMOVABLE").contains(collateralType)) {
+                        throw new IllegalArgumentException("Collateral type must be NONE, MOVABLE or IMMOVABLE.");
+                }
+                // A collateral choice must reconcile with its declared value and description.
+                String collateralDescription = req.getCollateralDescription();
+                if ("NONE".equals(collateralType)) {
+                        if ((collateralDescription != null && !collateralDescription.isBlank())
+                                        || (collateralValue != null && collateralValue.compareTo(ZERO) != 0)) {
+                                throw new IllegalArgumentException(
+                                                "No collateral was selected; remove collateral description and value.");
+                        }
+                } else {
+                        if (collateralDescription == null || collateralDescription.isBlank()) {
+                                throw new IllegalArgumentException("Describe the proposed loan collateral.");
+                        }
+                        if (collateralValue == null || collateralValue.compareTo(ZERO) <= 0) {
+                                throw new IllegalArgumentException("Collateral value must be greater than zero.");
+                        }
+                }
                 Loan loan = Loan.builder()
                                 .referenceNumber(
                                                 generateRef(org))
@@ -722,6 +717,7 @@ public class LoanService {
                                 .totalPaid(ZERO)
                                 .purpose(req.getPurpose())
                                 .notes(req.getNotes())
+                                .collateralType(collateralType)
                                 .collateralDescription(
                                                 req.getCollateralDescription())
                                 .collateralValue(
@@ -868,7 +864,7 @@ public class LoanService {
          * Final approval with a contractual pricing snapshot.
          *
          * Interest may be overridden by an authorized approver.
-         * Management fee is always 5% monthly.
+         * Management fee defaults to 5% monthly but may be negotiated down.
          * Application fee may only be overridden by MANAGER or ADMIN.
          */
         @Transactional
@@ -902,6 +898,42 @@ public class LoanService {
                         Double newInterestRate,
                         Double newApplicationFeeRate,
                         BigDecimal newApprovedAmount) {
+                return approveLoan(loanId, approvedBy, notes, newInterestRate,
+                                newApplicationFeeRate, newApprovedAmount, null);
+        }
+
+        @Transactional
+        public Loan approveLoan(
+                        Long loanId,
+                        User approvedBy,
+                        String notes,
+                        Double newInterestRate,
+                        Double newApplicationFeeRate,
+                        BigDecimal newApprovedAmount,
+                        Double newManagementFeeRate) {
+
+                if (newManagementFeeRate != null) {
+                        String role = approvedBy != null && approvedBy.getRole() != null
+                                        && approvedBy.getRole().getName() != null
+                                        ? approvedBy.getRole().getName().replaceFirst("^ROLE_", "")
+                                                        .toUpperCase(Locale.ROOT)
+                                        : "";
+                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role)
+                                        && !"BUSINESS_OWNER".equals(role)) {
+                                throw new SecurityException("Only ADMIN, MANAGER or BUSINESS_OWNER may negotiate the management fee.");
+                        }
+                        if (notes == null || notes.isBlank()) {
+                                throw new IllegalArgumentException("A written negotiation reason is required to reduce the management fee.");
+                        }
+                        if (!Double.isFinite(newManagementFeeRate) || newManagementFeeRate < 0
+                                        || newManagementFeeRate > 5) {
+                                throw new IllegalArgumentException("Negotiated management fee must be between 0% and 5% monthly.");
+                        }
+                        if (newInterestRate != null && (!Double.isFinite(newInterestRate)
+                                        || newInterestRate < 0 || newInterestRate > 5)) {
+                                throw new IllegalArgumentException("Negotiated interest must be between 0% and 5% monthly.");
+                        }
+                }
 
                 if (approvedBy == null
                                 || approvedBy.getOrganization() == null
@@ -976,6 +1008,8 @@ public class LoanService {
                                                                         .collect(Collectors.joining(", ")));
                 }
 
+                requireVerifiedImmovableExpertise(loan);
+
                 // ============================================================
                 // PRICING SNAPSHOT
                 // ============================================================
@@ -983,7 +1017,8 @@ public class LoanService {
                 BigDecimal interestRate = loan.getInterestRateDecimal() != null
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : ZERO;
-                BigDecimal managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal managementFeeRate = newManagementFeeRate != null
+                                ? moneyValue(bd(newManagementFeeRate)) : MONTHLY_MANAGEMENT_FEE_RATE;
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null
                                 ? moneyValue(loan.getApplicationFeeRateDecimal())
                                 : ZERO;
@@ -1009,7 +1044,7 @@ public class LoanService {
                 }
 
                 // Explicit approval values are the final negotiated contractual
-                // terms. Management fee is never negotiable and is forced to 5%.
+                // terms. Management fee can be reduced by an authorized approver.
                 if (newInterestRate != null) {
                         interestRate = moneyValue(bd(newInterestRate));
                 }
@@ -1050,7 +1085,7 @@ public class LoanService {
                         }
                 }
 
-                penaltyRate = FinancialPolicy.MONTHLY_PENALTY_RATE;
+                penaltyRate = FinancialPolicy.penaltyRateFor(loan.getImported());
 
                 BigDecimal totalMonthlyRate = money(interestRate.add(managementFeeRate));
 
@@ -1436,6 +1471,15 @@ public class LoanService {
                         Long loanId,
                         User officer,
                         String disbursementMethod) {
+                return disburseLoan(loanId, officer, disbursementMethod, LocalDate.now());
+        }
+
+        @Transactional
+        public Loan disburseLoan(
+                        Long loanId,
+                        User officer,
+                        String disbursementMethod,
+                        LocalDate selectedDisbursementDate) {
 
                 if (officer == null
                                 || officer.getOrganization() == null
@@ -1460,6 +1504,20 @@ public class LoanService {
                                 || !loan.getOrganization().getId().equals(
                                                 officer.getOrganization().getId())) {
                         throw new RuntimeException("Access denied.");
+                }
+
+                // Explicit temporary single-operator restriction: when a
+                // normal loan was created by an ADMIN, only ADMIN may carry out
+                // the disbursement, including after self-approval. Business
+                // Owners remain excluded from disbursement.
+                if (adminSelfApprovalEnabled && loan.getCreatedBy() != null
+                                && loan.getCreatedBy().getRole() != null
+                                && "ADMIN".equalsIgnoreCase(loan.getCreatedBy().getRole().getName())
+                                && !Boolean.TRUE.equals(loan.getBusinessOwnerOnly())
+                                && (officer.getRole() == null
+                                                || !"ADMIN".equalsIgnoreCase(officer.getRole().getName()))) {
+                        throw new org.springframework.security.access.AccessDeniedException(
+                                        "Only an Admin may disburse a normal loan originally created by an Admin.");
                 }
 
                 if (Boolean.TRUE.equals(loan.getBusinessOwnerOnly())
@@ -1515,6 +1573,8 @@ public class LoanService {
                                                                         .collect(Collectors.joining(", ")));
                 }
 
+                requireVerifiedImmovableExpertise(loan);
+
                 // Production disbursement must be backed by a current, provider-backed
                 // KYC/AML clearance. ProductionConfigurationValidator already fails
                 // closed when an external compliance provider is not configured.
@@ -1528,15 +1588,16 @@ public class LoanService {
 
                 // Disbursement is the final contractual snapshot. Preserve
                 // the negotiated interest/application fee stored on the loan,
-                // while management fee remains a fixed 5% monthly policy.
+                // including any negotiated management fee approved for this loan.
                 BigDecimal interestRate = loan.getInterestRateDecimal() != null
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : MONTHLY_INTEREST_RATE;
-                BigDecimal managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal managementFeeRate = loan.getManagementFeeRateDecimal() != null
+                                ? moneyValue(loan.getManagementFeeRateDecimal()) : MONTHLY_MANAGEMENT_FEE_RATE;
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null
                                 ? moneyValue(loan.getApplicationFeeRateDecimal())
                                 : APPLICATION_FEE_RATE;
-                BigDecimal penaltyRate = FinancialPolicy.MONTHLY_PENALTY_RATE;
+                BigDecimal penaltyRate = FinancialPolicy.penaltyRateFor(loan.getImported());
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementFeeRate);
@@ -1592,18 +1653,27 @@ public class LoanService {
                 // EXACT DISBURSEMENT TIMESTAMP
                 // ============================================================
 
-                LocalDateTime exactDisbursementTimestamp = LocalDateTime.now();
+                LocalDate disbursementDate = selectedDisbursementDate != null
+                                ? selectedDisbursementDate
+                                : LocalDate.now();
+                if (disbursementDate.isAfter(LocalDate.now())) {
+                        throw new IllegalArgumentException("Disbursement date cannot be in the future.");
+                }
+                // A selected date-only historical transaction is stored at the
+                // beginning of its local calendar day, and drives all schedules.
+                LocalDateTime exactDisbursementTimestamp = disbursementDate.atStartOfDay();
 
                 loan.setDisbursedAt(
                                 exactDisbursementTimestamp);
+                // Once money has actually been advanced, the contractual loan
+                // start date must reflect the same selected historical date.
+                loan.setStartDate(disbursementDate);
 
                 loan.setDisbursedAmount(
                                 exactPrincipal);
 
                 // Repair stale legacy balances before the first ACTIVE-state save.
                 reconcileContractualOutstandingBalances(loan);
-
-                LocalDate disbursementDate = exactDisbursementTimestamp.toLocalDate();
 
                 Integer duration = loan.getDurationMonths() != null
                                 ? loan.getDurationMonths()
@@ -2114,54 +2184,13 @@ public class LoanService {
                                 daysOverdue);
         }
 
-        /**
-         * Calculates actual delinquency from the loan's next due date.
-         *
-         * The stored daysOverdue value is only used as a fallback when
-         * there is no due date available.
-         */
-        private int calculateLoanDaysOverdue(
-                        Loan loan) {
-
-                if (loan == null) {
+        private int calculateLoanDaysOverdue(Loan loan) {
+                if (loan == null || !java.util.Set.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE,
+                                LoanStatus.DEFAULTED, LoanStatus.RESTRUCTURED).contains(loan.getStatus())) {
                         return 0;
                 }
 
-                if (loan.getStatus() != LoanStatus.ACTIVE
-                                && loan.getStatus() != LoanStatus.OVERDUE
-                                && loan.getStatus() != LoanStatus.DEFAULTED) {
-
-                        return 0;
-                }
-
-                LocalDate dueDate = loan.getNextDueDate();
-
-                if (dueDate == null) {
-
-                        dueDate = loan.getNextPaymentDate();
-                }
-
-                if (dueDate == null) {
-
-                        return Math.max(
-                                        loan.getDaysOverdue() != null
-                                                        ? loan.getDaysOverdue()
-                                                        : 0,
-                                        0);
-                }
-
-                LocalDate today = LocalDate.now();
-
-                if (!today.isAfter(dueDate)) {
-
-                        return 0;
-                }
-
-                return Math.max(
-                                (int) ChronoUnit.DAYS.between(
-                                                dueDate,
-                                                today),
-                                0);
+                return FinancialPolicy.contractDaysOverdue(loan, LocalDate.now());
         }
 
         // ================================================================
@@ -2363,11 +2392,20 @@ public class LoanService {
                         String status,
                         String type) {
 
-                return getLoans(org, page, size, status, type, null);
+                return getLoans(org, page, size, status, type, null, null);
         }
 
         /**
-         * Lists loans using the existing reporting visibility scope and optional
+         * Existing service callers use the normal portfolio by default.
+         */
+        public Page<Loan> getLoans(
+                        Organization org, int page, int size,
+                        String status, String type, String search) {
+                return getLoans(org, page, size, status, type, search, null);
+        }
+
+        /**
+         * Lists loans using an explicit portfolio visibility selection and optional
          * borrower/reference search. Search is executed in the database so it
          * works across all pages rather than only the currently loaded page.
          */
@@ -2377,7 +2415,13 @@ public class LoanService {
                         int size,
                         String status,
                         String type,
-                        String search) {
+                        String search,
+                        String visibility) {
+
+                // Validate scope before any query. Role comes from the server security context,
+                // never from a client-supplied isBusinessOwner flag.
+                LoanPortfolioVisibility selectedVisibility = LoanPortfolioVisibility.resolve(
+                                visibility, ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (org == null
                                 || org.getId() == null) {
@@ -2443,7 +2487,6 @@ public class LoanService {
                         normalizedSearch = null;
                 }
 
-                boolean includeBusinessOwnerOnly = ReportingScopeService.includeBusinessOwnerOnly();
                 PageRequest pageable = PageRequest.of(page, size);
 
                 // Use the dedicated unfiltered query for the normal portfolio load.
@@ -2451,19 +2494,57 @@ public class LoanService {
                 // nullable enum/string predicates when the request is simply
                 // /api/loans?page=0&size=25.
                 if (ls == null && lt == null && normalizedSearch == null) {
+                        if (selectedVisibility == LoanPortfolioVisibility.BUSINESS_OWNER_ONLY) {
+                                return loanRepo.findBusinessOwnerOnlyPortfolio(org, pageable);
+                        }
                         return loanRepo.findVisiblePortfolio(
                                         org,
-                                        includeBusinessOwnerOnly,
+                                        selectedVisibility == LoanPortfolioVisibility.ALL,
                                         pageable);
                 }
 
-                return loanRepo.findVisibleByFilters(
-                                org,
-                                ls,
-                                lt,
-                                includeBusinessOwnerOnly,
-                                normalizedSearch,
-                                pageable);
+                // Use Criteria predicates for active filters rather than nullable JPQL
+                // parameters.
+                // The latter can generate invalid SQL/count queries under some PostgreSQL +
+                // Hibernate combinations, especially as the user types a borrower name.
+                final LoanStatus statusFilter = ls;
+                final LoanType typeFilter = lt;
+                final String searchFilter = normalizedSearch;
+                org.springframework.data.jpa.domain.Specification<Loan> filters = (root, query, cb) -> {
+                        java.util.List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+                        predicates.add(cb.equal(root.get("organization"), org));
+                        if (selectedVisibility == LoanPortfolioVisibility.NORMAL) {
+                                predicates.add(cb.isFalse(cb.coalesce(root.<Boolean>get("businessOwnerOnly"), false)));
+                        } else if (selectedVisibility == LoanPortfolioVisibility.BUSINESS_OWNER_ONLY) {
+                                predicates.add(cb.isTrue(root.<Boolean>get("businessOwnerOnly")));
+                        }
+                        if (statusFilter != null)
+                                predicates.add(cb.equal(root.get("status"), statusFilter));
+                        if (typeFilter != null)
+                                predicates.add(cb.equal(root.get("loanType"), typeFilter));
+                        if (searchFilter != null) {
+                                // Treat % and _ as literal text, not wildcard patterns.
+                                String pattern = "%" + searchFilter.toLowerCase(java.util.Locale.ROOT)
+                                                .replace("\\", "\\\\").replace("%", "\\%")
+                                                .replace("_", "\\_") + "%";
+                                jakarta.persistence.criteria.Join<Loan, com.patrick.fintech.loan_backend.model.Borrower> borrower = root
+                                                .join("borrower", jakarta.persistence.criteria.JoinType.INNER);
+                                jakarta.persistence.criteria.Expression<String> first = cb
+                                                .coalesce(borrower.get("firstName"), "");
+                                jakarta.persistence.criteria.Expression<String> last = cb
+                                                .coalesce(borrower.get("lastName"), "");
+                                predicates.add(cb.or(
+                                                cb.like(cb.lower(root.get("referenceNumber")), pattern, '\\'),
+                                                cb.like(cb.lower(first), pattern, '\\'),
+                                                cb.like(cb.lower(last), pattern, '\\'),
+                                                cb.like(cb.lower(cb.concat(cb.concat(first, " "), last)), pattern,
+                                                                '\\'),
+                                                cb.like(cb.lower(cb.concat(cb.concat(last, " "), first)), pattern,
+                                                                '\\')));
+                        }
+                        return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+                };
+                return loanRepo.findAll(filters, pageable);
         }
 
         public List<Loan> getLoansByBorrowerForOrg(
@@ -2657,6 +2738,16 @@ public class LoanService {
         // DOCUMENT REQUIREMENTS
         // ================================================================
 
+        private void requireVerifiedImmovableExpertise(Loan loan) {
+                if (loan != null && "IMMOVABLE".equalsIgnoreCase(loan.getCollateralType())
+                                && !fileService.hasVerifiedExpertiseForLoan(
+                                                loan.getId(), loan.getBorrower().getId())) {
+                        throw new IllegalStateException(
+                                        "This immovable-collateral loan requires a VERIFIED expertise/valuation "
+                                                        + "report attached to this loan before approval or disbursement.");
+                }
+        }
+
         public Map<String, Object> getDocumentRequirements(
                         Long loanId,
                         Long orgId) {
@@ -2706,6 +2797,21 @@ public class LoanService {
                                 loan.getBorrower().getId(),
                                 required);
 
+                if ("IMMOVABLE".equalsIgnoreCase(loan.getCollateralType())) {
+                        required = new java.util.ArrayList<>(required);
+                        required.add(DocumentType.COLLATERAL_EXPERTISE);
+                        boolean hasExpertise = fileService.hasUploadedExpertiseForLoan(
+                                        loan.getId(), loan.getBorrower().getId());
+                        if (!hasExpertise) {
+                                missing = new java.util.ArrayList<>(missing);
+                                missing.add(DocumentType.COLLATERAL_EXPERTISE);
+                        } else if (!fileService.hasVerifiedExpertiseForLoan(
+                                        loan.getId(), loan.getBorrower().getId())) {
+                                unverified = new java.util.ArrayList<>(unverified);
+                                unverified.add(DocumentType.COLLATERAL_EXPERTISE);
+                        }
+                }
+
                 result.put(
                                 "required",
                                 required.stream()
@@ -2726,7 +2832,7 @@ public class LoanService {
 
                 result.put(
                                 "readyToApprove",
-                                missing.isEmpty());
+                                missing.isEmpty() && !unverified.contains(DocumentType.COLLATERAL_EXPERTISE));
 
                 result.put(
                                 "readyToDisburse",
@@ -2852,7 +2958,8 @@ public class LoanService {
                 BigDecimal interestRate = loan.getInterestRateDecimal() != null
                                 ? moneyValue(loan.getInterestRateDecimal())
                                 : MONTHLY_INTEREST_RATE;
-                BigDecimal managementRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal managementRate = loan.getManagementFeeRateDecimal() != null
+                                ? moneyValue(loan.getManagementFeeRateDecimal()) : MONTHLY_MANAGEMENT_FEE_RATE;
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementRate);
@@ -3439,24 +3546,10 @@ public class LoanService {
         // REFERENCE NUMBER
         // ================================================================
 
-        private String generateRef(
-                        Organization org) {
-
-                String prefix = "RW";
-
-                if (org != null
-                                && org.getCountry() != null
-                                && !org.getCountry().trim().isEmpty()) {
-
-                        prefix = org.getCountry()
-                                        .trim()
-                                        .toUpperCase();
-                }
-
-                String random = UUID.randomUUID().toString().replace("-", "")
-                                .substring(0, 12).toUpperCase(Locale.ROOT);
-
-                return prefix + "-" + random;
+        private String generateRef(Organization org) {
+                // Use the SAME atomic PostgreSQL sequence as all legacy imports.
+                // No caller may invent a reference or calculate MAX + 1 in Java.
+                return loanReferenceService.allocate();
         }
 
         // ================================================================

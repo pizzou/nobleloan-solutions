@@ -25,6 +25,7 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -36,6 +37,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 @Service
@@ -97,6 +100,12 @@ public class LegacyLoanImportRowService {
                         "WRITTEN_OFF",
                         "RESTRUCTURED");
 
+        private static final Set<LoanStatus> STATUSES_REQUIRING_NEXT_DUE_DATE = Set.of(
+                        LoanStatus.ACTIVE,
+                        LoanStatus.OVERDUE,
+                        LoanStatus.DEFAULTED,
+                        LoanStatus.RESTRUCTURED);
+
         private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
                         DateTimeFormatter.ISO_LOCAL_DATE.withResolverStyle(ResolverStyle.STRICT),
                         DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT),
@@ -131,6 +140,8 @@ public class LegacyLoanImportRowService {
 
         private final LoanService loanService;
 
+        private final LoanReferenceService loanReferenceService;
+
         private final AccountingService accountingService;
 
         private final Validator validator;
@@ -146,7 +157,8 @@ public class LegacyLoanImportRowService {
                         Organization org,
                         Long importBatchId,
                         boolean commit,
-                        Map<String, Borrower> sessionBorrowers) {
+                        Map<String, Borrower> sessionBorrowers,
+                        LegacyImportReferenceSession sessionLoanReferences) {
 
                 String borrowerAction = null;
                 boolean borrowerCreatedInThisRow = false;
@@ -162,7 +174,42 @@ public class LegacyLoanImportRowService {
                                         rowNumber,
                                         org,
                                         importBatchId,
-                                        sessionBorrowers);
+                                        sessionBorrowers,
+                                        sessionLoanReferences);
+
+                        // Sheet reconciliation is completed before any write; do
+                        // not create borrowers, NLS numbers or GL journals for
+                        // ambiguous cross-sheet copies.
+                        if (row.containsKey("__import_issue")) {
+                                ImportRowResult blocked = fail(rowNumber, row.get("__import_issue"));
+                                blocked.setBorrowerName((row.getOrDefault("first_name", "") + " "
+                                                + row.getOrDefault("last_name", "")).trim());
+                                return blocked;
+                        }
+
+                        // Capture the workbook identity SEPARATELY from the new
+                        // sequential public loan number. An upload retry must not
+                        // manufacture a second loan just because its NLS number
+                        // would be different on the next run.
+                        String suppliedReference = opt(row, "loan_reference", null);
+                        String sourceReference = suppliedReference == null || suppliedReference.isBlank()
+                                        ? null
+                                        : normalizeReference(suppliedReference);
+                        String loanIdentity = com.patrick.fintech.loan_backend.util.LegacyLoanIdentity
+                                        .stableIdentity(org.getId(), row);
+                        String fingerprint = legacyRowFingerprint(row, org);
+                        String olderSystemReference = resolveImportReference(row, org);
+                        if (loanIdentity != null && (sessionLoanReferences.alreadySeen(fingerprint, sourceReference)
+                                        || sessionLoanReferences.alreadySeenIdentity(loanIdentity)
+                                        || loanReferenceService.previouslyImported(
+                                                        org.getId(), sourceReference, fingerprint,
+                                                        olderSystemReference, loanIdentity,
+                                                        row.get("national_id").replaceAll("\\s+", ""),
+                                                        row.get("start_date")))) {
+                                return fail(rowNumber,
+                                                "This legacy loan already exists or appears twice in this workbook. "
+                                                                + "Check the original loan_reference and previous imports before retrying.");
+                        }
 
                         // ========================================================
                         // BORROWER INFORMATION
@@ -283,6 +330,36 @@ public class LegacyLoanImportRowService {
 
                         LoanStatus status = LoanStatus.valueOf(
                                         statusRaw);
+                        // Imported loans always enter the normal reporting/access scope.
+                        // An authorized user may explicitly mark a loan Business-Owner-only
+                        // later through the dedicated visibility-management workflow.
+                        // Do not require or trust an import spreadsheet column for this control.
+                        boolean businessOwnerOnly = false;
+
+                        LocalDate nextDueDate = isHistoricalLoanStatus(statusRaw)
+                                        ? optDate(row, "next_due_date", null)
+                                        : null;
+
+                        if (STATUSES_REQUIRING_NEXT_DUE_DATE.contains(status)
+                                        && nextDueDate == null) {
+                                return fail(
+                                                rowNumber,
+                                                "next_due_date is required for an outstanding "
+                                                                + statusRaw
+                                                                + " legacy loan. Enter the contractual next due date so arrears can be classified safely.");
+                        }
+
+                        // A due date at or before disbursement is commonly an Excel
+                        // column-mapping mistake (start date copied as next due date).
+                        // Do not invent a date or calculate arrears from disbursement.
+                        // The actual oldest unpaid contractual due date is required.
+                        if (nextDueDate != null && !nextDueDate.isAfter(startDate)
+                                        && status != LoanStatus.PAID && status != LoanStatus.CLOSED) {
+                                return fail(rowNumber,
+                                                "next_due_date must be later than the original start_date. "
+                                                                + "Enter the verified oldest unpaid installment due date; "
+                                                                + "days overdue must not start at disbursement.");
+                        }
 
                         // ========================================================
                         // HISTORICAL RATE TYPE
@@ -402,6 +479,24 @@ public class LegacyLoanImportRowService {
                                         row,
                                         "penalties_paid");
 
+                        // Historical penalty opening: separately supplied unpaid
+                        // penalties are not an amount paid or new-period income.
+                        BigDecimal penaltyOutstandingGiven = optMoney(
+                                        row,
+                                        "penalty_outstanding");
+
+                        BigDecimal extensionFeeAssessedGiven = optMoney(
+                                        row,
+                                        "extension_fee_assessed");
+
+                        BigDecimal extensionFeePaidGiven = optMoney(
+                                        row,
+                                        "extension_fee_paid");
+
+                        BigDecimal extensionFeeOutstandingGiven = optMoney(
+                                        row,
+                                        "extension_fee_outstanding");
+
                         validateOptionalMoney(
                                         totalPaid,
                                         "total_paid");
@@ -421,8 +516,13 @@ public class LegacyLoanImportRowService {
                         validateOptionalMoney(managementFeePaidGiven, "management_fee_paid");
                         validateOptionalMoney(managementFeeOutstandingGiven, "total_management_fee_balance");
                         validateOptionalMoney(applicationFeePaidGiven, "application_fee_paid");
+                        validateOptionalMoney(applicationFeeOutstandingGiven, "application_fee_outstanding");
                         validateOptionalMoney(penaltiesAssessedGiven, "penalties_assessed");
                         validateOptionalMoney(penaltiesPaidGiven, "penalties_paid");
+                        validateOptionalMoney(penaltyOutstandingGiven, "penalty_outstanding");
+                        validateOptionalMoney(extensionFeeAssessedGiven, "extension_fee_assessed");
+                        validateOptionalMoney(extensionFeePaidGiven, "extension_fee_paid");
+                        validateOptionalMoney(extensionFeeOutstandingGiven, "extension_fee_outstanding");
 
                         if (totalPaid == null) {
                                 totalPaid = ZERO;
@@ -434,6 +534,39 @@ public class LegacyLoanImportRowService {
                                         penaltiesAssessedGiven != null ? penaltiesAssessedGiven : ZERO);
                         BigDecimal penaltiesPaid = money(
                                         penaltiesPaidGiven != null ? penaltiesPaidGiven : ZERO);
+
+                        BigDecimal extensionFeePaid = money(
+                                        extensionFeePaidGiven != null ? extensionFeePaidGiven : ZERO);
+
+                        BigDecimal extensionFeeAssessed = money(
+                                        extensionFeeAssessedGiven != null
+                                                        ? extensionFeeAssessedGiven
+                                                        : (extensionFeeOutstandingGiven != null
+                                                                        ? extensionFeePaid.add(
+                                                                                        extensionFeeOutstandingGiven)
+                                                                        : extensionFeePaid));
+
+                        BigDecimal extensionFeeOutstanding = money(
+                                        extensionFeeOutstandingGiven != null
+                                                        ? extensionFeeOutstandingGiven
+                                                        : extensionFeeAssessed.subtract(extensionFeePaid)
+                                                                        .max(ZERO));
+
+                        if (extensionFeePaid.compareTo(extensionFeeAssessed) > 0) {
+                                return fail(
+                                                rowNumber,
+                                                "extension_fee_paid cannot exceed extension_fee_assessed.");
+                        }
+
+                        if (extensionFeeAssessedGiven != null
+                                        && extensionFeeOutstandingGiven != null
+                                        && extensionFeeAssessed.subtract(
+                                                        extensionFeePaid.add(extensionFeeOutstanding))
+                                                        .abs().compareTo(new BigDecimal("0.01")) > 0) {
+                                return fail(
+                                                rowNumber,
+                                                "extension_fee_paid + extension_fee_outstanding must equal extension_fee_assessed.");
+                        }
 
                         BigDecimal interestPaidHistorical = money(
                                         interestPaidGiven != null ? interestPaidGiven : ZERO);
@@ -555,9 +688,32 @@ public class LegacyLoanImportRowService {
                         // principal balance is therefore derived as amount - principal_paid.
                         // This fixes cases such as 800,000 paid + 300,000 source balance on a
                         // 1,000,000 loan: the reconciled principal balance is 200,000.
-                        BigDecimal principalPaidHistorical = principalPaidGiven != null
-                                        ? money(principalPaidGiven)
-                                        : money(amount.subtract(outstandingBalance).max(ZERO));
+                        BigDecimal principalPaidHistorical;
+                        if (principalPaidGiven != null) {
+                                principalPaidHistorical = money(principalPaidGiven);
+                        } else if (principalBalanceGiven != null) {
+                                principalPaidHistorical = money(
+                                                amount.subtract(principalBalanceGiven));
+                        } else if ("PAID".equals(statusRaw) || "CLOSED".equals(statusRaw)) {
+                                // A source row explicitly marked paid/closed must
+                                // reconcile principal to zero remaining balance.
+                                principalPaidHistorical = money(amount);
+                        } else if (totalPaid.compareTo(ZERO) > 0) {
+                                return fail(
+                                                rowNumber,
+                                                "For an open legacy loan with repayments, provide principal_paid or principal_balance. "
+                                                                + "total_paid alone cannot safely determine how much principal remains after interest, fees and penalties.");
+                        } else {
+                                principalPaidHistorical = ZERO;
+                        }
+
+                        if (principalPaidHistorical.compareTo(ZERO) < 0) {
+                                return fail(
+                                                rowNumber,
+                                                "principal_balance cannot exceed amount. "
+                                                                + "principal_balance=" + principalBalanceGiven
+                                                                + ", amount=" + amount);
+                        }
 
                         if (principalPaidHistorical.compareTo(amount) > 0) {
                                 return fail(
@@ -569,6 +725,27 @@ public class LegacyLoanImportRowService {
 
                         BigDecimal principalBalanceHistorical = money(
                                         amount.subtract(principalPaidHistorical).max(ZERO));
+
+                        // Resolve the historical penalty balance before computing
+                        // contractual totals, outstanding components, and the
+                        // immutable opening journal. A missing source field is
+                        // NOT evidence that an overdue borrower owed zero.
+                        // Historical values must be supported by the source
+                        // ledger; do not silently manufacture pre-import income.
+                        try {
+                                penaltiesAssessed = money(
+                                                LegacyPenaltyOpeningPolicy.resolveAssessed(
+                                                                penaltiesAssessedGiven,
+                                                                penaltiesPaidGiven,
+                                                                penaltyOutstandingGiven,
+                                                                status == LoanStatus.OVERDUE
+                                                                                || status == LoanStatus.DEFAULTED,
+                                                                nextDueDate,
+                                                                LocalDate.now(),
+                                                                principalBalanceHistorical));
+                        } catch (IllegalArgumentException penaltyError) {
+                                return fail(rowNumber, penaltyError.getMessage());
+                        }
 
                         if (principalBalanceGiven != null
                                         && principalBalanceGiven.subtract(principalBalanceHistorical).abs()
@@ -599,98 +776,71 @@ public class LegacyLoanImportRowService {
                         // ========================================================
 
                         /*
-                         * Some historical workbooks call this column "processing fee".
-                         * That legacy heading is mapped to Noble's single canonical Application
-                         * Fee field; the system does not create a second fee concept. Preserve
-                         * the historical amount when supplied, otherwise use the current default
-                         * of 2% of gross principal. It is deducted at disbursement and is not
-                         * included in recurring totalRepayable.
+                         * A historical fee is an EXACT amount supplied by Excel.
+                         * Never recompute the historical fee as 2% of principal.
+                         * The legacy workbook commonly holds the amount deducted
+                         * immediately at disbursement but not separate paid and
+                         * unpaid columns. For that historical convention, a
+                         * fee with no breakdown is treated as fully collected.
+                         * If either paid or outstanding is provided, derive only
+                         * the missing counterpart. Both supplied amounts must
+                         * still reconcile to the original assessed fee.
                          */
-                        BigDecimal applicationFee;
+                        if (applicationFeeGiven == null) {
+                                return fail(rowNumber,
+                                                "application_fee must be supplied from the original Excel ledger (use 0 if none was charged).");
+                        }
 
-                        if (applicationFeeGiven != null) {
-                                applicationFee = money(applicationFeeGiven);
-                        } else if (applicationFeePaidGiven != null || applicationFeeOutstandingGiven != null) {
-                                applicationFee = money(
-                                                (applicationFeePaidGiven != null ? applicationFeePaidGiven : ZERO)
-                                                                .add(applicationFeeOutstandingGiven != null
-                                                                                ? applicationFeeOutstandingGiven
-                                                                                : ZERO));
+                        BigDecimal applicationFee = money(applicationFeeGiven);
+                        BigDecimal applicationFeePaidAmount;
+                        BigDecimal applicationFeeOutstandingAmount;
+                        if (applicationFeePaidGiven == null && applicationFeeOutstandingGiven == null) {
+                                // Historical one-time application fee deducted at disbursement.
+                                applicationFeePaidAmount = applicationFee;
+                                applicationFeeOutstandingAmount = ZERO;
+                        } else if (applicationFeePaidGiven == null) {
+                                applicationFeeOutstandingAmount = money(applicationFeeOutstandingGiven);
+                                applicationFeePaidAmount = money(
+                                                applicationFee.subtract(applicationFeeOutstandingAmount));
+                        } else if (applicationFeeOutstandingGiven == null) {
+                                applicationFeePaidAmount = money(applicationFeePaidGiven);
+                                applicationFeeOutstandingAmount = money(
+                                                applicationFee.subtract(applicationFeePaidAmount));
                         } else {
-                                applicationFee = money(
-                                                amount.multiply(APPLICATION_FEE_RATE)
-                                                                .divide(ONE_HUNDRED, CALCULATION_SCALE,
-                                                                                RoundingMode.HALF_UP));
+                                applicationFeePaidAmount = money(applicationFeePaidGiven);
+                                applicationFeeOutstandingAmount = money(applicationFeeOutstandingGiven);
                         }
 
                         if (applicationFee.compareTo(ZERO) < 0) {
                                 return fail(rowNumber, "application_fee cannot be negative.");
                         }
-
-                        BigDecimal applicationFeePaidAmount = money(
-                                        applicationFeePaidGiven != null
-                                                        ? applicationFeePaidGiven
-                                                        : (isHistoricalLoanStatus(statusRaw) ? applicationFee : ZERO));
-
-                        if (applicationFeePaidAmount.compareTo(applicationFee) > 0) {
-                                return fail(rowNumber, "application_fee_paid cannot exceed application_fee.");
+                        if (applicationFeePaidAmount.compareTo(ZERO) < 0
+                                        || applicationFeeOutstandingAmount.compareTo(ZERO) < 0) {
+                                return fail(rowNumber,
+                                                "application_fee_paid and application_fee_outstanding cannot be negative.");
+                        }
+                        if (applicationFeePaidAmount.compareTo(applicationFee) > 0
+                                        || applicationFeeOutstandingAmount.compareTo(applicationFee) > 0) {
+                                return fail(rowNumber,
+                                                "Application fee paid/outstanding cannot exceed application_fee.");
                         }
 
-                        if (applicationFeeOutstandingGiven != null) {
-                                BigDecimal reconciledApplicationFee = money(
-                                                applicationFeePaidAmount.add(applicationFeeOutstandingGiven));
-                                if (reconciledApplicationFee.subtract(applicationFee).abs()
-                                                .compareTo(new BigDecimal("0.01")) > 0) {
-                                        return fail(
-                                                        rowNumber,
-                                                        "application_fee_paid + application_fee_outstanding must equal application_fee. "
-                                                                        + "paid=" + applicationFeePaidAmount
-                                                                        + ", outstanding="
-                                                                        + applicationFeeOutstandingGiven
-                                                                        + ", fee=" + applicationFee);
-                                }
+                        BigDecimal reconciledApplicationFee = money(
+                                        applicationFeePaidAmount.add(applicationFeeOutstandingAmount));
+                        if (reconciledApplicationFee.subtract(applicationFee).abs()
+                                        .compareTo(new BigDecimal("0.01")) > 0) {
+                                return fail(
+                                                rowNumber,
+                                                "application_fee_paid + application_fee_outstanding must equal application_fee. "
+                                                                + "paid=" + applicationFeePaidAmount
+                                                                + ", outstanding=" + applicationFeeOutstandingAmount
+                                                                + ", fee=" + applicationFee);
                         }
 
                         BigDecimal applicationFeeRate = amount.compareTo(ZERO) > 0
                                         ? applicationFee.multiply(ONE_HUNDRED)
                                                         .divide(amount, RATE_SCALE, RoundingMode.HALF_UP)
                                         : APPLICATION_FEE_RATE;
-
-                        // STATUS / BALANCE CONSISTENCY
-                        // ========================================================
-
-                        if (("PAID".equals(
-                                        statusRaw)
-                                        || "CLOSED".equals(
-                                                        statusRaw))
-                                        && outstandingBalance.compareTo(
-                                                        ZERO) > 0) {
-
-                                return fail(
-                                                rowNumber,
-                                                "Loan status "
-                                                                + statusRaw
-                                                                + " is inconsistent with outstanding_balance="
-                                                                + outstandingBalance
-                                                                + ". A PAID/CLOSED loan must have zero outstanding balance.");
-                        }
-
-                        if (("PAID".equals(
-                                        statusRaw)
-                                        || "CLOSED".equals(
-                                                        statusRaw))
-                                        && totalPaid.compareTo(
-                                                        totalRepayable) < 0) {
-
-                                log.warn(
-                                                "Historical loan marked {} although totalPaid={} < totalRepayable={}. "
-                                                                + "rowNumber={}, organizationId={}",
-                                                statusRaw,
-                                                totalPaid,
-                                                totalRepayable,
-                                                rowNumber,
-                                                org.getId());
-                        }
 
                         // ========================================================
                         // BORROWER MATCHING
@@ -850,42 +1000,12 @@ public class LegacyLoanImportRowService {
                         // LOAN REFERENCE
                         // ========================================================
 
-                        String suppliedReference = opt(
-                                        row,
-                                        "loan_reference",
-                                        null);
-
-                        String referenceNumber;
-
-                        if (suppliedReference != null
-                                        && !suppliedReference.isBlank()) {
-
-                                referenceNumber = normalizeReference(
-                                                suppliedReference);
-
-                        } else {
-
-                                referenceNumber = loanService.newReferenceNumber(
-                                                org);
-                        }
-
-                        if (referenceNumber == null
-                                        || referenceNumber.isBlank()) {
-
-                                throw new IllegalStateException(
-                                                "Unable to generate a loan reference number.");
-                        }
-
                         // ========================================================
                         // HISTORICAL STATUS
                         // ========================================================
 
                         boolean historicalLoan = isHistoricalLoanStatus(
                                         statusRaw);
-
-                        LocalDate nextDueDate = historicalLoan
-                                        ? optDate(row, "next_due_date", startDate.plusMonths(1))
-                                        : null;
 
                         // ========================================================
                         // DISBURSEMENT TIMESTAMP
@@ -919,24 +1039,155 @@ public class LegacyLoanImportRowService {
                                         managementFeePaidHistorical.add(managementFeeOutstandingHistorical));
 
                         if (interestPaidGiven != null || managementFeePaidGiven != null
-                                        || principalPaidGiven != null) {
+                                        || principalPaidGiven != null || principalBalanceGiven != null
+                                        || penaltiesPaidGiven != null || extensionFeePaidGiven != null) {
                                 totalPaid = money(
                                                 principalPaidHistorical
                                                                 .add(interestPaidHistorical)
                                                                 .add(managementFeePaidHistorical)
-                                                                .add(penaltiesPaid));
+                                                                .add(penaltiesPaid)
+                                                                .add(extensionFeePaid));
+                        }
+
+                        // Some legacy exports label the remaining PRINCIPAL as
+                        // outstanding_balance, while other exports use that column for
+                        // the complete amount still due. If the supplied value exactly
+                        // matches the independently reconciled principal balance, treat
+                        // it as principal-only and reconstruct total repayment outstanding
+                        // from the separately supplied unpaid repayment components. Never
+                        // overwrite the principal sub-ledger with a total contractual due.
+                        boolean outstandingInputIsPrincipalOnly = outstandingGiven != null
+                                        && outstandingGiven.subtract(principalBalanceHistorical).abs()
+                                                        .compareTo(new BigDecimal("0.01")) <= 0;
+                        if (outstandingInputIsPrincipalOnly) {
+                                outstandingBalance = money(
+                                                principalBalanceHistorical
+                                                                .add(interestOutstandingHistorical)
+                                                                .add(managementFeeOutstandingHistorical)
+                                                                .add(extensionFeeOutstanding)
+                                                                .add(penaltiesAssessed.subtract(penaltiesPaid)
+                                                                                .max(ZERO)));
                         }
 
                         if (totalRepayableGiven == null) {
-                                totalRepayable = money(
-                                                amount
-                                                                .add(totalHistoricalInterest)
-                                                                .add(totalHistoricalManagementFee));
+                                if (outstandingGiven != null && !outstandingInputIsPrincipalOnly) {
+                                        // If the source explicitly gives the amount
+                                        // still due but not the original total, derive
+                                        // the contractual total from final paid + due
+                                        // values so the two figures reconcile.
+                                        totalRepayable = money(totalPaid.add(outstandingBalance));
+                                } else {
+                                        // totalRepayable covers the repayment obligation across
+                                        // principal and assessed repayment charges. The one-time
+                                        // application fee is handled separately as a disbursement
+                                        // deduction/receivable and is not added to scheduled repayment.
+                                        totalRepayable = money(
+                                                        amount
+                                                                        .add(totalHistoricalInterest)
+                                                                        .add(totalHistoricalManagementFee)
+                                                                        .add(extensionFeeAssessed)
+                                                                        .add(penaltiesAssessed));
+                                }
+                        }
+
+                        // total_repayable and total_paid describe the complete repayment
+                        // obligation and all repayments allocated to it. The import's
+                        // outstanding_balance column may instead be PRINCIPAL ONLY. Never
+                        // use that principal-only source value as the aggregate balance in
+                        // the total-repayment equation.
+                        BigDecimal totalRepaymentOutstanding = money(
+                                        totalRepayable.subtract(totalPaid).max(ZERO));
+                        BigDecimal componentOutstanding = money(
+                                        principalBalanceHistorical
+                                                        .add(interestOutstandingHistorical)
+                                                        .add(managementFeeOutstandingHistorical)
+                                                        .add(extensionFeeOutstanding)
+                                                        .add(penaltiesAssessed.subtract(penaltiesPaid).max(ZERO)));
+
+                        if (totalRepayable.compareTo(totalPaid) < 0) {
+                                return fail(rowNumber,
+                                                "total_repayable cannot be less than total_paid.");
+                        }
+
+                        // An explicitly supplied aggregate total is not sufficient evidence
+                        // to invent the allocation of unpaid amounts between principal,
+                        // interest, management fees, extension fees and penalties. Require
+                        // those component balances to reconcile before creating the loan;
+                        // otherwise the imported loan could pass the aggregate check while
+                        // its GL receivable accounts are wrong.
+                        if (totalRepayableGiven != null
+                                        && componentOutstanding.subtract(totalRepaymentOutstanding).abs()
+                                                        .compareTo(new BigDecimal("0.01")) > 0) {
+                                return fail(rowNumber,
+                                                "Legacy balance components do not reconcile: total_repayable - total_paid must equal principal_balance + interest_outstanding + management_fee_outstanding + extension_fee_outstanding + penalty_outstanding. "
+                                                                + "total_repayable=" + totalRepayable
+                                                                + ", total_paid=" + totalPaid
+                                                                + ", aggregate_outstanding=" + totalRepaymentOutstanding
+                                                                + ", component_outstanding=" + componentOutstanding
+                                                                + ". Supply or correct the missing historical component balances; principal outstanding must not be substituted for total outstanding.");
+                        }
+
+                        // Keep this local variable as aggregate repayment outstanding for
+                        // overdue/paid-status classification only. Loan.outstandingBalance
+                        // is persisted separately from principalBalanceHistorical below.
+                        outstandingBalance = totalRepaymentOutstanding;
+
+                        if (outstandingBalance.add(new BigDecimal("0.01"))
+                                        .compareTo(principalBalanceHistorical) < 0) {
+                                return fail(
+                                                rowNumber,
+                                                "The total outstanding_balance cannot be lower than principal_balance. Check principal, interest, fees and total-paid fields; the imported amounts do not reconcile.");
+                        }
+
+                        if (("PAID".equals(statusRaw) || "CLOSED".equals(statusRaw))
+                                        && outstandingBalance.compareTo(new BigDecimal("0.01")) > 0) {
+                                return fail(
+                                                rowNumber,
+                                                "A PAID/CLOSED loan must have zero outstanding_balance after historical totals are reconciled.");
+                        }
+                        if (("PAID".equals(statusRaw) || "CLOSED".equals(statusRaw))
+                                        && principalBalanceHistorical.compareTo(new BigDecimal("0.01")) > 0) {
+                                return fail(
+                                                rowNumber,
+                                                "A PAID/CLOSED loan must have zero principal_balance. The supplied principal history conflicts with the paid/closed status.");
+                        }
+
+                        // Do not classify a paid-off loan as delinquent just
+                        // because an old next-due date remains in the workbook.
+                        BigDecimal remainingReceivableForClassification = money(
+                                        outstandingBalance
+                                                        .add(extensionFeeOutstanding)
+                                                        .add(applicationFee.subtract(applicationFeePaidAmount)
+                                                                        .max(ZERO))
+                                                        .add(penaltiesAssessed.subtract(penaltiesPaid).max(ZERO)));
+
+                        int importedDaysOverdue = calculateImportedDaysOverdue(
+                                        status,
+                                        maturityDate,
+                                        remainingReceivableForClassification);
+
+                        if ((status == LoanStatus.ACTIVE || status == LoanStatus.OVERDUE)
+                                        && remainingReceivableForClassification.compareTo(ZERO) > 0) {
+                                status = importedDaysOverdue > 0
+                                                ? LoanStatus.OVERDUE
+                                                : LoanStatus.ACTIVE;
                         }
 
                         // ========================================================
                         // BUILD LOAN
                         // ========================================================
+
+                        // Allocate only after the row has passed financial and
+                        // identity validation. A failed preview row consumes no
+                        // preview number; a commit uses nextval atomically.
+                        if (loanIdentity == null) {
+                                return fail(rowNumber, "A verified 16-digit national_id, contractual "
+                                                + "start_date and positive principal are required "
+                                                + "before importing a historical loan.");
+                        }
+                        String referenceNumber = commit
+                                        ? loanReferenceService.allocate()
+                                        : sessionLoanReferences.previewReference(loanReferenceService);
 
                         Loan.LoanBuilder builder = Loan.builder()
                                         .referenceNumber(
@@ -949,6 +1200,8 @@ public class LegacyLoanImportRowService {
                                                         loanType)
                                         .status(
                                                         status)
+                                        .businessOwnerOnly(
+                                                        businessOwnerOnly)
 
                                         // ------------------------------------------------
                                         // GROSS PRINCIPAL
@@ -969,6 +1222,10 @@ public class LegacyLoanImportRowService {
 
                                         .interestRate(
                                                         effectiveInterestRate)
+
+                                        // Imported legacy loans keep 10% monthly penalty.
+                                        // Historical assessed/paid penalty balances are unchanged.
+                                        .penaltyRate(FinancialPolicy.LEGACY_MONTHLY_PENALTY_RATE)
 
                                         // ------------------------------------------------
                                         // FIXED MANAGEMENT FEE
@@ -1047,6 +1304,18 @@ public class LegacyLoanImportRowService {
 
                                         .penaltiesPaid(
                                                         penaltiesPaid)
+
+                                        .extensionFeeAssessed(
+                                                        extensionFeeAssessed)
+
+                                        .extensionFeePaid(
+                                                        extensionFeePaid)
+
+                                        .extensionFeeOutstanding(
+                                                        extensionFeeOutstanding)
+
+                                        .daysOverdue(
+                                                        importedDaysOverdue)
 
                                         // ------------------------------------------------
                                         // MANAGEMENT FEE TOTALS
@@ -1129,7 +1398,35 @@ public class LegacyLoanImportRowService {
                                                                         importBatchId,
                                                                         importedInterestRate,
                                                                         importedRateType)
-                                                                        + " Historical NLS financial balances were imported as opening loan state; no historical accounting journal was reposted, preventing double-counting.")
+                                                                        + " Historical NLS financial balances were imported as opening loan state; no historical accounting journal was reposted, preventing double-counting."
+                                                                        + " Initial arrears classification was derived from next_due_date and the imported remaining receivable."
+                                                                        + (row.containsKey("__source_sheet")
+                                                                                        ? " Source worksheet: "
+                                                                                                        + row.get("__source_sheet")
+                                                                                                                        .replaceAll("[\\r\\n]",
+                                                                                                                                        " ")
+                                                                                                                        .substring(0, Math
+                                                                                                                                        .min(80, row.get(
+                                                                                                                                                        "__source_sheet")
+                                                                                                                                                        .length()))
+                                                                                                        + ", row "
+                                                                                                        + rowNumber
+                                                                                                        + "."
+                                                                                        : "")
+                                                                        + (row.containsKey("__source_local_no")
+                                                                                        ? " Worksheet local NO: "
+                                                                                                        + row.get("__source_local_no")
+                                                                                                                        .replaceAll("[\\r\\n]",
+                                                                                                                                        " ")
+                                                                                                                        .substring(0, Math
+                                                                                                                                        .min(40, row.get(
+                                                                                                                                                        "__source_local_no")
+                                                                                                                                                        .length()))
+                                                                                                        + "."
+                                                                                        : "")
+                                                                        + (businessOwnerOnly
+                                                                                        ? " This loan is Business-Owner-only and must remain excluded from ordinary reporting and access scopes."
+                                                                                        : ""))
 
                                         // ------------------------------------------------
                                         // IMPORT FLAGS
@@ -1137,6 +1434,9 @@ public class LegacyLoanImportRowService {
 
                                         .imported(
                                                         true)
+                                        .legacySourceReference(sourceReference)
+                                        .legacyImportFingerprint(fingerprint)
+                                        .legacyLoanIdentity(loanIdentity)
 
                                         .importBatchId(
                                                         importBatchId);
@@ -1148,6 +1448,8 @@ public class LegacyLoanImportRowService {
                         // ========================================================
 
                         if (!commit) {
+
+                                sessionLoanReferences.recordSuccess(fingerprint, sourceReference, loanIdentity);
 
                                 return ImportRowResult.builder()
                                                 .rowNumber(
@@ -1171,11 +1473,13 @@ public class LegacyLoanImportRowService {
 
                         try {
 
-                                loan = loanRepo.save(
+                                loan = loanRepo.saveAndFlush(
                                                 loan);
 
                         } catch (DataIntegrityViolationException e) {
-
+                                // PostgreSQL has rejected this transaction; roll
+                                // back any borrower changes made earlier in the row.
+                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                                 log.warn(
                                                 "Legacy loan import database constraint violation. "
                                                                 + "rowNumber={}, organizationId={}, referenceNumber={}",
@@ -1200,6 +1504,8 @@ public class LegacyLoanImportRowService {
                         // remaining receivable position as an opening journal so
                         // accounting does not replay historical cash movements.
                         accountingService.postHistoricalLoanOpening(loan);
+
+                        sessionLoanReferences.recordSuccess(fingerprint, sourceReference, loanIdentity);
 
                         // Only cache a newly-created borrower after both the loan
                         // and its opening accounting entry have succeeded.
@@ -1258,7 +1564,9 @@ public class LegacyLoanImportRowService {
                                         .build();
 
                 } catch (IllegalArgumentException e) {
-
+                        if (commit) {
+                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                        }
                         log.warn(
                                         "Legacy loan import validation failure. "
                                                         + "rowNumber={}, organizationId={}, error={}",
@@ -1273,7 +1581,9 @@ public class LegacyLoanImportRowService {
                                         e.getMessage());
 
                 } catch (Exception e) {
-
+                        if (commit) {
+                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                        }
                         log.error(
                                         "Unexpected legacy loan import failure. "
                                                         + "rowNumber={}, organizationId={}",
@@ -1376,7 +1686,8 @@ public class LegacyLoanImportRowService {
                         int rowNumber,
                         Organization org,
                         Long importBatchId,
-                        Map<String, Borrower> sessionBorrowers) {
+                        Map<String, Borrower> sessionBorrowers,
+                        LegacyImportReferenceSession sessionLoanReferences) {
 
                 if (row == null) {
 
@@ -1409,6 +1720,11 @@ public class LegacyLoanImportRowService {
 
                         throw new IllegalArgumentException(
                                         "Import borrower session cache is required.");
+                }
+
+                if (sessionLoanReferences == null) {
+                        throw new IllegalArgumentException(
+                                        "Import loan-reference cache is required.");
                 }
 
                 if (importBatchId != null
@@ -2154,14 +2470,90 @@ public class LegacyLoanImportRowService {
                 }
 
                 String normalized = reference.trim();
-
-                if (normalized.length() > 150) {
-
+                String suffix = normalized.replaceFirst("(?i)^NLS[-_\\s]*", "").trim();
+                if (suffix.isBlank()) {
                         throw new IllegalArgumentException(
-                                        "loan_reference is too long.");
+                                        "loan_reference must contain a value after the NLS prefix.");
                 }
 
-                return normalized;
+                String referenceWithPrefix = "NLS-" + suffix;
+
+                // loans.reference_number is VARCHAR(100). Reject instead of
+                // truncating a legacy key, because truncation can merge two
+                // different source references and compromise idempotency.
+                if (referenceWithPrefix.length() > 100) {
+                        throw new IllegalArgumentException(
+                                        "loan_reference is too long after applying the required NLS prefix (maximum 100 characters).");
+                }
+
+                return referenceWithPrefix;
+        }
+
+        /**
+         * Reconstructs the historical reference ONLY for duplicate detection.
+         * New imports always receive the next numeric NLS reference instead.
+         * Older imports without a source reference used a deterministic UUID
+         * derived from the organization and the complete normalized row.
+         */
+        private String legacyRowFingerprint(Map<String, String> row, Organization org) {
+                return com.patrick.fintech.loan_backend.util.LegacyLoanIdentity
+                                .originalRowFingerprint(org.getId(), row);
+        }
+
+        private String resolveImportReference(
+                        Map<String, String> row,
+                        Organization org) {
+
+                String suppliedReference = opt(row, "loan_reference", null);
+                if (suppliedReference != null && !suppliedReference.isBlank()) {
+                        return normalizeReference(suppliedReference);
+                }
+
+                java.util.TreeMap<String, String> originalRow = new java.util.TreeMap<>();
+                row.forEach((key, value) -> {
+                        if (!key.startsWith("__"))
+                                originalRow.put(key, value);
+                });
+                String stableInput = String.valueOf(org.getId()) + "|" + originalRow;
+                String stableToken = UUID.nameUUIDFromBytes(
+                                stableInput.getBytes(StandardCharsets.UTF_8))
+                                .toString()
+                                .replace("-", "")
+                                .substring(0, 24)
+                                .toUpperCase(Locale.ROOT);
+
+                return "NLS-LEGACY-" + stableToken;
+        }
+
+        private int calculateImportedDaysOverdue(
+                        LoanStatus status, LocalDate maturityDate, BigDecimal remainingReceivable) {
+                if (remainingReceivable == null || remainingReceivable.signum() <= 0 || status == null
+                                || !java.util.Set.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE,
+                                                LoanStatus.DEFAULTED, LoanStatus.RESTRUCTURED).contains(status)) {
+                        return 0;
+                }
+
+                return FinancialPolicy.contractDaysOverdue(maturityDate, LocalDate.now());
+        }
+
+        private boolean optBoolean(
+                        Map<String, String> row,
+                        String key,
+                        boolean fallback) {
+
+                String raw = row.get(key);
+                if (isBlankOrSkipped(raw)) {
+                        return fallback;
+                }
+
+                String normalized = raw.trim().toUpperCase(Locale.ROOT);
+                return switch (normalized) {
+                        case "TRUE", "YES", "Y", "1", "ON", "BUSINESS_OWNER_ONLY", "OWNER_ONLY", "BO_ONLY" -> true;
+                        case "FALSE", "NO", "N", "0", "OFF", "NORMAL", "STANDARD" -> false;
+                        default -> throw new IllegalArgumentException(
+                                        "\"" + key + "\" must be true/false, yes/no, 1/0, or BUSINESS_OWNER_ONLY/NORMAL. Got \""
+                                                        + raw + "\".");
+                };
         }
 
         // ================================================================

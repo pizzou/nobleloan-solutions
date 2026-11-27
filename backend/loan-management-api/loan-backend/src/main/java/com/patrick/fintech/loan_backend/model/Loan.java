@@ -63,7 +63,7 @@ public class Loan {
         // LOAN LIMITS / DEFAULTS
         // ================================================================
 
-        public static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("500000.00");
+        public static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("1000000.00");
 
         public static final BigDecimal MAX_LOAN_AMOUNT = null;
 
@@ -165,12 +165,10 @@ public class Loan {
         @Builder.Default
         private LoanStatus status = LoanStatus.PENDING;
 
-       
         @Column(name = "business_owner_only", nullable = false)
         @Builder.Default
         @JsonIgnore
         private Boolean businessOwnerOnly = false;
-
 
         @Column(name = "deleted_at")
         @JsonIgnore
@@ -180,7 +178,6 @@ public class Loan {
         @JsonIgnore
         private String deletionReason;
 
-        
         @Column(name = "deleted_by")
         @JsonIgnore
         private Long deletedBy;
@@ -345,7 +342,7 @@ public class Loan {
         @Column(name = "penalty_rate", precision = 19, scale = 9, nullable = false)
         @Builder.Default
         @JsonProperty("penaltyRate")
-        private BigDecimal penaltyRate = new BigDecimal("10.00");
+        private BigDecimal penaltyRate = new BigDecimal("15.00");
 
         @Column(name = "penalties_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
@@ -449,6 +446,10 @@ public class Loan {
         @Column(name = "purpose", columnDefinition = "TEXT")
         private String purpose;
 
+        @Column(name = "collateral_type", nullable = false, length = 12)
+        @lombok.Builder.Default
+        private String collateralType = "NONE";
+
         @Column(name = "collateral_description", columnDefinition = "TEXT")
         private String collateralDescription;
 
@@ -468,6 +469,21 @@ public class Loan {
         @Column(name = "imported", nullable = false)
         @Builder.Default
         private Boolean imported = false;
+
+        /** The original Excel/source loan reference, NOT the new public reference. */
+        @JsonIgnore
+        @Column(name = "legacy_source_reference", length = 100)
+        private String legacySourceReference;
+
+        /** Stable fingerprint used to reject a re-upload of the same legacy row. */
+        @JsonIgnore
+        @Column(name = "legacy_import_fingerprint", length = 64)
+        private String legacyImportFingerprint;
+
+        /** Canonical identity independent of changing historical payment balances. */
+        @JsonIgnore
+        @Column(name = "legacy_loan_identity", length = 64)
+        private String legacyLoanIdentity;
 
         @Column(name = "import_batch_id")
         private Long importBatchId;
@@ -547,8 +563,40 @@ public class Loan {
         // JPA LIFECYCLE
         // ================================================================
 
+        /**
+         * Enforces Noble Loan Solution's canonical loan-reference format at the
+         * entity boundary. This protects every ORM creation/update path, including
+         * paths that do not call LoanService or the legacy importer directly.
+         * Historical values are normalized by Flyway migration V120.
+         */
+        private void normalizeLoanReferenceNumber() {
+
+                if (referenceNumber == null || referenceNumber.isBlank()) {
+                        throw new IllegalStateException(
+                                        "Loan reference number is required and must start with NLS-.");
+                }
+
+                String normalized = referenceNumber.trim();
+                String suffix = normalized.replaceFirst("(?i)^NLS[-_\\s]*", "").trim();
+
+                if (suffix.isBlank()) {
+                        throw new IllegalStateException(
+                                        "Loan reference number must contain a suffix after NLS-.");
+                }
+
+                // reference_number is VARCHAR(100); reserve four characters for NLS-.
+                if (suffix.length() > 96) {
+                        throw new IllegalStateException(
+                                        "Loan reference suffix cannot exceed 96 characters after the NLS- prefix.");
+                }
+
+                this.referenceNumber = "NLS-" + suffix;
+        }
+
         @PrePersist
         protected void onCreate() {
+
+                normalizeLoanReferenceNumber();
 
                 LocalDateTime now = LocalDateTime.now();
 
@@ -599,7 +647,7 @@ public class Loan {
                 }
 
                 if (penaltyRate == null) {
-                        penaltyRate = new BigDecimal("10.00");
+                        penaltyRate = new BigDecimal("15.00");
                 }
 
                 penaltyRate = penaltyRate.setScale(
@@ -785,6 +833,8 @@ public class Loan {
         @PreUpdate
         protected void onUpdate() {
 
+                normalizeLoanReferenceNumber();
+
                 updatedAt = LocalDateTime.now();
 
                 // Keep both timestamp fields synchronized.
@@ -889,7 +939,13 @@ public class Loan {
 
                 this.daysOverdue = days;
 
-                this.creditQuality = classifyCreditQuality(days);
+                // A formal write-off is a contractual/accounting event, not
+                // merely a days-past-due threshold. Preserve that status during
+                // entity lifecycle callbacks even when the source does not have
+                // a reliable next due date or historical overdue-day count.
+                this.creditQuality = this.status == LoanStatus.WRITTEN_OFF
+                                ? CreditQuality.WRITTEN_OFF
+                                : classifyCreditQuality(days);
 
                 this.arrearsStatus = classifyArrearsStatus(days);
 
@@ -1127,7 +1183,7 @@ public class Loan {
         @JsonIgnore
         public BigDecimal getPenaltyRateDecimal() {
                 return penaltyRate == null
-                                ? new BigDecimal("10.00")
+                                ? new BigDecimal("15.00")
                                 : penaltyRate.setScale(9, RoundingMode.HALF_UP);
         }
 

@@ -14,8 +14,10 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -25,10 +27,8 @@ public class MailService {
 
         private static final String BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 
-     
         private static final String DEFAULT_SENDER_NAME = "Noble Loan Solution";
 
-      
         private final RestTemplate restTemplate;
 
         @Value("${app.mail.enabled:false}")
@@ -37,7 +37,6 @@ public class MailService {
         @Value("${app.mail.from:}")
         private String from;
 
-       
         @Value("${app.mail.from-name:Noble Loan Solution}")
         private String fromName;
 
@@ -54,6 +53,77 @@ public class MailService {
                 factory.setReadTimeout(10_000);
 
                 this.restTemplate = new RestTemplate(factory);
+        }
+
+        public boolean isMailEnabled() {
+                return mailEnabled;
+        }
+
+        /**
+         * Send the persisted, reviewed DOCX as a Brevo attachment. Unlike general
+         * notifications this is synchronous: callers must not record dispatch when
+         * the provider rejects the message.
+         */
+        public void sendLoanContractDraftWithAttachment(Loan loan, String fileName, byte[] document) {
+                if (!mailEnabled) {
+                        throw new IllegalStateException("Contract email is disabled; the draft was not sent.");
+                }
+                if (loan == null || loan.getBorrower() == null || loan.getBorrower().getEmail() == null
+                                || loan.getBorrower().getEmail().isBlank()) {
+                        throw new IllegalStateException("The borrower must have an email address before dispatch.");
+                }
+                if (document == null || document.length == 0) {
+                        throw new IllegalStateException("The stored contract document is missing or empty.");
+                }
+                if (document.length > 10 * 1024 * 1024) {
+                        throw new IllegalStateException("The contract exceeds the 10 MB email attachment limit.");
+                }
+                if (fileName == null || !fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".docx")) {
+                        throw new IllegalStateException("The contract must have a DOCX filename.");
+                }
+                String reference = escapeHtml(loan.getReferenceNumber());
+                String body = "<p>Dear " + escapeHtml(loan.getBorrower().getFullName()) + ",</p>"
+                                + "<p>Please find attached your <strong>draft loan agreement</strong> for reference <strong>"
+                                + reference + "</strong>.</p>"
+                                + "<p>Review the borrower details, interest, fees, penalties, repayment schedule and all conditions. "
+                                + "Contact Noble Loan Solutions Ltd before signing if any information is incorrect.</p>"
+                                + "<p><strong>CONFIDENTIAL — DRAFT, NOT SIGNED.</strong> This email is not confirmation "
+                                + "of loan approval or disbursement.</p>"
+                                + "<p>Regards,<br/>Noble Loan Solutions Ltd</p>";
+                if (!send(loan.getBorrower().getEmail(),
+                                "Confidential Draft Loan Agreement — " + loan.getReferenceNumber(),
+                                body, fileName, document)) {
+                        throw new IllegalStateException(
+                                        "The email provider did not accept the contract attachment; dispatch was not recorded.");
+                }
+        }
+
+        @Async("mailAsyncExecutor")
+        public void sendLoanContractDraftNotice(Loan loan) {
+                if (!mailEnabled) {
+                        log.info("[EMAIL] Loan contract draft notice queued: {}",
+                                        loan != null ? loan.getReferenceNumber() : "unknown");
+                        return;
+                }
+                if (loan == null || loan.getBorrower() == null) {
+                        log.warn("[EMAIL] Contract draft notice skipped: loan/borrower is null");
+                        return;
+                }
+                String to = loan.getBorrower().getEmail();
+                if (to == null || to.isBlank()) {
+                        log.warn("[EMAIL] Contract draft notice skipped: borrower email is missing");
+                        return;
+                }
+                send(to,
+                                "Draft Loan Contract Ready for Review — " + escapeHtml(loan.getReferenceNumber()),
+                                "<p>Dear " + escapeHtml(loan.getBorrower().getFullName()) + ",</p>"
+                                                + "<p>Noble Loan Solutions Ltd has recorded that a draft loan contract for your application "
+                                                + "<strong>" + escapeHtml(loan.getReferenceNumber())
+                                                + "</strong> has been sent to you separately by our loan officer.</p>"
+                                                + "<p>Please review all borrower details, loan amounts, interest, fees and repayment terms carefully. "
+                                                + "Contact the loan officer if anything is incorrect or unclear. Do not sign until the final terms have been reviewed.</p>"
+                                                + "<p>This notice does not mean the contract has been signed, the loan has been approved, or funds have been disbursed.</p>"
+                                                + "<p>Regards,<br/>Noble Loan Solutions Ltd</p>");
         }
 
         @Async("mailAsyncExecutor")
@@ -139,41 +209,67 @@ public class MailService {
                                                 "from your application tracking page.</p>");
         }
 
-        @Async("mailAsyncExecutor")
-        public void sendLoginOtp(User user, String code) {
-                if (user == null) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery skipped: user is null");
-                        return;
-                }
-
-                String email = user.getEmail();
-
-                if (email == null || email.isBlank()) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery skipped: " +
-                                                        "user email is missing");
-                        return;
-                }
-
-                if (code == null || code.isBlank()) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery skipped for {}: " +
-                                                        "OTP code is missing",
-                                        email);
-                        return;
-                }
-
+        /**
+         * Login OTP delivery is synchronous on purpose: the login endpoint must not
+         * claim that a code was sent before the provider accepts it. The provider
+         * request has bounded connect/read timeouts in this service's RestTemplate.
+         * This method logs no recipient address or OTP value.
+         */
+        /** Synchronous email OTP for safe reuse of existing borrower's KYC. */
+        public boolean sendDocumentReviewSummary(Borrower borrower,
+                        java.util.List<com.patrick.fintech.loan_backend.model.BorrowerFile> files) {
                 if (!mailEnabled) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery is disabled for {}; " +
-                                                        "set MAIL_ENABLED=true in the deployment environment.",
-                                        email);
-                        return;
+                        return false;
+                }
+                StringBuilder html = new StringBuilder("<h2>Document review complete</h2><p>Dear ")
+                                .append(safe(borrower.getFullName())).append(",</p><ul>");
+                for (var file : files) {
+                        String decision = switch (file.getVerificationStatus()) {
+                                case VERIFIED -> "Verified and accepted";
+                                case REJECTED -> "Rejected";
+                                case REPLACEMENT_REQUESTED -> "Replacement requested";
+                                default -> throw new IllegalArgumentException("Document review is incomplete");
+                        };
+                        html.append("<li>").append(safe(humanizeDocType(file.getDocumentType().name())))
+                                        .append(" (").append(safe(file.getFileName())).append(") — ").append(decision);
+                        if (file.getOfficerComment() != null && !file.getOfficerComment().isBlank()) {
+                                html.append(". ").append(safe(file.getOfficerComment()));
+                        }
+                        html.append("</li>");
+                }
+                html.append("</ul><p>Visit your application portal to view the results and upload any requested replacements.</p>");
+                return send(borrower.getEmail(), "Your document review is complete", html.toString());
+        }
+
+        public boolean sendBorrowerDocumentReuseOtp(Borrower borrower, String code) {
+                if (!mailEnabled || borrower == null || borrower.getEmail() == null
+                                || borrower.getEmail().isBlank() || code == null || !code.matches("[0-9]{6}")) {
+                        return false;
+                }
+                return send(borrower.getEmail(), "Noble Loan Solutions — verify document reuse",
+                                "<p>We received a request to reuse documents already held by Noble Loan Solutions Ltd "
+                                                + "for a new loan application.</p>"
+                                                + "<p>Your verification code is <strong>" + safe(code)
+                                                + "</strong>.</p>"
+                                                + "<p>It expires in 5 minutes. If you did not request this, ignore this message.</p>");
+        }
+
+        public boolean sendLoginOtp(User user, String code) {
+                if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+                        log.warn("Login OTP delivery skipped because the user email is missing");
+                        return false;
+                }
+                if (code == null || code.isBlank()) {
+                        log.warn("Login OTP delivery skipped because the code is missing");
+                        return false;
+                }
+                if (!mailEnabled) {
+                        log.warn("Login OTP delivery is disabled; set MAIL_ENABLED=true in the deployment environment.");
+                        return false;
                 }
 
-                send(
-                                email,
+                return send(
+                                user.getEmail(),
                                 "Your sign-in code",
                                 "<h2>Sign-in Verification Code</h2>" +
                                                 "<p>Use this code to finish signing in:</p>" +
@@ -1098,7 +1194,44 @@ public class MailService {
          * methods. Therefore Brevo network latency does not block the login HTTP
          * request.
          */
+
+        /** Shared, table-based branding for all transactional HTML emails. */
+        private String brandEmailHtml(String content) {
+                String base = frontendUrl == null ? "" : frontendUrl.trim();
+                while (base.endsWith("/")) {
+                        base = base.substring(0, base.length() - 1);
+                }
+                // Public HTTPS image URL: data URIs and local file paths are not reliable in
+                // email.
+                String logoUrl = base.startsWith("https://")
+                                ? base + "/branding/nls-logo.png"
+                                : "";
+                String logo = logoUrl.isEmpty()
+                                ? "<span style=\"font-family:Arial,sans-serif;font-size:22px;font-weight:700;color:#b58a28;\">NOBLE</span>"
+                                : "<img src=\"" + escapeHtml(logoUrl)
+                                                + "\" alt=\"Noble Loan Solutions Ltd\" width=\"205\" style=\"display:block;width:205px;max-width:100%;height:auto;border:0;\">";
+                return "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+                                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
+                                + "<body style=\"margin:0;padding:0;background:#f3f5f8;font-family:Arial,Helvetica,sans-serif;color:#263445;\">"
+                                + "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"background:#f3f5f8;\"><tr><td align=\"center\" style=\"padding:32px 14px;\">"
+                                + "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"600\" style=\"width:100%;max-width:600px;background:#ffffff;border:1px solid #e3e7ee;\">"
+                                + "<tr><td style=\"height:5px;background:#b58a28;font-size:1px;line-height:1px;\">&nbsp;</td></tr>"
+                                + "<tr><td style=\"padding:28px 36px 23px;border-bottom:1px solid #e7ebf1;\">" + logo
+                                + "<div style=\"font-size:10px;letter-spacing:2px;font-weight:700;color:#68758a;margin-top:14px;\">OFFICIAL CUSTOMER COMMUNICATION</div></td></tr>"
+                                + "<tr><td style=\"padding:30px 36px 34px;font-size:15px;line-height:1.8;color:#263445;\">"
+                                + content + "</td></tr>"
+                                + "<tr><td style=\"background:#10263e;padding:24px 36px;color:#e8edf3;font-size:12px;line-height:1.7;\">"
+                                + "<strong style=\"color:#e2bb66;letter-spacing:.4px;\">NOBLE LOAN SOLUTIONS LTD</strong><br>"
+                                + "Kigali, Rwanda &nbsp;|&nbsp; <a href=\"https://nobleloansolutions.rw\" style=\"color:#e2bb66;text-decoration:none;\">nobleloansolutions.rw</a><br>"
+                                + "<span style=\"color:#b9c4d2;\">Confidential. Intended only for the named recipient. Do not share your password or verification code.</span>"
+                                + "</td></tr></table></td></tr></table></body></html>";
+        }
+
         private boolean send(String to, String subject, String html) {
+                return send(to, subject, html, null, null);
+        }
+
+        private boolean send(String to, String subject, String html, String attachmentName, byte[] attachmentData) {
                 if (to == null || to.isBlank() || subject == null || subject.isBlank() || html == null
                                 || brevoApiKey == null || brevoApiKey.isBlank()
                                 || from == null || from.isBlank()) {
@@ -1107,7 +1240,8 @@ public class MailService {
                 }
 
                 String senderName = fromName == null || fromName.isBlank()
-                                ? DEFAULT_SENDER_NAME : fromName.trim();
+                                ? DEFAULT_SENDER_NAME
+                                : fromName.trim();
                 try {
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -1115,11 +1249,16 @@ public class MailService {
                         headers.set("api-key", brevoApiKey);
 
                         Map<String, Object> sender = Map.of("email", from.trim(), "name", senderName);
-                        Map<String, Object> payload = Map.of(
-                                        "sender", sender,
-                                        "to", List.of(Map.of("email", to.trim())),
-                                        "subject", subject,
-                                        "htmlContent", html);
+                        Map<String, Object> payload = new java.util.HashMap<>();
+                        payload.put("sender", sender);
+                        payload.put("to", List.of(Map.of("email", to.trim())));
+                        payload.put("subject", subject);
+                        payload.put("htmlContent", brandEmailHtml(html));
+                        if (attachmentData != null && attachmentData.length > 0) {
+                                payload.put("attachment", List.of(Map.of(
+                                                "name", attachmentName,
+                                                "content", Base64.getEncoder().encodeToString(attachmentData))));
+                        }
 
                         ResponseEntity<String> response = restTemplate.exchange(
                                         BREVO_URL, HttpMethod.POST,
@@ -1131,12 +1270,29 @@ public class MailService {
                         log.warn("Email delivery provider rejected message; status={}, subject={}",
                                         response.getStatusCode().value(), subject);
                         return false;
+                } catch (RestClientResponseException ex) {
+                        // Report provider rejection status, but never log its response body or request
+                        // headers.
+                        log.warn("Email delivery provider rejected message; subject={}, status={}",
+                                        subject, ex.getStatusCode().value());
+                        return false;
                 } catch (Exception ex) {
-                        // Do not log recipient addresses, API credentials, message bodies, or reset links.
-                        log.warn("Email delivery failed; subject={}, exceptionType={}",
-                                        subject, ex.getClass().getSimpleName());
+                        // Do not log recipient addresses, API credentials, message bodies, or reset
+                        // links.
+                        // Include only exception class names so connect/read timeout causes are
+                        // diagnosable.
+                        log.warn("Email delivery failed; subject={}, exceptionType={}, rootCauseType={}",
+                                        subject, ex.getClass().getSimpleName(), rootCauseType(ex));
                         return false;
                 }
+        }
+
+        private String rootCauseType(Throwable exception) {
+                Throwable current = exception;
+                for (int i = 0; i < 8 && current.getCause() != null && current.getCause() != current; i++) {
+                        current = current.getCause();
+                }
+                return current.getClass().getSimpleName();
         }
 
         private String escapeHtml(Object value) {

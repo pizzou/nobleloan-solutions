@@ -278,7 +278,7 @@ public class Organization {
         }
 
         if (minLoanAmount == null) {
-            minLoanAmount = new BigDecimal("500000.00");
+            minLoanAmount = new BigDecimal("1000000.00");
         }
     }
 

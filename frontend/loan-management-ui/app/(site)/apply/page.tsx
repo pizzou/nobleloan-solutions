@@ -7,6 +7,7 @@ import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
 import { TENANT_SLUG } from "../../../lib/tenant";
 import { getApiBaseUrl } from "../../../lib/apiBase";
 import CameraCapture from "../../../components/CameraCapture";
+import { getLoanRequirementProfile } from "../../../lib/loanRequirements";
 import {
   calculateContractualSchedule,
   percentageCharge,
@@ -26,7 +27,17 @@ function ApplyPageContent() {
   const [reference, setReference] = useState("");
   const [error, setError] = useState("");
   const [docsComplete, setDocsComplete] = useState(false);
+  const [reuseExistingDocuments, setReuseExistingDocuments] = useState(false);
+  const [reuseChallengeId, setReuseChallengeId] = useState("");
+  const [reuseOtp, setReuseOtp] = useState("");
+  const [reuseProof, setReuseProof] = useState("");
+  const [reuseVerificationBusy, setReuseVerificationBusy] = useState(false);
+  const [reuseVerificationMessage, setReuseVerificationMessage] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [collateralExpertise, setCollateralExpertise] = useState<File | null>(
+    null,
+  );
+  const [extraEvidence, setExtraEvidence] = useState<File[]>([]);
   const [applicationDocuments, setApplicationDocuments] = useState<
     Record<string, File | null>
   >({
@@ -66,6 +77,7 @@ function ApplyPageContent() {
     district: "",
     sector: "",
     cell: "",
+    village: "",
     country: "Rwanda",
 
     // Employment
@@ -83,6 +95,7 @@ function ApplyPageContent() {
     durationMonths: "1",
     purpose: "",
     collateral: "",
+    collateralType: "NONE",
     collateralValue: "",
 
     // Declaration
@@ -96,7 +109,10 @@ function ApplyPageContent() {
   const selectedService = tenant.services?.find(
     (s) => s.title === form.loanType || s.loanType === form.loanType,
   );
-  const minimumLoanAmount = Number(selectedService?.minAmount ?? 500000);
+  const minimumLoanAmount = Number(selectedService?.minAmount ?? 1000000);
+  const requirementProfile = getLoanRequirementProfile(
+    selectedService?.loanType || form.loanType,
+  );
   const configuredMaximum = selectedService?.maxAmount ?? null;
   const maximumLoanAmount =
     configuredMaximum === null ||
@@ -267,6 +283,54 @@ function ApplyPageContent() {
       return;
     }
 
+    if (
+      form.collateralType !== "NONE" &&
+      (!form.collateral.trim() ||
+        !Number.isFinite(Number(form.collateralValue)) ||
+        Number(form.collateralValue) <= 0)
+    ) {
+      setError(
+        "Collateral description and a positive valuation are required when collateral is selected.",
+      );
+      setSaving(false);
+      setStep(3);
+      return;
+    }
+    if (form.collateralType === "IMMOVABLE" && !collateralExpertise) {
+      setError(
+        "An expertise / valuation report is mandatory for immovable collateral.",
+      );
+      setSaving(false);
+      setStep(3);
+      return;
+    }
+    const supportFiles = [
+      ...(collateralExpertise ? [collateralExpertise] : []),
+      ...extraEvidence,
+    ];
+    if (
+      supportFiles.reduce((total, file) => total + file.size, 0) >
+        24 * 1024 * 1024 ||
+      extraEvidence.length > 9 ||
+      supportFiles.some(
+        (file) =>
+          file.size <= 0 ||
+          file.size > 8 * 1024 * 1024 ||
+          ![
+            "application/pdf",
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+          ].includes(file.type),
+      )
+    ) {
+      setError(
+        "Maximum nine other files, up to 8 MB each (PDF, JPG, PNG or WEBP).",
+      );
+      setSaving(false);
+      setStep(3);
+      return;
+    }
     const nationality = form.nationality.trim() || "Rwandan";
 
     const crbRequiredFields: Array<[string, string]> = [
@@ -276,6 +340,7 @@ function ApplyPageContent() {
       ["District", form.district],
       ["Sector", form.sector],
       ["Cell", form.cell],
+      ["Village", form.village],
       ["Country", form.country],
     ];
 
@@ -323,7 +388,15 @@ function ApplyPageContent() {
       const file = applicationDocuments[type];
       return !file || file.size <= 0;
     });
-    if (missing.length) {
+    if (missing.length && reuseExistingDocuments && !reuseProof) {
+      setError(
+        "To reuse existing documents, verify the code sent to your registered email first.",
+      );
+      setSaving(false);
+      setStep(4);
+      return;
+    }
+    if (missing.length && !reuseExistingDocuments) {
       setError(
         `Please upload all mandatory documents before submitting: ${missing.map((d) => d.replace(/_/g, " ")).join(", ")}.`,
       );
@@ -331,10 +404,13 @@ function ApplyPageContent() {
       setStep(4);
       return;
     }
+    // The server independently matches phone + National ID to the same borrower,
+    // then checks freshness, verification status and file contents. This checkbox
+    // never authorizes access to documents or bypasses server-side validation.
 
     if (!online) {
       setError(
-        "You must be online to submit because all mandatory documents must be uploaded before the loan is created.",
+        "You must be online to submit the application and validate existing documents.",
       );
       setSaving(false);
       return;
@@ -354,9 +430,22 @@ function ApplyPageContent() {
       const multipart = new FormData();
       multipart.append(
         "application",
-        JSON.stringify({ ...form, nationality, tenantSlug: slug }),
+        JSON.stringify({
+          ...form,
+          collateral: form.collateralType === "NONE" ? "" : form.collateral,
+          collateralValue:
+            form.collateralType === "NONE" ? "" : form.collateralValue,
+          nationality,
+          tenantSlug: slug,
+          ...(reuseExistingDocuments && reuseProof ? { reuseProof } : {}),
+        }),
       );
 
+      if (collateralExpertise)
+        multipart.append("collateralExpertiseDocument", collateralExpertise);
+      extraEvidence.forEach((file) =>
+        multipart.append("otherSupportingDocuments", file),
+      );
       const documentPartNames: Record<string, string> = {
         NATIONAL_ID: "nationalId",
         BANK_STATEMENT: "bankStatement",
@@ -391,6 +480,15 @@ function ApplyPageContent() {
       setSubmitted(true);
       idempotencyKeyRef.current = null;
     } catch (e: any) {
+      // Server-side validation failed and no loan was accepted. A corrected
+      // retry needs a fresh idempotency key; preserve the key for network errors.
+      if (
+        responseStatus !== null &&
+        responseStatus >= 400 &&
+        responseStatus < 500
+      ) {
+        idempotencyKeyRef.current = null;
+      }
       if (responseStatus === 413) {
         setError(
           "One or more documents are too large. Each document must be 8MB or less.",
@@ -403,6 +501,73 @@ function ApplyPageContent() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const requestReuseCode = async () => {
+    if (!isPhoneValid(form.phone) || !isNationalIdValid(form.nationalId)) {
+      setReuseVerificationMessage(
+        "Enter your registered phone number and National ID first.",
+      );
+      return;
+    }
+    setReuseVerificationBusy(true);
+    try {
+      const response = await fetch(
+        `${getApiBaseUrl()}/public/borrower/document-reuse/start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantSlug: slug,
+            phone: form.phone,
+            nationalId: form.nationalId,
+          }),
+        },
+      );
+      const json = await response.json();
+      if (!response.ok || json.success === false || !json.data?.challengeId) {
+        throw new Error(json.message || "Could not request verification code.");
+      }
+      setReuseChallengeId(json.data.challengeId);
+      setReuseProof("");
+      setReuseVerificationMessage(
+        "If your details match our records, a verification code was emailed to the address on file.",
+      );
+    } catch (err: any) {
+      setReuseVerificationMessage(err?.message || "Unable to request a code.");
+    } finally {
+      setReuseVerificationBusy(false);
+    }
+  };
+
+  const verifyReuseCode = async () => {
+    setReuseVerificationBusy(true);
+    try {
+      const response = await fetch(
+        `${getApiBaseUrl()}/public/borrower/document-reuse/verify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            challengeId: reuseChallengeId,
+            otp: reuseOtp,
+          }),
+        },
+      );
+      const json = await response.json();
+      if (!response.ok || json.success === false || !json.data?.proof) {
+        throw new Error(json.message || "Invalid or expired code.");
+      }
+      setReuseProof(json.data.proof);
+      setReuseVerificationMessage(
+        "Your identity was confirmed. Valid existing documents can be reused.",
+      );
+    } catch (err: any) {
+      setReuseProof("");
+      setReuseVerificationMessage(err?.message || "Invalid verification code.");
+    } finally {
+      setReuseVerificationBusy(false);
     }
   };
 
@@ -506,7 +671,62 @@ function ApplyPageContent() {
         </p>
       </section>
 
-      <div className="max-w-2xl mx-auto px-4 py-12">
+      <div className="max-w-5xl mx-auto px-4 py-8">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <p
+            className="text-xs font-black uppercase tracking-wider"
+            style={{ color: accent }}
+          >
+            Before you apply
+          </p>
+          <h2 className="mt-2 text-xl font-black text-slate-900">
+            Requirements for{" "}
+            {selectedService?.title || form.loanType || "your loan"}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Minimum loan amount:{" "}
+            <strong>
+              {tenant.currency}{" "}
+              {minimumLoanAmount.toLocaleString("en-RW", {
+                maximumFractionDigits: 0,
+              })}
+            </strong>
+            . Review the requirements for your selected product before
+            completing the form.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            {[
+              { title: "Eligibility", items: requirementProfile.eligibility },
+              {
+                title: "Documents to prepare",
+                items: requirementProfile.requiredDocuments,
+              },
+              {
+                title: "Possible extra evidence",
+                items: requirementProfile.additionalEvidence,
+              },
+            ].map((group) => (
+              <div key={group.title} className="rounded-xl bg-slate-50 p-4">
+                <h3 className="text-xs font-black uppercase tracking-wide text-slate-700">
+                  {group.title}
+                </h3>
+                <ul className="mt-2 list-disc space-y-1.5 pl-4 text-xs leading-5 text-slate-600">
+                  {group.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            The form will identify mandatory uploads based on your employment
+            and marital status. Additional evidence may be requested during
+            assessment; meeting the requirements does not guarantee approval.
+          </p>
+        </section>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4 pb-12">
         {/* PROGRESS */}
 
         <div className="flex items-center justify-center gap-0 mb-10">
@@ -881,6 +1101,17 @@ function ApplyPageContent() {
                   />
                 </Field>
 
+                <Field label="Village" required>
+                  <input
+                    required
+                    maxLength={255}
+                    className={inp}
+                    value={form.village}
+                    onChange={set("village")}
+                    placeholder="Village name"
+                  />
+                </Field>
+
                 <Field label="Country" required>
                   <input
                     required
@@ -1044,7 +1275,7 @@ function ApplyPageContent() {
                       return null;
                     }
 
-                    const min = Number(svc.minAmount ?? 500000);
+                    const min = Number(svc.minAmount ?? 1000000);
                     const max =
                       svc.maxAmount === null ||
                       svc.maxAmount === undefined ||
@@ -1107,6 +1338,65 @@ function ApplyPageContent() {
                   placeholder="Describe how you will use this loan…"
                   value={form.purpose}
                   onChange={set("purpose")}
+                />
+              </Field>
+
+              <Field label="Collateral type">
+                <select
+                  className={inp}
+                  value={form.collateralType}
+                  onChange={(event) => {
+                    setForm((previous) => ({
+                      ...previous,
+                      collateralType: event.target.value,
+                    }));
+                    setCollateralExpertise(null);
+                    if (event.target.value === "NONE") {
+                      setForm((previous) => ({
+                        ...previous,
+                        collateralType: "NONE",
+                        collateral: "",
+                        collateralValue: "",
+                      }));
+                    }
+                  }}
+                >
+                  <option value="NONE">No collateral</option>
+                  <option value="MOVABLE">
+                    Movable — vehicle, machinery, equipment
+                  </option>
+                  <option value="IMMOVABLE">
+                    Immovable — land, building, property
+                  </option>
+                </select>
+              </Field>
+              {form.collateralType !== "NONE" && (
+                <Field
+                  label={
+                    form.collateralType === "IMMOVABLE"
+                      ? "Expertise / valuation report (required)"
+                      : "Expertise / valuation report (optional)"
+                  }
+                >
+                  <input
+                    type="file"
+                    className={inp}
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(event) =>
+                      setCollateralExpertise(event.target.files?.[0] ?? null)
+                    }
+                  />
+                </Field>
+              )}
+              <Field label="Other supporting documents (optional, up to 9)">
+                <input
+                  type="file"
+                  className={inp}
+                  multiple
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  onChange={(event) =>
+                    setExtraEvidence(Array.from(event.target.files ?? []))
+                  }
                 />
               </Field>
 
@@ -1264,9 +1554,83 @@ function ApplyPageContent() {
                   Mandatory Documents
                 </h3>
                 <p className="text-sm text-amber-800 mb-4">
-                  The loan will not be created until every required document is
-                  uploaded.
+                  First-time borrowers upload all required documents. Returning
+                  borrowers can reuse existing valid documents; only missing,
+                  outdated or rejected documents need replacing.
                 </p>
+                <label className="flex items-start gap-3 rounded-xl border border-amber-300 bg-white p-3 mb-4 text-sm text-gray-800">
+                  <input
+                    type="checkbox"
+                    checked={reuseExistingDocuments}
+                    onChange={(event) =>
+                      setReuseExistingDocuments(event.target.checked)
+                    }
+                    className="mt-1 h-4 w-4"
+                  />
+                  <span>
+                    <strong>I am an existing borrower.</strong> Reuse my
+                    documents already on file if they are still valid. I will
+                    only upload documents that need to be updated. The lender
+                    verifies my existing record before reusing any document.
+                  </span>
+                </label>
+                {reuseExistingDocuments && (
+                  <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 space-y-3">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Verify your existing borrower account
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      For your security, we email a one-time code to your
+                      address already on file. Your previously uploaded
+                      documents are never displayed in this public form.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void requestReuseCode()}
+                      disabled={reuseVerificationBusy}
+                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold"
+                    >
+                      Send verification code
+                    </button>
+                    {reuseChallengeId && !reuseProof && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          aria-label="Existing borrower verification code"
+                          value={reuseOtp}
+                          onChange={(event) =>
+                            setReuseOtp(
+                              event.target.value.replace(/\D/g, "").slice(0, 6),
+                            )
+                          }
+                          inputMode="numeric"
+                          placeholder="6-digit code"
+                          maxLength={6}
+                          className="rounded-lg border border-gray-300 p-2 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void verifyReuseCode()}
+                          disabled={
+                            reuseVerificationBusy || reuseOtp.length !== 6
+                          }
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold"
+                        >
+                          Confirm code
+                        </button>
+                      </div>
+                    )}
+                    {reuseVerificationMessage && (
+                      <p role="status" className="text-xs text-gray-700">
+                        {reuseVerificationMessage}
+                      </p>
+                    )}
+                    {reuseProof && (
+                      <p className="text-xs font-semibold text-green-700">
+                        Verified ✓
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-3">
                   {[
                     ["NATIONAL_ID", "National ID"],
@@ -1319,7 +1683,11 @@ function ApplyPageContent() {
                           <span
                             className={`text-xs font-bold ${file ? "text-green-700" : "text-red-600"}`}
                           >
-                            {file ? "Uploaded ✓" : "Required"}
+                            {file
+                              ? "Selected ✓"
+                              : reuseExistingDocuments
+                                ? "Reused if valid"
+                                : "Required"}
                           </span>
                         </div>
                         {key === "SELFIE" ? (
@@ -1465,7 +1833,8 @@ function ApplyPageContent() {
                       if (!svc) return true;
 
                       return (
-                        Number(form.amount) < Number(svc.minAmount ?? 500000) ||
+                        Number(form.amount) <
+                          Number(svc.minAmount ?? 1000000) ||
                         (svc.maxAmount !== null &&
                           svc.maxAmount !== undefined &&
                           svc.maxAmount !== "" &&

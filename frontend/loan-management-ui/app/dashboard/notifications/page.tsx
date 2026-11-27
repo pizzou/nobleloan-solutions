@@ -18,6 +18,7 @@ import {
 
 import {
   DisplayNotification,
+  dismissAllNotifications,
   getMyNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
@@ -102,6 +103,8 @@ function formatDate(value?: string): string {
   return new Intl.DateTimeFormat("en-RW", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Africa/Kigali",
+    hour12: false,
   }).format(date);
 }
 
@@ -356,6 +359,7 @@ export default function Page() {
   const [selected, setSelected] = useState<DisplayNotification | null>(null);
 
   const [markingAll, setMarkingAll] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
 
   const mounted = useRef(true);
 
@@ -706,11 +710,24 @@ export default function Page() {
     }
   }, [unreadCount]);
 
-  const clearLocal = useCallback(() => {
-    setNotifications([]);
-
-    setSelected(null);
-  }, []);
+  const clearLocal = useCallback(async () => {
+    if (clearingAll) return;
+    setClearingAll(true);
+    try {
+      await dismissAllNotifications();
+      if (!mounted.current) return;
+      setNotifications([]);
+      setSelected(null);
+      setLoadError(null);
+    } catch (error) {
+      console.error("[NOTIFICATIONS] Failed to clear notifications:", error);
+      if (mounted.current) {
+        setLoadError("Could not clear notifications. Please try again.");
+      }
+    } finally {
+      if (mounted.current) setClearingAll(false);
+    }
+  }, [clearingAll]);
 
   return (
     <main className="notification-shell">
@@ -1462,8 +1479,8 @@ export default function Page() {
             )}
 
             {notifications.length > 0 && (
-              <button className="button danger" onClick={clearLocal}>
-                Clear view
+              <button className="button danger" onClick={() => void clearLocal()} disabled={clearingAll}>
+                {clearingAll ? "Clearing..." : "Clear notifications"}
               </button>
             )}
           </div>
@@ -1561,9 +1578,16 @@ export default function Page() {
                     </div>
 
                     <div className="notification-time">
-                      {relativeTime(
-                        notification.createdAt || notification.paymentTimestamp,
-                      )}
+                      <div>
+                        {relativeTime(
+                          notification.createdAt || notification.paymentTimestamp,
+                        )}
+                      </div>
+                      <div className="text-[11px] font-normal opacity-70" title="Rwanda local time (Africa/Kigali)">
+                        {formatDate(
+                          notification.createdAt || notification.paymentTimestamp,
+                        )}{" "}CAT
+                      </div>
                     </div>
                   </div>
 

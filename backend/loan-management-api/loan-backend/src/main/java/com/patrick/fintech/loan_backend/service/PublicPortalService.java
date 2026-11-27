@@ -433,7 +433,8 @@ public class PublicPortalService {
          *
          * 5% monthly interest
          * 5% monthly management fee
-         * 10% daily penalty after a 3-day grace period when overdue
+         * 15% monthly penalty prorated by actual calendar days after a 3-day grace
+         * period when overdue
          *
          * Interest and management fee accrue on the outstanding
          * principal balance.
@@ -591,46 +592,13 @@ public class PublicPortalService {
                 // LATE DAYS
                 // ============================================================
 
-                LocalDate cycleDueDate = installment.getDueDate() != null
-                                ? installment.getDueDate()
-                                : (loan.getNextDueDate() != null
-                                                ? loan.getNextDueDate()
-                                                : today);
-
-                int daysLate = Math.max(
-                                0,
-                                (int) ChronoUnit.DAYS.between(
-                                                cycleDueDate,
-                                                today));
-
-                // ============================================================
-                // PENALTY
-                // ============================================================
-
-                int recordedOverdueDays = installment.getDaysLate() != null
-                                ? Math.max(
-                                                0,
-                                                installment.getDaysLate())
-                                : 0;
-
-                int previouslyChargeablePenaltyDays = Math.max(
-                                0,
-                                recordedOverdueDays - FinancialPolicy.PENALTY_GRACE_DAYS);
-
-                int currentlyChargeablePenaltyDays = Math.max(
-                                0,
-                                daysLate - FinancialPolicy.PENALTY_GRACE_DAYS);
-
-                int newPenaltyDays = Math.max(
-                                0,
-                                currentlyChargeablePenaltyDays - previouslyChargeablePenaltyDays);
+                int daysLate = FinancialPolicy.contractDaysOverdue(loan, today);
+                LocalDate firstChargeableDate = FinancialPolicy.firstContractPenaltyDate(loan);
 
                 BigDecimal newPenalty = ZERO;
 
-                if (newPenaltyDays > 0
+                if (daysLate > 0
                                 && currentBalance.compareTo(ZERO) > 0) {
-                        LocalDate firstChargeableDate = cycleDueDate
-                                        .plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
                         LocalDate asOf = today;
                         newPenalty = money(FinancialPolicy.historicalDailyPenalty(
                                         currentBalance,
@@ -641,7 +609,7 @@ public class PublicPortalService {
                                                 BigDecimal reconstructed = currentBalance;
                                                 for (Payment payment : loanPayments) {
                                                         if (payment == null || payment.getPaidDate() == null
-                                                                        || !payment.getPaidDate().isAfter(date)) {
+                                                                        || payment.getPaidDate().isBefore(date)) {
                                                                 continue;
                                                         }
                                                         reconstructed = reconstructed.add(
@@ -653,9 +621,7 @@ public class PublicPortalService {
                 }
 
                 BigDecimal totalPenalty = money(
-                                penaltyAlreadyRecorded
-                                                .add(
-                                                                newPenalty));
+                                penaltyAlreadyRecorded.max(newPenalty));
 
                 BigDecimal unpaidPenalty = money(
                                 totalPenalty
@@ -693,7 +659,7 @@ public class PublicPortalService {
                                                 "monthlyInterestRate={}, scheduledInterest={}, remainingInterest={}, " +
                                                 "monthlyManagementRate={}, scheduledManagementFee={}, remainingManagementFee={}, "
                                                 +
-                                                "daysLate={}, newPenaltyDays={}, " +
+                                                "daysLate={}, " +
                                                 "dailyPenaltyRate={}, graceDays={}, totalPenalty={}, " +
                                                 "unpaidPenalty={}, currentPayable={}",
                                 loan.getId(),
@@ -705,7 +671,6 @@ public class PublicPortalService {
                                 scheduledManagementFee,
                                 remainingManagementFee,
                                 daysLate,
-                                newPenaltyDays,
                                 loan.getPenaltyRateDecimal(),
                                 FinancialPolicy.PENALTY_GRACE_DAYS,
                                 totalPenalty,

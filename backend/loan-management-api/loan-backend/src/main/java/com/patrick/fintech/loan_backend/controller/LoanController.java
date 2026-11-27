@@ -7,6 +7,9 @@ import com.patrick.fintech.loan_backend.dto.LoanResponse;
 import com.patrick.fintech.loan_backend.dto.LoanCommentResponse;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanContract;
+import com.patrick.fintech.loan_backend.service.LoanContractService;
+import com.patrick.fintech.loan_backend.service.LoanApplicationFormService;
 import com.patrick.fintech.loan_backend.model.LoanComment;
 import com.patrick.fintech.loan_backend.model.LoanApproval;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
@@ -33,6 +36,8 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -41,6 +46,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 
@@ -71,6 +78,10 @@ public class LoanController {
         private final IdempotencyService idempotencyService;
         private final ObjectMapper objectMapper;
         private final LoanAdministrationService loanAdministrationService;
+        private final LoanContractService loanContractService;
+        private final LoanApplicationFormService loanApplicationFormService;
+        private final com.patrick.fintech.loan_backend.service.BorrowerFileService borrowerFileService;
+        private final LoanCreationDocumentGuard loanCreationDocumentGuard;
 
         // ================================================================
         // CREATE LOAN
@@ -81,6 +92,11 @@ public class LoanController {
         public ResponseEntity<ApiResponse<LoanResponse>> createLoan(
                         @Valid @RequestBody LoanRequest req) {
 
+                if ("IMMOVABLE".equalsIgnoreCase(req.getCollateralType())) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Immovable collateral must include an expertise report. Use the document upload loan creation form.");
+                }
                 User user = currentUserUtil.getCurrentUser();
 
                 Loan loan = loanService.createLoan(
@@ -95,12 +111,87 @@ public class LoanController {
                 loanApprovalService.initiateChain(
                                 loan);
 
+                // Create the contract after the application and its approval chain exist.
+                // The contract is a draft only; it does not approve or disburse the loan.
+                loanContractService.generateForNewLoan(loan, user);
+
                 return ResponseEntity
                                 .status(HttpStatus.CREATED)
                                 .body(
                                                 ApiResponse.ok(
                                                                 "Loan application created and submitted for approval",
                                                                 ResponseDtoMapper.loan(loan)));
+        }
+
+        /**
+         * Atomically create a loan and its supporting files. Existing JSON creation
+         * remains available for loan requests WITHOUT immovable collateral.
+         */
+        @PostMapping(value = "/with-collateral-documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        @PreAuthorize("hasAnyRole('LOAN_OFFICER','ADMIN','MANAGER')")
+        @Transactional(rollbackFor = Exception.class)
+        public ResponseEntity<ApiResponse<LoanResponse>> createWithCollateralDocuments(
+                        @Valid @RequestPart("loan") LoanRequest req,
+                        @RequestPart(value = "collateralExpertiseDocument", required = false) org.springframework.web.multipart.MultipartFile expertise,
+                        @RequestPart(value = "otherSupportingDocuments", required = false) List<org.springframework.web.multipart.MultipartFile> otherDocuments)
+                        throws java.io.IOException {
+                String category = req.getCollateralType() == null ? "NONE"
+                                : req.getCollateralType().trim().toUpperCase(java.util.Locale.ROOT);
+                if (!java.util.Set.of("NONE", "MOVABLE", "IMMOVABLE").contains(category)) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST, "Invalid collateral type.");
+                }
+                if ("IMMOVABLE".equals(category) && (expertise == null || expertise.isEmpty())) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.UNPROCESSABLE_ENTITY,
+                                        "Collateral expertise / valuation report is mandatory for immovable collateral.");
+                }
+                if ((otherDocuments == null ? 0 : otherDocuments.size()) > 9) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST, "Maximum nine additional supporting documents.");
+                }
+                if ("NONE".equals(category) && expertise != null && !expertise.isEmpty()) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.BAD_REQUEST,
+                                        "Do not attach collateral expertise when collateral type is NONE.");
+                }
+                long bytes = expertise == null ? 0L : expertise.getSize();
+                if (otherDocuments != null) {
+                        for (var doc : otherDocuments) {
+                                if (doc != null)
+                                        bytes += doc.getSize();
+                        }
+                }
+                if (bytes > 24L * 1024 * 1024) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        HttpStatus.PAYLOAD_TOO_LARGE,
+                                        "Loan supporting documents exceed the 24 MB total upload limit.");
+                }
+                // @RequestPart is not handled by RequestBodyAdvice: run the KYC guard
+                // explicitly.
+                loanCreationDocumentGuard.validateRequiredDocuments(req);
+                User user = currentUserUtil.getCurrentUser();
+                Loan loan = loanService.createLoan(req, user.getOrganization().getId(), user);
+                Long borrowerId = loan.getBorrower().getId();
+                if (expertise != null && !expertise.isEmpty()) {
+                        borrowerFileService.uploadEvidenceForLoan(borrowerId, loan, expertise,
+                                        com.patrick.fintech.loan_backend.model.DocumentType.COLLATERAL_EXPERTISE,
+                                        false);
+                }
+                if (otherDocuments != null) {
+                        for (var file : otherDocuments) {
+                                if (file != null && !file.isEmpty()) {
+                                        borrowerFileService.uploadEvidenceForLoan(borrowerId, loan, file,
+                                                        com.patrick.fintech.loan_backend.model.DocumentType.OTHER,
+                                                        false);
+                                }
+                        }
+                }
+                loanApprovalService.initiateChain(loan);
+                loanContractService.generateForNewLoan(loan, user);
+                return ResponseEntity.status(HttpStatus.CREATED)
+                                .body(ApiResponse.ok("Loan application created and submitted for approval",
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         // ================================================================
@@ -118,7 +209,9 @@ public class LoanController {
 
                         @RequestParam(required = false) String type,
 
-                        @RequestParam(required = false) String search) {
+                        @RequestParam(required = false) String search,
+
+                        @RequestParam(required = false) String visibility) {
 
                 Organization organization = currentUserUtil
                                 .getCurrentUser()
@@ -132,7 +225,8 @@ public class LoanController {
                                                                 size,
                                                                 status,
                                                                 type,
-                                                                search))));
+                                                                search,
+                                                                visibility))));
         }
 
         // ================================================================
@@ -152,6 +246,131 @@ public class LoanController {
                                                 ResponseDtoMapper.loan(loanService.getLoanForOrg(
                                                                 id,
                                                                 organizationId))));
+        }
+
+        // ================================================================
+        // LOAN CONTRACT DRAFT
+        // ================================================================
+
+        // A read-only copy of the saved borrower application for staff records.
+        // Available for existing and new loans; never changes approval or disbursement.
+        @GetMapping("/{id}/application-form")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
+        public ResponseEntity<byte[]> downloadLoanApplicationForm(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                Loan loan = loanService.getLoanForOrg(id, organizationId);
+                byte[] bytes = loanApplicationFormService.render(loan);
+
+                auditService.log(loan.getOrganization(), user,
+                                "LOAN_APPLICATION_FORM_DOWNLOADED", "LOAN",
+                                String.valueOf(loan.getId()),
+                                "Downloaded application form for loan " + loan.getReferenceNumber(),
+                                null, null, "Loan Applications");
+
+                return ResponseEntity.ok()
+                                .contentType(MediaType.parseMediaType(
+                                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                .header(HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=\"NLS-Application-" + id + ".docx\"")
+                                .header(HttpHeaders.CACHE_CONTROL, "no-store, private")
+                                .body(bytes);
+        }
+
+        @PostMapping("/{id}/contract/generate")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> generateLoanContractDraft(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                Loan loan = loanService.getLoanForOrg(id, organizationId);
+                LoanContract contract = loanContractService.generateForNewLoan(loan, user);
+                return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(
+                                "Loan contract draft is ready for review",
+                                Map.of("loanId", id, "status", contract.getStatus().name(),
+                                                "fileName", contract.getFileName(),
+                                                "generatedAt", contract.getGeneratedAt().toString())));
+        }
+
+        @GetMapping("/{id}/contract/status")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> getLoanContractStatus(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                loanService.getLoanForOrg(id, organizationId);
+                LoanContract contract = loanContractService.getForOrganization(id, organizationId);
+                return ResponseEntity.ok(ApiResponse.ok("Contract status loaded",
+                                Map.of("status", contract.getStatus().name(),
+                                                "fileName", contract.getFileName(),
+                                                "generatedAt", contract.getGeneratedAt().toString(),
+                                                "sentAt",
+                                                contract.getSentAt() == null ? "" : contract.getSentAt().toString(),
+                                                "borrowerNoticeQueued", contract.getBorrowerNotifiedAt() != null)));
+        }
+
+        @GetMapping("/{id}/contract/draft")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
+        public ResponseEntity<byte[]> downloadLoanContractDraft(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+
+                // Verify tenant-scoped loan access before returning contract bytes.
+                loanService.getLoanForOrg(id, organizationId);
+                LoanContract contract = loanContractService.refreshDraftForDownload(id, organizationId, user);
+                auditService.log(
+                                contract.getOrganization(), user,
+                                "LOAN_CONTRACT_DRAFT_DOWNLOADED", "LOAN_CONTRACT",
+                                String.valueOf(contract.getId()),
+                                "Downloaded draft contract for loan " + contract.getLoan().getReferenceNumber()
+                                                + "; sha256=" + contract.getSha256(),
+                                null, null, "Loan Contracts");
+                return ResponseEntity.ok()
+                                .contentType(MediaType.parseMediaType(contract.getContentType()))
+                                .header(HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=\"" + contract.getFileName().replace("\"", "")
+                                                                + "\"")
+                                .header(HttpHeaders.CACHE_CONTROL, "no-store, private")
+                                .body(contract.getDocumentData());
+        }
+
+        @PostMapping("/{id}/contract/sent")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> markLoanContractSent(
+                        @PathVariable Long id,
+                        @RequestBody(required = false) Map<String, Boolean> body) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                loanService.getLoanForOrg(id, organizationId);
+                boolean termsReviewed = body != null && Boolean.TRUE.equals(body.get("termsReviewed"));
+                LoanContract contract = loanContractService.markSent(id, organizationId, user, termsReviewed);
+                return ResponseEntity.ok(ApiResponse.ok(
+                                "Contract dispatch recorded. A borrower review notice is queued by email when email delivery is enabled.",
+                                Map.of(
+                                                "loanId", id,
+                                                "status", contract.getStatus().name(),
+                                                "sentAt",
+                                                contract.getSentAt() == null ? "" : contract.getSentAt().toString(),
+                                                "borrowerNoticeQueued", contract.getBorrowerNotifiedAt() != null)));
+        }
+
+        /**
+         * Business Owner-only reporting classification migration. This endpoint
+         * changes visibility only; it does not approve, disburse, or reprice a loan.
+         */
+        @PatchMapping("/{id}/visibility")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        @Transactional
+        public ResponseEntity<ApiResponse<LoanResponse>> changeLoanVisibility(
+                        @PathVariable Long id,
+                        @RequestBody Map<String, Boolean> body) {
+                if (body == null || body.get("businessOwnerOnly") == null) {
+                        throw new IllegalArgumentException("businessOwnerOnly must be supplied as true or false");
+                }
+                User actor = currentUserUtil.getCurrentUser();
+                Loan updated = loanAdministrationService.changeReportingVisibility(
+                                id, body.get("businessOwnerOnly"), actor);
+                return ResponseEntity.ok(ApiResponse.ok(
+                                "Loan reporting visibility updated",
+                                ResponseDtoMapper.loan(updated)));
         }
 
         // ================================================================
@@ -258,6 +477,8 @@ public class LoanController {
 
                 Double newInterestRate = parseDouble(body, "interestRate",
                                 "interestRate must be a valid number.");
+                Double newManagementFeeRate = parseDouble(body, "managementFeeRate",
+                                "managementFeeRate must be a valid number.");
                 Double applicationFeeRate = parseDouble(body, "applicationFeeRate",
                                 "applicationFeeRate must be a valid number.");
                 java.math.BigDecimal approvedAmount = parseMoney(body, "approvedAmount", "amount",
@@ -272,7 +493,8 @@ public class LoanController {
                                 newInterestRate,
                                 applicationFeeRate,
                                 approvedAmount,
-                                businessOwnerOnly);
+                                businessOwnerOnly,
+                                newManagementFeeRate);
 
                 /*
                  * A BUSINESS_OWNER_ONLY loan becomes hidden from NORMAL_SCOPE
@@ -458,6 +680,17 @@ public class LoanController {
                 String method = body != null
                                 ? body.getOrDefault("disbursementMethod", "BANK_TRANSFER")
                                 : "BANK_TRANSFER";
+                String requestedDisbursementDate = body != null ? body.get("disbursementDate") : null;
+                LocalDate selectedDisbursementDate;
+                try {
+                        selectedDisbursementDate = requestedDisbursementDate == null
+                                        || requestedDisbursementDate.isBlank()
+                                                        ? LocalDate.now()
+                                                        : LocalDate.parse(requestedDisbursementDate.trim());
+                } catch (DateTimeParseException ex) {
+                        throw new IllegalArgumentException(
+                                        "Disbursement date must use ISO format yyyy-MM-dd.", ex);
+                }
 
                 Map<String, String> request = body == null ? Map.of("disbursementMethod", method) : body;
                 var outcome = idempotencyService.checkOrReserve(
@@ -472,7 +705,7 @@ public class LoanController {
                 }
 
                 try {
-                        Loan loan = loanService.disburseLoan(id, user, method);
+                        Loan loan = loanService.disburseLoan(id, user, method, selectedDisbursementDate);
                         LoanResponse response = ResponseDtoMapper.loan(loan);
                         idempotencyService.recordSuccess(idempotencyKey, org, response, 200);
                         return ResponseEntity.ok(ApiResponse.ok("Loan disbursed", response));

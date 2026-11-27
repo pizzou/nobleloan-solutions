@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.production
+.env.audit
 
 # SSL certificates
 docker/nginx/ssl/*.pem
@@ -14,6 +15,7 @@ docker/nginx/ssl/*.key
 **/node_modules/
 **/dist/
 **/.gradle/
+*.tsbuildinfo
 
 # Logs
 *.log

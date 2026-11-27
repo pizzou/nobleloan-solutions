@@ -13,6 +13,8 @@ import { Pill } from "../../../components/ui/Badge";
 
 interface RowResult {
   rowNumber: number;
+  sourceSheet?: string;
+  duplicateRowsIgnored?: number;
   success: boolean;
   borrowerAction?: string;
   borrowerName?: string;
@@ -39,7 +41,7 @@ interface Batch {
 
 const MAX_FILE_SIZE_MB = 25;
 
-const ACCEPTED_EXTENSIONS = [".csv", ".xlsx", ".xls"];
+const ACCEPTED_EXTENSIONS = [".csv", ".xlsx"];
 
 /* ============================================================
    HELPERS
@@ -127,7 +129,10 @@ export default function ImportLegacyLoansPage() {
     const extension = getFileExtension(selectedFile.name);
 
     if (!ACCEPTED_EXTENSIONS.includes(extension)) {
-      toast("error", "Unsupported file type. Please upload CSV, XLSX, or XLS.");
+      toast(
+        "error",
+        "Unsupported file type. Please upload CSV or XLSX. Convert legacy XLS workbooks to XLSX first.",
+      );
 
       return false;
     }
@@ -386,6 +391,15 @@ export default function ImportLegacyLoansPage() {
 
   const previewRows = preview || [];
 
+  const repeatedSourceRows = previewRows.reduce(
+    (sum, row) => sum + (row.duplicateRowsIgnored || 0),
+    0,
+  );
+
+  const conflictingCandidates = previewRows.filter((row) =>
+    (row.error || "").includes("Possible duplicate with conflicting"),
+  ).length;
+
   const successfulRows = previewRows.filter((row) => row.success);
 
   const failedRows = previewRows.filter((row) => !row.success);
@@ -415,27 +429,15 @@ export default function ImportLegacyLoansPage() {
             PAGE HEADER
             ==================================================== */}
 
-        <div className="mb-7">
+        <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="mb-3 flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full bg-[#E8EEF6] px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#0B1F3A]">
-                  Data Migration
-                </span>
-
-                <span className="text-xs text-gray-400">
-                  Legacy Loan Import
-                </span>
-              </div>
-
               <h1 className="text-2xl font-extrabold tracking-tight text-[#0B1F3A] sm:text-3xl">
                 Import Legacy Loans
               </h1>
 
               <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">
-                Safely migrate historical borrower and loan records into Noble
-                Loan Solutions. Files are validated before any production data
-                is created.
+                Validate and import historical loan records.
               </p>
             </div>
 
@@ -461,100 +463,31 @@ export default function ImportLegacyLoansPage() {
           </div>
         </div>
 
-        {/* ====================================================
-            SECURITY / PROCESS NOTICE
-            ==================================================== */}
+        <ol aria-label="Import progress" className="mb-4 grid grid-cols-3 overflow-hidden divide-x divide-slate-200 rounded-xl border border-slate-200 bg-white">
+          {["Select file", "Validate", "Review and import"].map((label, index) => {
+            const current = index === (preview ? 2 : file ? 1 : 0);
+            return (
+              <li key={label} aria-current={current ? "step" : undefined}
+                className={`px-3 py-3 text-center text-xs font-semibold sm:text-sm ${current ? "bg-slate-900 text-white" : "text-slate-600"}`}>
+                {label}
+              </li>
+            );
+          })}
+        </ol>
 
-        <div className="mb-6 rounded-2xl border border-[#D9E3EF] bg-white shadow-sm">
-          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAF1F8] text-[#0B1F3A]">
-              <svg
-                className="h-5 w-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="M12 3 5 6v5c0 4.7 2.9 8.9 7 10 4.1-1.1 7-5.3 7-10V6l-7-3Z" />
-                <path d="m9 12 2 2 4-4" />
-              </svg>
-            </div>
-
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-[#0B1F3A]">
-                Controlled production import
-              </p>
-
-              <p className="mt-1 text-sm leading-6 text-gray-500">
-                Preview validates the file without saving anything. Only the
-                rows that pass validation can be committed. Borrowers are
-                matched using the existing import rules, including National ID
-                matching.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* ====================================================
-            THREE STEP PROCESS
-            ==================================================== */}
-
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
-          {[
-            {
-              number: "01",
-              title: "Prepare",
-              description:
-                "Download the approved template and populate your legacy records.",
-              active: !file,
-            },
-            {
-              number: "02",
-              title: "Validate",
-              description:
-                "Upload the file and run a preview before anything is saved.",
-              active: !!file && !preview,
-            },
-            {
-              number: "03",
-              title: "Commit",
-              description:
-                "Review every result, then safely create the valid records.",
-              active: !!preview,
-            },
-          ].map((step) => (
-            <div
-              key={step.number}
-              className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
-                step.active
-                  ? "border-[#C7D5E5] ring-1 ring-[#E8EEF6]"
-                  : "border-gray-200"
-              }`}
-            >
-              <div className="flex items-start gap-4">
-                <div
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-extrabold ${
-                    step.active
-                      ? "bg-[#0B1F3A] text-white"
-                      : "bg-gray-100 text-gray-400"
-                  }`}
-                >
-                  {step.number}
-                </div>
-
-                <div>
-                  <p className="text-sm font-bold text-gray-900">
-                    {step.title}
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-gray-500">
-                    {step.description}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <details className="mb-4 rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">
+            Template requirements and repayment rules
+          </summary>
+          <ul className="list-disc space-y-2 border-t border-slate-200 py-4 pl-9 pr-5 text-sm text-slate-700">
+            <li>Preview saves nothing. Only valid rows can be imported. Borrower matching includes National ID.</li>
+            <li>Verify opening balances against payment records. Enter paid amounts and outstanding balances separately.</li>
+            <li>Workbook payments use principal paid (AA), interest paid (Z) and management fees paid (X). Columns I–N show scheduled interest.</li>
+            <li>Remaining principal equals original principal less principal paid. Unpaid charges use interest (AC), management fees (V) and penalties (AB). Use the detailed template to report penalties already paid.</li>
+            <li>For open loans, enter the verified next due date. For partially paid workbook loans, enter the verified oldest unpaid date in <strong>AE</strong> (VERIFIED OLDEST UNPAID DUE DATE). Column P is the first scheduled date.</li>
+            <li>Use the loan correction workflow to amend dates after import. The system assigns final NLS references at import, and the Business Owner controls any later visibility changes.</li>
+          </ul>
+        </details>
 
         {/* ====================================================
             IMPORT WORKSPACE
@@ -566,10 +499,10 @@ export default function ImportLegacyLoansPage() {
           <div className="border-b border-gray-100 bg-gradient-to-r from-[#07152A] via-[#0B1F3A] to-[#16365F] px-5 py-5 text-white sm:px-7">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-base font-bold">Import workspace</h2>
+                <h2 className="text-base font-bold">Upload and validate</h2>
 
                 <p className="mt-1 text-xs text-blue-100">
-                  CSV, XLSX and XLS files · Maximum {MAX_FILE_SIZE_MB} MB
+                  CSV and XLSX files · Maximum {MAX_FILE_SIZE_MB} MB
                 </p>
               </div>
 
@@ -603,7 +536,7 @@ export default function ImportLegacyLoansPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls"
+                accept=".csv,.xlsx"
                 className="hidden"
                 onChange={(event) =>
                   handleFileChange(event.target.files?.[0] ?? null)
@@ -638,7 +571,8 @@ export default function ImportLegacyLoansPage() {
               </p>
 
               <p className="mt-3 text-xs text-gray-400">
-                Accepted: CSV, XLSX, XLS · Maximum {MAX_FILE_SIZE_MB} MB
+                Accepted: CSV and XLSX · Maximum {MAX_FILE_SIZE_MB} MB. Convert
+                legacy XLS workbooks to XLSX first.
               </p>
             </div>
 
@@ -858,9 +792,27 @@ export default function ImportLegacyLoansPage() {
                   </div>
                 </div>
 
+                <p className="mt-3 text-xs text-slate-600">
+                  {repeatedSourceRows} matching worksheet copies were grouped
+                  and will not become extra loans.
+                  {conflictingCandidates > 0 && (
+                    <span className="ml-1 font-semibold text-red-700">
+                      {conflictingCandidates} conflicting loan groups require
+                      manual verification and are blocked.
+                    </span>
+                  )}
+                </p>
+
                 {/* ==================================================
                     RESULT TABLE
                     ================================================== */}
+
+                <p className="mt-4 text-xs text-slate-600">
+                  Loan references below are proposed NLS numbers for valid rows
+                  only. The final number is allocated securely when the loan is
+                  saved; another user's loan creation may change a proposed
+                  number.
+                </p>
 
                 <div className="mt-5 overflow-hidden rounded-2xl border border-gray-200">
                   <div className="overflow-x-auto">
@@ -902,7 +854,7 @@ export default function ImportLegacyLoansPage() {
                         ) : (
                           visiblePreviewRows.map((row) => (
                             <tr
-                              key={row.rowNumber}
+                              key={`${row.sourceSheet || "source"}-${row.rowNumber}-${row.loanReferenceNumber || row.error || ""}`}
                               className={
                                 row.success
                                   ? "transition hover:bg-[#FAFBFC]"
@@ -910,7 +862,15 @@ export default function ImportLegacyLoansPage() {
                               }
                             >
                               <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                                {row.rowNumber}
+                                <span>{row.rowNumber}</span>
+                                {row.sourceSheet && (
+                                  <span
+                                    className="mt-1 block max-w-36 truncate text-[10px] text-slate-500"
+                                    title={row.sourceSheet}
+                                  >
+                                    {row.sourceSheet}
+                                  </span>
+                                )}
                               </td>
 
                               <td className="px-4 py-3">
@@ -926,6 +886,13 @@ export default function ImportLegacyLoansPage() {
                                   {row.borrowerName || "—"}
                                 </div>
 
+                                {(row.duplicateRowsIgnored || 0) > 0 &&
+                                  row.success && (
+                                    <div className="mt-1 text-[11px] text-amber-700">
+                                      {row.duplicateRowsIgnored} matching
+                                      worksheet copies ignored
+                                    </div>
+                                  )}
                                 {row.success && (
                                   <div className="mt-1 text-[11px] text-gray-400">
                                     {isNewBorrowerAction(row.borrowerAction)
@@ -1003,10 +970,6 @@ export default function ImportLegacyLoansPage() {
                 Import history
               </h2>
 
-              <p className="mt-1 text-xs text-gray-400">
-                Previous legacy migration batches processed by your
-                organization.
-              </p>
             </div>
 
             <span className="text-xs font-medium text-gray-400">

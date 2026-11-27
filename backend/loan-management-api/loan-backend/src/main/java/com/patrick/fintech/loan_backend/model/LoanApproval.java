@@ -8,13 +8,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.*;
 import java.time.LocalDateTime;
 
-/**
- * One step in a loan's maker-checker approval chain. For loans above an
- * org's configured threshold, more than one distinct person — in distinct
- * roles — must sign off before the loan can actually be approved; nobody
- * can approve their own step twice, and the person who created/requested
- * the loan can never also be the one approving it. See LoanApprovalService.
- */
+
 @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
 @Entity
 @SQLRestriction("public.loan_is_visible(loan_id)")

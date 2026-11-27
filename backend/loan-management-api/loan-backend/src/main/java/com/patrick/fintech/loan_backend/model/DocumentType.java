@@ -26,6 +26,8 @@ public enum DocumentType {
 
     COLLATERAL_DOCUMENT,
 
+    COLLATERAL_EXPERTISE,
+
     MARRIAGE_CERTIFICATE,
 
     SINGLE_CERTIFICATE,
@@ -33,6 +35,8 @@ public enum DocumentType {
     SELFIE,
 
     SIGNATURE,
+
+    SIGNED_LOAN_CONTRACT,
 
     OTHER
 

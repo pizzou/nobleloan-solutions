@@ -31,7 +31,6 @@ public class LoanRequest {
 
     private String interestRateType;
 
-
     @NotNull(message = "Loan duration is required")
     @Min(value = 1, message = "Loan duration must be at least 1 month")
     @Max(value = 6, message = "Loan duration cannot exceed 6 months")
@@ -49,6 +48,8 @@ public class LoanRequest {
     private BigDecimal collateralValue;
 
     private String collateralDescription;
+
+    private String collateralType;
 
     private Loan.LoanType loanType;
 

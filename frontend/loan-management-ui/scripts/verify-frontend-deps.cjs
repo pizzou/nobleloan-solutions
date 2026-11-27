@@ -30,7 +30,7 @@ try {
 
   require.resolve("next/babel", { paths: [root] });
   const nextRoot = path.join(root, "node_modules", "next");
-  for (const required of ["babel.js", "types/index.d.ts", "dist/compiled/babel/bundle.js"]) {
+  for (const required of ["babel.js", "index.d.ts", "dist/compiled/babel/bundle.js"]) {
     if (!fs.existsSync(path.join(nextRoot, required))) throw new Error(`Next.js installation is incomplete: missing next/${required}`);
   }
 

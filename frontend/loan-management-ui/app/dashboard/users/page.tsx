@@ -6,7 +6,8 @@ import { get, post, put, del } from "../../../services/api";
 
 import { toast } from "../../../hooks/useToast";
 
-import { hasRole } from "../../../services/authService";
+import { getCurrentUser, hasRole } from "../../../services/authService";
+import { clearSensitiveClientState } from "@/lib/securityCleanup";
 
 import { PageSpinner } from "../../../components/ui/Skeleton";
 
@@ -55,6 +56,12 @@ function inputCls(err?: string) {
 export default function UsersPage() {
   const isAdmin = hasRole("ADMIN");
   const isBusinessOwner = hasRole("BUSINESS_OWNER");
+  // AuthResponse stores the current account ID as userId. Used only to choose
+  // the correct form; the backend remains authoritative for authorization.
+  const [currentUserId] = useState<number | null>(() => {
+    const currentUser = getCurrentUser();
+    return typeof currentUser?.userId === "number" ? currentUser.userId : null;
+  });
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +85,7 @@ export default function UsersPage() {
 
   const [newPw, setNewPw] = useState("");
   const [cfPw, setCfPw] = useState("");
+  const [currentPw, setCurrentPw] = useState("");
   const [resetting, setResetting] = useState(false);
 
   const getMsg = (err: unknown) =>
@@ -230,8 +238,36 @@ export default function UsersPage() {
    * ============================================================
    */
 
+  const closeResetPasswordModal = () => {
+    setResetUserId(null);
+    setCurrentPw("");
+    setNewPw("");
+    setCfPw("");
+  };
+
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (resetUserId === null) {
+      toast("error", "Select a user before resetting a password");
+      return;
+    }
+
+    const authenticatedUser = getCurrentUser();
+    const authenticatedUserId = authenticatedUser?.userId ?? currentUserId;
+    if (authenticatedUserId == null) {
+      toast(
+        "error",
+        "Cannot identify your signed-in account. Refresh the page and try again.",
+      );
+      return;
+    }
+    const isSelfReset = resetUserId === authenticatedUserId;
+
+    if (isSelfReset && !currentPw) {
+      toast("error", "Enter your current password to change your own password");
+      return;
+    }
 
     if (newPw.length < 10) {
       toast("error", "Password must be at least 10 characters");
@@ -261,17 +297,26 @@ export default function UsersPage() {
     try {
       await put("/users/" + resetUserId, {
         password: newPw,
+        ...(isSelfReset ? { currentPassword: currentPw } : {}),
       });
+
+      if (isSelfReset) {
+        toast("success", "Your password has changed. Please sign in again.");
+        closeResetPasswordModal();
+        // The backend increments tokenVersion on self-service password change.
+        // Clear stale client state and return to login rather than using a
+        // session that the backend has just invalidated.
+        await clearSensitiveClientState();
+        window.location.replace("/login");
+        return;
+      }
 
       toast(
         "success",
         "Password reset — they'll be asked to set their own on next login",
       );
 
-      setResetUserId(null);
-      setNewPw("");
-      setCfPw("");
-
+      closeResetPasswordModal();
       load();
     } catch (err: unknown) {
       toast("error", getMsg(err));
@@ -568,6 +613,7 @@ export default function UsersPage() {
                             <button
                               onClick={() => {
                                 setResetUserId(u.id);
+                                setCurrentPw("");
                                 setNewPw("");
                                 setCfPw("");
                               }}
@@ -1058,7 +1104,7 @@ export default function UsersPage() {
               </h2>
 
               <button
-                onClick={() => setResetUserId(null)}
+                onClick={closeResetPasswordModal}
                 className="
                   text-gray-400
                   hover:text-gray-600
@@ -1086,6 +1132,32 @@ export default function UsersPage() {
                 time they log in.
               </p>
 
+              {resetUserId === currentUserId && (
+                <div>
+                  <label
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                    htmlFor="user-reset-current-password"
+                  >
+                    Current Password
+                  {" "}<span className="text-red-700" aria-hidden="true">*</span></label>
+                  <input
+                    id="user-reset-current-password"
+                    type="password"
+                    value={currentPw}
+                    onChange={(e) => setCurrentPw(e.target.value)}
+                    autoComplete="current-password"
+                    maxLength={128}
+                    required
+                    placeholder="Enter your current password"
+                    className={inputCls()}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Current-password verification is required when changing your
+                    own password.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label
                   className="
@@ -1102,6 +1174,8 @@ export default function UsersPage() {
                 <input
                   type="password"
                   value={newPw}
+                  maxLength={128}
+                  autoComplete="new-password"
                   onChange={(e) => setNewPw(e.target.value)}
                   placeholder="10+ chars, upper, lower, digit, symbol"
                   className={inputCls()}
@@ -1124,6 +1198,8 @@ export default function UsersPage() {
                 <input
                   type="password"
                   value={cfPw}
+                  maxLength={128}
+                  autoComplete="new-password"
                   onChange={(e) => setCfPw(e.target.value)}
                   placeholder="Repeat password"
                   className={inputCls()}
@@ -1151,7 +1227,7 @@ export default function UsersPage() {
 
                 <button
                   type="button"
-                  onClick={() => setResetUserId(null)}
+                  onClick={closeResetPasswordModal}
                   className="
                     flex-1
                     border

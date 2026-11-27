@@ -30,7 +30,6 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Component
@@ -127,7 +126,8 @@ public class ScheduledJobs {
                                         try {
 
                                                 if (loan.getDisbursedAt() == null
-                                                                || loan.getDisbursedAt().toLocalDate().isAfter(accrualDate)) {
+                                                                || loan.getDisbursedAt().toLocalDate()
+                                                                                .isAfter(accrualDate)) {
                                                         continue;
                                                 }
 
@@ -146,7 +146,7 @@ public class ScheduledJobs {
                                                                 .filter(p -> p != null)
                                                                 .filter(p -> p.getDueDate() != null)
                                                                 .filter(p -> !p.getDueDate().isAfter(accrualDate))
-                                                                 .filter(p -> p.getPaid() == null || !p.getPaid())
+                                                                .filter(p -> p.getPaid() == null || !p.getPaid())
                                                                 .toList();
 
                                                 for (Payment installment : dueInstallments) {
@@ -169,22 +169,35 @@ public class ScheduledJobs {
                                                         }
                                                 }
 
-                                                if (loan.getStatus() == LoanStatus.OVERDUE
-                                                                && outstanding.compareTo(ZERO) > 0) {
+                                                if (FinancialPolicy.contractDaysOverdue(loan, accrualDate) > 0
+                                                                && outstanding.compareTo(ZERO) > 0
+                                                                && Boolean.TRUE.equals(loan.getImported())
+                                                                && dueInstallments.isEmpty()) {
+                                                        // Book pre-import overdue days as historical
+                                                        // opening receivables against migration equity;
+                                                        // post-import days remain current-period income.
+                                                        if (accountingService
+                                                                        .postImportedLoanHistoricalPenaltyOpeningCatchUp(
+                                                                                        loan, accrualDate) != null)
+                                                                posted++;
+                                                        if (accountingService.postImportedLoanPostImportPenaltyAccrual(
+                                                                        loan, accrualDate) != null)
+                                                                posted++;
+                                                }
 
-                                                        LocalDate penaltyStart = dueInstallments.stream()
-                                                                        .map(Payment::getDueDate)
-                                                                        .filter(java.util.Objects::nonNull)
-                                                                        .filter(d -> d.isBefore(accrualDate))
-                                                                        .min(LocalDate::compareTo)
-                                                                        .map(d -> d.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L))
-                                                                        .orElse(null);
+                                                if (FinancialPolicy.contractDaysOverdue(loan, accrualDate) > 0
+                                                                && outstanding.compareTo(ZERO) > 0
+                                                                && !dueInstallments.isEmpty()) {
+
+                                                        LocalDate penaltyStart = FinancialPolicy.firstContractPenaltyDate(loan);
 
                                                         if (penaltyStart != null && !penaltyStart.isAfter(accrualDate)
                                                                         && loan.getStatus() != LoanStatus.WRITTEN_OFF) {
                                                                 BigDecimal toDate = calculateHistoricalPenalty(
-                                                                                loan, outstanding, penaltyStart, accrualDate);
-                                                                BigDecimal alreadyAssessed = money(loan.getPenaltiesAssessedDecimal());
+                                                                                loan, outstanding, penaltyStart,
+                                                                                accrualDate);
+                                                                BigDecimal alreadyAssessed = money(
+                                                                                loan.getPenaltiesAssessedDecimal());
                                                                 BigDecimal newPenalty = toDate.subtract(alreadyAssessed)
                                                                                 .max(ZERO)
                                                                                 .setScale(MONEY_SCALE, MONEY_ROUNDING);
@@ -220,6 +233,46 @@ public class ScheduledJobs {
         }
 
         /**
+         * Run legacy opening-penalty catch-up soon after startup as well as
+         * during the normal EOD accrual. This prevents a deployment after 01:30
+         * from leaving previously overdue imported loans at a single day's
+         * penalty until the following night.
+         *
+         * The AccountingService journal source ID is unique per loan, so this
+         * startup pass and the nightly pass cannot charge historical days twice.
+         */
+        @Scheduled(initialDelay = 180_000, fixedDelay = 86_400_000)
+        @Transactional
+        public void catchUpImportedHistoricalPenaltiesAfterStartup() {
+                if (!lockService.tryAcquire("eod-accrual", Duration.ofHours(2))) {
+                        log.info("[Scheduler] Historical imported penalty startup pass deferred: EOD lock held");
+                        return;
+                }
+                try {
+                        LocalDate today = LocalDate.now();
+                        int posted = 0;
+                        for (Loan loan : loanRepo.findByStatusIn(List.of(LoanStatus.ACTIVE, LoanStatus.OVERDUE))) {
+                                if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
+                                        continue;
+                                }
+                                try {
+                                        if (accountingService.postImportedLoanHistoricalPenaltyOpeningCatchUp(
+                                                        loan, today) != null) {
+                                                posted++;
+                                        }
+                                } catch (Exception ex) {
+                                        log.error("[Scheduler] Historical penalty opening failed for loan {}: {}",
+                                                        loan.getId(), ex.getMessage(), ex);
+                                }
+                        }
+                        log.info("[Scheduler] Startup historical imported penalty catch-up complete: {} loan(s) posted",
+                                        posted);
+                } finally {
+                        lockService.release("eod-accrual");
+                }
+        }
+
+        /**
          * Daily overdue check.
          */
         @Scheduled(cron = "${app.scheduler.overdue-check-cron:0 0 7 * * *}")
@@ -245,86 +298,66 @@ public class ScheduledJobs {
 
                         int flagged = 0;
 
-                        List<Payment> overdue = paymentRepo.findByPaidFalseAndDueDateBefore(today);
+                        List<Loan> openLoans = loanRepo.findByStatusIn(List.of(
+                                        LoanStatus.ACTIVE, LoanStatus.OVERDUE,
+                                        LoanStatus.DEFAULTED, LoanStatus.RESTRUCTURED));
 
-                        if (overdue == null) {
-                                overdue = List.of();
-                        }
+                        if (openLoans != null) {
+                                for (Loan loan : openLoans) {
+                                        if (loan == null || loan.getId() == null) {
+                                                continue;
+                                        }
 
-                        for (Payment payment : overdue) {
+                                        int daysOverdue = hasOutstandingReceivable(loan)
+                                                        ? FinancialPolicy.contractDaysOverdue(loan, today) : 0;
+                                        LoanStatus previousStatus = loan.getStatus();
+                                        int previousDaysOverdue = loan.getDaysOverdue() == null
+                                                        ? 0
+                                                        : Math.max(0, loan.getDaysOverdue());
 
-                                if (payment == null) {
-                                        continue;
-                                }
+                                        LoanStatus recalculatedStatus = previousStatus;
+                                        if (previousStatus == LoanStatus.ACTIVE
+                                                        || previousStatus == LoanStatus.OVERDUE) {
+                                                recalculatedStatus = daysOverdue > 0
+                                                                ? LoanStatus.OVERDUE
+                                                                : LoanStatus.ACTIVE;
+                                        }
 
-                                Loan loan = payment.getLoan();
+                                        // Avoid unnecessary writes when this loan's
+                                        // overdue state has not changed since the last run.
+                                        if (previousDaysOverdue == daysOverdue
+                                                        && previousStatus == recalculatedStatus) {
+                                                continue;
+                                        }
 
-                                if (loan == null) {
-                                        continue;
-                                }
+                                        loan.setStatus(recalculatedStatus);
+                                        loan.updateDaysOverdue(daysOverdue);
+                                        loanRepo.save(loan);
+                                        flagged++;
 
-                                if (payment.getDueDate() == null) {
-                                        continue;
-                                }
+                                        if (previousStatus != LoanStatus.OVERDUE
+                                                        && loan.getStatus() == LoanStatus.OVERDUE) {
+                                                try {
+                                                        smsService.sendLoanOverdue(loan, daysOverdue);
+                                                } catch (Exception e) {
+                                                        log.warn(
+                                                                        "[Scheduler] Loan overdue SMS failed for loan {}: {}",
+                                                                        loan.getId(), e.getMessage());
+                                                }
+                                                try {
+                                                        mailService.sendOverdueReminder(loan, daysOverdue);
+                                                } catch (Exception e) {
+                                                        log.warn(
+                                                                        "[Scheduler] Loan overdue email failed for loan {}: {}",
+                                                                        loan.getId(), e.getMessage());
+                                                }
+                                        }
 
-                                if (loan.getStatus() != LoanStatus.ACTIVE) {
-                                        continue;
-                                }
-
-                                int daysOverdue = calculateDaysOverdue(
-                                                payment.getDueDate(),
-                                                today);
-
-                                loan.setStatus(LoanStatus.OVERDUE);
-
-                                Integer currentDays = loan.getDaysOverdue();
-
-                                int previousDays = currentDays == null
-                                                ? 0
-                                                : Math.max(
-                                                                0,
-                                                                currentDays);
-
-                                loan.setDaysOverdue(
-                                                Math.max(
-                                                                previousDays,
-                                                                daysOverdue));
-
-                                loanRepo.save(loan);
-
-                                flagged++;
-
-                                try {
-
-                                        smsService.sendLoanOverdue(
-                                                        loan,
-                                                        loan.getDaysOverdue());
-
-                                } catch (Exception e) {
-
-                                        log.warn(
-                                                        "[Scheduler] Overdue SMS failed for loan {}: {}",
-                                                        loan.getId(),
-                                                        e.getMessage());
-                                }
-
-                                try {
-
-                                        mailService.sendOverdueReminder(
-                                                        loan,
-                                                        loan.getDaysOverdue());
-
-                                } catch (Exception e) {
-
-                                        log.warn(
-                                                        "[Scheduler] Overdue email failed for loan {}: {}",
-                                                        loan.getId(),
-                                                        e.getMessage());
                                 }
                         }
 
                         log.info(
-                                        "[Scheduler] Overdue check done: {} loan(s) flagged",
+                                        "[Scheduler] Overdue check done: {} loan(s) classification refreshed",
                                         flagged);
 
                         try {
@@ -595,7 +628,7 @@ public class ScheduledJobs {
                                         BigDecimal balance = currentOutstanding;
                                         for (Payment payment : payments) {
                                                 if (payment == null || payment.getPaidDate() == null
-                                                                || !payment.getPaidDate().isAfter(date)) {
+                                                                || payment.getPaidDate().isBefore(date)) {
                                                         continue;
                                                 }
                                                 balance = balance.add(money(payment.getPrincipalComponentDecimal()));
@@ -635,26 +668,25 @@ public class ScheduledJobs {
                 return FinancialPolicy.dailyRateFraction(rate, LocalDate.now());
         }
 
-        private int calculateDaysOverdue(
-                        LocalDate dueDate,
-                        LocalDate today) {
-
-                if (dueDate == null
-                                || today == null) {
-                        return 0;
+        private boolean hasOutstandingReceivable(Loan loan) {
+                if (loan == null) {
+                        return false;
                 }
 
-                long days = ChronoUnit.DAYS.between(
-                                dueDate,
-                                today);
+                BigDecimal principal = loan.getOutstandingBalanceDecimal();
+                BigDecimal interest = loan.getInterestOutstandingDecimal();
+                BigDecimal managementFee = loan.getManagementFeeOutstandingDecimal();
+                BigDecimal extensionFee = loan.getExtensionFeeOutstandingDecimal();
+                BigDecimal applicationFeeOutstanding = loan.getApplicationFeeDecimal()
+                                .subtract(loan.getApplicationFeePaidDecimal())
+                                .max(BigDecimal.ZERO);
+                BigDecimal penalties = loan.getPenaltiesAssessedDecimal()
+                                .subtract(loan.getPenaltiesPaidDecimal())
+                                .max(BigDecimal.ZERO);
 
-                if (days <= 0) {
-                        return 0;
-                }
-
-                return days > Integer.MAX_VALUE
-                                ? Integer.MAX_VALUE
-                                : (int) days;
+                return principal.add(interest).add(managementFee)
+                                .add(extensionFee).add(applicationFeeOutstanding).add(penalties)
+                                .compareTo(BigDecimal.ZERO) > 0;
         }
 
         /**

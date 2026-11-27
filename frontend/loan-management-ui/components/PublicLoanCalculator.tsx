@@ -60,7 +60,7 @@ export default function PublicLoanCalculator({
   const [productIndex, setProductIndex] = useState(0);
   const product = products[productIndex];
   const terms = parseTerm(product);
-  const minAmount = numeric(product?.minAmount, 500000);
+  const minAmount = numeric(product?.minAmount, 1000000);
   const maxAmount = hasMaximum(product)
     ? numeric(product?.maxAmount, minAmount)
     : null;
@@ -94,7 +94,7 @@ export default function PublicLoanCalculator({
 
   function switchProduct(index: number) {
     const next = products[index];
-    const nextMin = numeric(next?.minAmount, 500000);
+    const nextMin = numeric(next?.minAmount, 1000000);
     setProductIndex(index);
     setAmount(nextMin);
     setAmountInput(String(nextMin));

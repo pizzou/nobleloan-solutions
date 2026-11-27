@@ -118,7 +118,8 @@ public interface PaymentRepository
                           AND p.paidDate > :after
                           AND p.paidDate <= :asOf
                           AND p.organization.id = :organizationId
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
                         ORDER BY p.paidDate ASC
                         """)
         List<Payment> findPaidPaymentsAfterWriteOff(
@@ -362,7 +363,8 @@ public interface PaymentRepository
                         SELECT COALESCE(SUM(p.amountPaid), 0.0)
                         FROM Payment p
                         WHERE p.organization = :org
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
                           AND p.paidDate >= :from
                         """)
         BigDecimal sumCollectedSince(
@@ -406,14 +408,17 @@ public interface PaymentRepository
         @Query("""
                         SELECT
                             COALESCE(SUM(
-                                CASE WHEN p.paid = true
+                                CASE WHEN p.deletedAt IS NULL
+                                      AND p.paidDate IS NOT NULL
+                                      AND p.amountPaid > 0
                                      THEN p.amountPaid
                                      ELSE 0
                                 END
                             ), 0),
                             COALESCE(SUM(
                                 CASE
-                                    WHEN p.paid = true
+                                    WHEN p.deletedAt IS NULL
+                                     AND p.amountPaid > 0
                                      AND p.paidDate >= :from
                                      AND p.paidDate <= :to
                                     THEN p.amountPaid
@@ -432,8 +437,10 @@ public interface PaymentRepository
 
         @Query("""
                         SELECT
-                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.amountPaid ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN p.paid = true AND p.paidDate >= :from AND p.paidDate <= :to
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.paidDate IS NOT NULL AND p.amountPaid > 0
+                                              THEN p.amountPaid ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.deletedAt IS NULL AND p.amountPaid > 0
+                                               AND p.paidDate >= :from AND p.paidDate <= :to
                                               THEN p.amountPaid ELSE 0 END), 0),
                             SUM(CASE WHEN p.isLate = true THEN 1 ELSE 0 END)
                         FROM Payment p
@@ -514,7 +521,8 @@ public interface PaymentRepository
                         JOIN p.loan l
                         WHERE p.organization.id = :organizationId
                           AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
                           AND p.paidDate >= :from
                           AND p.paidDate <= :to
                         ORDER BY p.paidDate ASC
@@ -532,7 +540,8 @@ public interface PaymentRepository
                         JOIN p.loan l
                         WHERE p.organization.id = :organizationId
                           AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND p.paid = true
+                          AND p.deletedAt IS NULL
+                          AND p.amountPaid > 0
                           AND p.paidDate >= :from
                           AND p.paidDate <= :to
                           AND (

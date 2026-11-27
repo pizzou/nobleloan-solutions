@@ -8,6 +8,7 @@ import com.patrick.fintech.loan_backend.service.*;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.*;
@@ -34,6 +35,7 @@ public class AuthController {
     private final SmsService smsService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final LoginLockoutService loginLockoutService;
     private static final SecureRandom OTP_RANDOM = new SecureRandom();
 
     @Value("${app.environment:development}")
@@ -50,6 +52,9 @@ public class AuthController {
 
     @Value("${app.jwt.expiration-ms:900000}")
     private long sessionMaxAgeMs;
+
+    @Value("${app.auth.idle-timeout-ms:600000}")
+    private long idleTimeoutMs;
 
     @GetMapping("/csrf")
     public ResponseEntity<Map<String, Object>> csrf(CsrfToken token) {
@@ -72,8 +77,8 @@ public class AuthController {
 
     private static final java.util.Set<String> EMAIL_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER", "BUSINESS_OWNER");
 
-    private static final int MAX_FAILED_ATTEMPTS = 5;
-    private static final int LOCKOUT_MINUTES = 15;
+    private static final int MAX_FAILED_ATTEMPTS = LoginLockoutService.MAX_FAILED_ATTEMPTS;
+    private static final int LOCKOUT_MINUTES = LoginLockoutService.LOCKOUT_MINUTES;
     private static final int MAX_OTP_ATTEMPTS = 5;
     private static final int OTP_EXPIRY_MINUTES = 5;
 
@@ -100,37 +105,30 @@ public class AuthController {
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(email, req.getPassword()));
-        } catch (Exception e) {
+        } catch (BadCredentialsException e) {
             if (user != null) {
-                int attempts = (user.getFailedLoginAttempts() == null ? 0 : user.getFailedLoginAttempts()) + 1;
-                user.setFailedLoginAttempts(attempts);
-                if (attempts >= MAX_FAILED_ATTEMPTS) {
-                    user.setLockedUntil(java.time.LocalDateTime.now().plusMinutes(LOCKOUT_MINUTES));
-                    userRepository.save(user);
+                LoginLockoutService.Failure failure = loginLockoutService.registerInvalidPassword(user.getId());
+                if (failure.locked()) {
                     auditService.logAuthenticationAsync(user.getOrganization(), user, "ACCOUNT_LOCKED", "AUTH",
-                            String.valueOf(user.getId()), "Account locked after " + attempts + " failed login attempts",
-                            null, null, "Authentication");
+                            String.valueOf(user.getId()),
+                            "Account locked following repeated invalid passwords", null, null, "Authentication");
                     throw new RuntimeException(
                             "Too many failed attempts. Account locked for " + LOCKOUT_MINUTES + " minutes.");
                 }
-                userRepository.save(user);
                 auditService.logAuthenticationAsync(user.getOrganization(), user, "LOGIN_FAILED", "AUTH",
                         String.valueOf(user.getId()),
-                        "Failed login attempt (" + attempts + "/" + MAX_FAILED_ATTEMPTS + ")",
+                        "Failed login attempt (" + failure.attempts() + "/" + MAX_FAILED_ATTEMPTS + ")",
                         null, null, "Authentication");
             }
+            // Deliberately do not reveal whether the email exists.
             throw new RuntimeException("Invalid email or password");
         }
 
-        user = userRepository.findByEmailIgnoreCase(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        // Successful password check — reset the failure counter and any lock.
-        if ((user.getFailedLoginAttempts() != null && user.getFailedLoginAttempts() > 0)
-                || user.getLockedUntil() != null) {
-            user.setFailedLoginAttempts(0);
-            user.setLockedUntil(null);
+        if (user == null || !loginLockoutService.clearAfterValidPassword(user.getId())) {
+            throw new RuntimeException("Account locked. Contact the administrator or try again after 24 hours.");
         }
+        user = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new RuntimeException("Invalid email or password"));
 
         boolean emailOtpRequired = isEmailOtpRole(user);
 
@@ -202,7 +200,9 @@ public class AuthController {
             User user = userRepository.findByEmailIgnoreCase(email)
                     .orElseThrow(() -> new RuntimeException("User account not found"));
             long currentVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
-            if (tokenVersion != currentVersion || !isEmailOtpRole(user)) {
+            if (tokenVersion != currentVersion || !isEmailOtpRole(user)
+                    || user.getStatus() != User.UserStatus.ACTIVE
+                    || user.getDeletedAt() != null || user.getPurgedAt() != null) {
                 throw new RuntimeException("Invalid or expired OTP challenge. Please sign in again.");
             }
 
@@ -218,11 +218,29 @@ public class AuthController {
                 user.setLoginOtpAttempts(0);
                 user.setLastLoginAt(null);
                 userRepository.save(user);
-                mailService.sendLoginOtp(user, code);
+
+                // Do not return a successful "code sent" response until the email
+                // provider accepts the message. Otherwise a failed first delivery
+                // leaves an active OTP and a retry falsely reports "already sent".
+                if (!mailService.sendLoginOtp(user, code)) {
+                    user.setLoginOtpHash(null);
+                    user.setLoginOtpExpiresAt(null);
+                    user.setLoginOtpAttempts(0);
+                    userRepository.save(user);
+                    auditService.logAuthenticationAsync(
+                            user.getOrganization(), user, "LOGIN_OTP_DELIVERY_FAILED", "AUTH",
+                            String.valueOf(user.getId()),
+                            "Login OTP could not be accepted by the email provider",
+                            null, null, "Authentication");
+                    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                            "success", false,
+                            "message", "We could not send your sign-in code right now. Please try again shortly."));
+                }
+
                 auditService.logAuthenticationAsync(
                         user.getOrganization(), user, "LOGIN_OTP_SENT", "AUTH",
                         String.valueOf(user.getId()),
-                        "Login OTP issued after verification screen was reached",
+                        "Login OTP accepted by the email provider",
                         null, null, "Authentication");
             }
 
@@ -271,6 +289,11 @@ public class AuthController {
         User current = userRepository.findById(user.getId())
                 .orElseThrow(() -> new RuntimeException("User account not found"));
 
+        if (current.getStatus() != User.UserStatus.ACTIVE
+                || current.getDeletedAt() != null || current.getPurgedAt() != null) {
+            throw new RuntimeException("User account is not active");
+        }
+
         if (current.getLoginOtpHash() == null || current.getLoginOtpExpiresAt() == null
                 || !current.getLoginOtpExpiresAt().isAfter(now)) {
             throw new RuntimeException("Your verification code has expired. Please sign in again to get a new one.");
@@ -315,6 +338,18 @@ public class AuthController {
     }
 
     private ResponseEntity<Map<String, Object>> successfulLogin(User user) {
+        if (user == null || user.getId() == null) {
+            throw new RuntimeException("User account not found");
+        }
+        // Re-read account state just before issuing a session. This closes the
+        // challenge/OTP race where an administrator deactivates a user mid-login.
+        user = userRepository.findById(user.getId())
+                .orElseThrow(() -> new RuntimeException("User account not found"));
+        if (user.getStatus() != User.UserStatus.ACTIVE
+                || user.getDeletedAt() != null || user.getPurgedAt() != null) {
+            throw new RuntimeException("User account is not active");
+        }
+
         auditService.logAuthenticationAsync(user.getOrganization(), user, "LOGIN_SUCCESS", "AUTH",
                 String.valueOf(user.getId()), user.getName() + " signed in", null, null, "Authentication");
 
@@ -327,6 +362,27 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header("Set-Cookie", cookie.toString())
                 .body(body);
+    }
+
+    /**
+     * Rotate the HttpOnly session cookie only on a deliberate, authenticated
+     * browser activity renewal. Background polling must never call this route.
+     * Authentication and token-version checks are enforced by JwtAuthFilter.
+     */
+    @PostMapping("/renew")
+    public ResponseEntity<Map<String, Object>> renew(Authentication auth) {
+        if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
+            return ResponseEntity.status(401).body(Map.of("success", false));
+        }
+        User user = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
+        if (user == null || user.getStatus() != User.UserStatus.ACTIVE
+                || user.getDeletedAt() != null || user.getPurgedAt() != null) {
+            return ResponseEntity.status(401).body(Map.of("success", false));
+        }
+        return ResponseEntity.ok()
+                .header("Set-Cookie", sessionCookie(jwtUtils.generateToken(user), false).toString())
+                .header("Cache-Control", "no-store")
+                .body(Map.of("success", true));
     }
 
     @PostMapping("/logout")
@@ -359,7 +415,9 @@ public class AuthController {
                 .secure(sessionCookieSecure)
                 .sameSite(sameSite)
                 .path("/")
-                .maxAge(clear ? java.time.Duration.ZERO : java.time.Duration.ofMillis(Math.max(1000L, sessionMaxAgeMs)))
+                .maxAge(clear ? java.time.Duration.ZERO
+                        : java.time.Duration
+                                .ofMillis(Math.min(Math.max(1000L, sessionMaxAgeMs), Math.max(1000L, idleTimeoutMs))))
                 .build();
     }
 

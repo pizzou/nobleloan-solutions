@@ -201,7 +201,6 @@ public class RegulatoryReportingService {
                 };
         }
 
-
         private LocalDateTime exclusiveEndOfDay(
                         LocalDate date) {
 
@@ -213,7 +212,6 @@ public class RegulatoryReportingService {
                                 .plusDays(1)
                                 .atStartOfDay();
         }
-
 
         private LocalDateTime startOfDay(
                         LocalDate date) {
@@ -370,8 +368,6 @@ public class RegulatoryReportingService {
                                                 periodStart,
                                                 periodEnd));
 
-
-
                 long activeLoans = 0;
 
                 long closedLoans = 0;
@@ -503,9 +499,10 @@ public class RegulatoryReportingService {
                                 switch (status) {
 
                                         case ACTIVE,
-                                                        DISBURSED,
-                                                        OVERDUE ->
+                                                        DISBURSED ->
                                                 activeLoans++;
+
+                                        case OVERDUE -> overdueLoans++;
 
                                         case CLOSED -> closedLoans++;
 
@@ -550,23 +547,24 @@ public class RegulatoryReportingService {
                                 outstanding = ZERO;
                         }
 
-
                         boolean includedInGrossPortfolio = isCurrentPortfolioLoan(loan);
 
                         if (includedInGrossPortfolio) {
                                 outstandingPrincipal = add(outstandingPrincipal, outstanding);
 
-
-                                outstandingInterest = add(outstandingInterest, number(loan.getInterestOutstandingDecimal()));
+                                outstandingInterest = add(outstandingInterest,
+                                                number(loan.getInterestOutstandingDecimal()));
                                 BigDecimal penaltyOutstanding = number(loan.getPenaltiesAssessedDecimal())
                                                 .subtract(number(loan.getPenaltiesPaidDecimal()))
                                                 .max(ZERO);
                                 BigDecimal applicationFeeOutstanding = number(loan.getApplicationFee())
                                                 .subtract(number(loan.getApplicationFeePaid()))
                                                 .max(ZERO);
-                                outstandingFees = add(outstandingFees, number(loan.getManagementFeeOutstandingDecimal()));
+                                outstandingFees = add(outstandingFees,
+                                                number(loan.getManagementFeeOutstandingDecimal()));
                                 outstandingFees = add(outstandingFees, penaltyOutstanding);
-                                outstandingFees = add(outstandingFees, number(loan.getExtensionFeeOutstandingDecimal()));
+                                outstandingFees = add(outstandingFees,
+                                                number(loan.getExtensionFeeOutstandingDecimal()));
                                 outstandingFees = add(outstandingFees, applicationFeeOutstanding);
                         }
 
@@ -580,55 +578,59 @@ public class RegulatoryReportingService {
                                                         0,
                                                         loan.getDaysOverdue());
 
-                        if (dpd > 0 && outstanding.signum() > 0) {
+                        // Risk and provisioning must use the same funded-loan population
+                        // as gross portfolio principal. Pipeline/rejected applications may
+                        // retain a requested outstandingBalance before any disbursement;
+                        // those amounts are not credit exposure.
+                        BigDecimal exposure = includedInGrossPortfolio ? outstanding : ZERO;
 
-                                overdueLoans++;
+                        if (dpd > 0 && exposure.signum() > 0) {
 
-                                parAmount = add(parAmount, outstanding);
+                                parAmount = add(parAmount, exposure);
 
                                 if (dpd <= 30) {
 
-                                        par1To30 = add(par1To30, outstanding);
+                                        par1To30 = add(par1To30, exposure);
 
                                 } else if (dpd <= 60) {
 
-                                        par31To60 = add(par31To60, outstanding);
+                                        par31To60 = add(par31To60, exposure);
 
                                 } else if (dpd <= 90) {
 
-                                        par61To90 = add(par61To90, outstanding);
+                                        par61To90 = add(par61To90, exposure);
 
                                 } else if (dpd <= 180) {
 
-                                        par91To180 = add(par91To180, outstanding);
+                                        par91To180 = add(par91To180, exposure);
 
                                 } else if (dpd <= 365) {
 
-                                        par181To365 = add(par181To365, outstanding);
+                                        par181To365 = add(par181To365, exposure);
 
                                 } else {
 
-                                        parOver365 = add(parOver365, outstanding);
+                                        parOver365 = add(parOver365, exposure);
                                 }
                         }
 
-                        if (dpd > 30) {
+                        if (includedInGrossPortfolio && dpd > 30) {
                                 loansOver30Days++;
                         }
 
-                        if (dpd > 60) {
+                        if (includedInGrossPortfolio && dpd > 60) {
                                 loansOver60Days++;
                         }
 
-                        if (dpd > 90) {
+                        if (includedInGrossPortfolio && dpd > 90) {
                                 loansOver90Days++;
                         }
 
-                        if (dpd > 180) {
+                        if (includedInGrossPortfolio && dpd > 180) {
                                 loansOver180Days++;
                         }
 
-                        if (dpd > 365) {
+                        if (includedInGrossPortfolio && dpd > 365) {
                                 loansOver365Days++;
                         }
 
@@ -636,26 +638,30 @@ public class RegulatoryReportingService {
                         // NPL
                         // ----------------------------------------------------
 
-                        if (isNpl(loan)) {
+                        if (includedInGrossPortfolio && isNpl(loan)) {
 
                                 nplLoanCount++;
 
-                                nplAmount = add(nplAmount, outstanding);
+                                nplAmount = add(nplAmount, exposure);
                         }
 
                         // ----------------------------------------------------
                         // DEFAULT
                         // ----------------------------------------------------
 
-                        if (status == LoanStatus.DEFAULTED) {
+                        if (includedInGrossPortfolio && status == LoanStatus.DEFAULTED) {
 
-                                defaultedAmount = add(defaultedAmount, outstanding);
+                                defaultedAmount = add(defaultedAmount, exposure);
                         }
 
                         // ----------------------------------------------------
                         // WRITE OFF
                         // ----------------------------------------------------
 
+                        // Written-off balance is a historical disclosure measure,
+                        // not an active receivable. Retain the recorded amount in
+                        // write-off reporting while excluding it from PAR and
+                        // current-loan provision exposure.
                         if (status == LoanStatus.WRITTEN_OFF) {
 
                                 writtenOffAmount = add(writtenOffAmount, outstanding);
@@ -664,33 +670,35 @@ public class RegulatoryReportingService {
                         // ----------------------------------------------------
                         // PROVISIONING / RECOVERIES
                         // ----------------------------------------------------
-                        BigDecimal provisionBase = outstanding.max(ZERO);
+                        BigDecimal provisionBase = exposure.max(ZERO);
                         BigDecimal provisionRate = provisionRateFor(loan);
                         requiredProvision = add(requiredProvision,
-                                        provisionBase.multiply(provisionRate).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP));
+                                        provisionBase.multiply(provisionRate).divide(new BigDecimal("100"), 2,
+                                                        java.math.RoundingMode.HALF_UP));
 
-                       if (status == LoanStatus.WRITTEN_OFF
-                && loan.getWrittenOffAt() != null
-                && loan.getId() != null) {
+                        if (status == LoanStatus.WRITTEN_OFF
+                                        && loan.getWrittenOffAt() != null
+                                        && loan.getId() != null) {
 
-        for (Payment payment : paymentRepository.findPaidPaymentsAfterWriteOff(
-                        loan.getId(),
-                        loan.getOrganization().getId(),
-                        loan.getWrittenOffAt(),
-                        periodEnd.plusDays(1).atStartOfDay())) {
+                                for (Payment payment : paymentRepository.findPaidPaymentsAfterWriteOff(
+                                                loan.getId(),
+                                                loan.getOrganization().getId(),
+                                                loan.getWrittenOffAt(),
+                                                periodEnd.plusDays(1).atStartOfDay())) {
 
-                if (!ReportingScopeService.includeBusinessOwnerOnly()
-                                && payment != null
-                                && payment.getLoan() != null
-                                && Boolean.TRUE.equals(payment.getLoan().getBusinessOwnerOnly())) {
-                        continue;
-                }
+                                        if (!ReportingScopeService.includeBusinessOwnerOnly()
+                                                        && payment != null
+                                                        && payment.getLoan() != null
+                                                        && Boolean.TRUE.equals(
+                                                                        payment.getLoan().getBusinessOwnerOnly())) {
+                                                continue;
+                                        }
 
-                recoveriesAfterWriteOff = add(
-                                recoveriesAfterWriteOff,
-                                number(payment.getAmountPaid()));
-        }
-}
+                                        recoveriesAfterWriteOff = add(
+                                                        recoveriesAfterWriteOff,
+                                                        number(payment.getAmountPaid()));
+                                }
+                        }
 
                         // ----------------------------------------------------
                         // BORROWER
@@ -839,8 +847,11 @@ public class RegulatoryReportingService {
 
                                 totalPrincipalDisbursed = add(totalPrincipalDisbursed, disbursed);
 
-
-                                BigDecimal applicationFeeCollected = number(loan.getApplicationFeePaid());
+                                // Historical imported application fees have no reliable
+                                // payment date. Their cumulative amount belongs to the
+                                // legacy history, not a new period cash receipt.
+                                BigDecimal applicationFeeCollected = isLegacyImportedLoan(loan)
+                                                ? ZERO : number(loan.getApplicationFeePaid());
                                 feesCollected = add(feesCollected, applicationFeeCollected);
                                 applicationFeesCollected = add(applicationFeesCollected, applicationFeeCollected);
 
@@ -863,7 +874,8 @@ public class RegulatoryReportingService {
                 BigDecimal averageLoanSize = actualDisbursementCount == 0
                                 ? ZERO
                                 : totalPrincipalDisbursed
-                                                .divide(BigDecimal.valueOf(actualDisbursementCount), 2, RoundingMode.HALF_UP);
+                                                .divide(BigDecimal.valueOf(actualDisbursementCount), 2,
+                                                                RoundingMode.HALF_UP);
 
                 // ========================================================
                 // PAYMENTS
@@ -896,10 +908,10 @@ public class RegulatoryReportingService {
                                 continue;
                         }
 
-                        boolean completed = Boolean.TRUE.equals(
-                                        payment.getPaid())
-                                        ||
-                                        payment.getStatus() == Payment.PaymentStatus.COMPLETED;
+                        // A PARTIALLY_PAID installment can contain real cash.
+                        // 'paid' describes settlement of the schedule, not
+                        // whether the recorded amount was received.
+                        boolean completed = hasReceivedCash(payment);
 
                         if (completed) {
 
@@ -923,7 +935,6 @@ public class RegulatoryReportingService {
                                 feesCollected = add(feesCollected, number(payment.getExtensionFeeComponent()));
                                 feesCollected = add(feesCollected, number(payment.getPenaltyPaid()));
 
-
                                 totalAmountCollected = add(totalAmountCollected, amountPaid);
 
                         } else {
@@ -946,7 +957,6 @@ public class RegulatoryReportingService {
                                                 payment.getInterestComponent()));
                         }
                 }
-
 
                 totalAmountCollected = add(totalAmountCollected, applicationFeesCollected);
                 interestAccruedUnpaid = outstandingInterest;
@@ -993,8 +1003,12 @@ public class RegulatoryReportingService {
                         historicalAmountCollected = moneyDecimal(historicalAmountCollected.add(historicalTotal));
                 }
 
-
-                totalAmountCollected = add(totalAmountCollected, historicalAmountCollected);
+                // Cumulative historical payments have no individual transaction dates in
+                // the legacy import. Expose them through historical*Collected fields ONLY.
+                // Never attribute them to an arbitrary monthly/custom reporting window.
+                // A historical payment is included in period collections only when it
+                // exists as a dated Payment row returned by fetchPayments().
+                // totalAmountCollected intentionally excludes historicalAmountCollected.
 
                 // ========================================================
                 // RATIOS
@@ -1038,7 +1052,6 @@ public class RegulatoryReportingService {
                 BigDecimal nplRatio = ratio(
                                 nplAmount,
                                 outstandingPrincipal);
-
 
                 BigDecimal totalOutstanding = moneyDecimal(outstandingPrincipal);
                 BigDecimal totalReceivables = moneyDecimal(outstandingPrincipal)
@@ -1489,16 +1502,12 @@ public class RegulatoryReportingService {
                 // ACCOUNTING SOURCE
                 // ========================================================
 
-                Map<String, Object> accountingReport = bnrFinancialStatementService
-                                .buildFinancialStatement(
-                                                organizationId,
-                                                periodStart,
-                                                periodEnd);
-
-                if (accountingReport == null) {
-
-                        accountingReport = new LinkedHashMap<>();
-                }
+                // Single authoritative GL calculation for Accounting, General
+                // Report and BNR. The previous BNR-specific implementation
+                // recalculated income/equity separately and omitted cash-flow
+                // keys entirely, producing zero-valued BNR cash-flow cards.
+                Map<String, Object> accountingReport = accountingService
+                                .getFinancialReport(organizationId, periodStart, periodEnd);
 
                 // ========================================================
                 // STATEMENT OF FINANCIAL POSITION
@@ -1506,11 +1515,14 @@ public class RegulatoryReportingService {
 
                 Map<String, Object> financialPosition = getMap(
                                 accountingReport,
-                                "statementOfFinancialPosition");
+                                "balanceSheet");
 
                 Map<String, Object> incomeStatement = getMap(
                                 accountingReport,
-                                "incomeStatement");
+                                "profitAndLoss");
+
+                Map<String, Object> trial = getMap(accountingReport, "trialBalance");
+                Map<String, Object> cashFlow = getMap(accountingReport, "cashFlow");
 
                 // ========================================================
                 // BALANCE SHEET
@@ -1528,9 +1540,13 @@ public class RegulatoryReportingService {
                                 financialPosition.get(
                                                 "totalEquity"));
 
+                // The balance sheet exposes cumulative unclosedProfit, not
+                // currentPeriodNetIncome. BNR's current-period earnings must
+                // come from the same date-filtered P&L as Accounting and
+                // General Reports.
                 BigDecimal currentPeriodNetIncome = decimalValue(
-                                financialPosition.get(
-                                                "currentPeriodNetIncome"));
+                                incomeStatement.get(
+                                                "netIncome"));
 
                 boolean balanceSheetBalanced = booleanValue(
                                 financialPosition.get(
@@ -1546,24 +1562,13 @@ public class RegulatoryReportingService {
 
                 BigDecimal totalExpenses = decimalValue(
                                 incomeStatement.get(
-                                                "totalExpenses"));
+                                                "totalExpense"));
 
-                // GL 4100 is the authoritative application-fee income account.
-                // Derive this from the same period income rows used to calculate
-                // totalIncome so the BNR card cannot drift from accounting.
-                BigDecimal applicationFeeIncome = ZERO;
-                for (Map<String, Object> row : getList(
-                                incomeStatement,
-                                "income")) {
-                        if (row == null) {
-                                continue;
-                        }
-                        Object code = row.get("code");
-                        if (code != null && "4100".equals(String.valueOf(code))) {
-                                applicationFeeIncome = applicationFeeIncome.add(
-                                                decimalValue(row.get("periodAmount")));
-                        }
-                }
+                // Account 4100 contains management fees, extension fees and
+                // penalties as well as application fees. Use the source-specific
+                // application-fee figure from the reconciled income statement.
+                BigDecimal applicationFeeIncome = decimalValue(
+                                incomeStatement.get("applicationFeeIncome"));
 
                 BigDecimal netIncome = decimalValue(
                                 incomeStatement.get(
@@ -1574,39 +1579,39 @@ public class RegulatoryReportingService {
                 // ========================================================
 
                 BigDecimal trialBalanceDebit = decimalValue(
-                                accountingReport.get(
-                                                "trialBalanceDebit"));
+                                trial.get(
+                                                "totalDebit"));
 
                 BigDecimal trialBalanceCredit = decimalValue(
-                                accountingReport.get(
-                                                "trialBalanceCredit"));
+                                trial.get(
+                                                "totalCredit"));
 
                 boolean trialBalanceBalanced = booleanValue(
-                                accountingReport.get(
-                                                "trialBalanceBalanced"));
+                                trial.get(
+                                                "balanced"));
 
                 // ========================================================
                 // CASH FLOW
                 // ========================================================
 
                 BigDecimal cashUsedForLending = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "cashUsedForLending"));
 
                 BigDecimal cashFromCollections = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "cashFromCollections"));
 
                 BigDecimal cashFromFees = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "cashFromFees"));
 
                 BigDecimal otherCashMovement = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "otherCashMovement"));
 
                 BigDecimal netChangeInCash = decimalValue(
-                                accountingReport.get(
+                                cashFlow.get(
                                                 "netChangeInCash"));
 
                 // ========================================================
@@ -2555,18 +2560,31 @@ public class RegulatoryReportingService {
          * Approval/pipeline records are deliberately excluded because no
          * principal receivable is created until the loan is disbursed.
          */
-        private boolean isCurrentPortfolioLoan(Loan loan) {
+        static boolean isCurrentPortfolioLoan(Loan loan) {
                 if (loan == null || loan.getStatus() == null) {
                         return false;
                 }
 
                 LoanStatus status = loan.getStatus();
 
-                return status == LoanStatus.DISBURSED
+                boolean receivableStatus = status == LoanStatus.DISBURSED
                                 || status == LoanStatus.ACTIVE
                                 || status == LoanStatus.OVERDUE
                                 || status == LoanStatus.DEFAULTED
                                 || status == LoanStatus.RESTRUCTURED;
+                if (!receivableStatus) {
+                        return false;
+                }
+
+                // Match DashboardService and LoanRepository: legacy openings
+                // may lack a reliable disbursement timestamp, but a new loan
+                // cannot enter the credit portfolio before disbursement.
+                return isLegacyImportedLoan(loan) || loan.getDisbursedAt() != null;
+        }
+
+        static boolean hasReceivedCash(Payment payment) {
+                return payment != null && payment.getAmountPaidDecimal() != null
+                                && payment.getAmountPaidDecimal().signum() > 0;
         }
 
         /**
@@ -2574,7 +2592,7 @@ public class RegulatoryReportingService {
          * collection reporting. It preserves compatibility with older
          * imported rows that predate the imported/importBatchId flags.
          */
-        private boolean isLegacyImportedLoan(Loan loan) {
+        private static boolean isLegacyImportedLoan(Loan loan) {
                 if (loan == null) {
                         return false;
                 }
@@ -2624,9 +2642,11 @@ public class RegulatoryReportingService {
 
                 return payments;
         }
+
         private BigDecimal provisionRateFor(Loan loan) {
                 Loan.CreditQuality quality = loan.getCreditQuality();
-                if (quality == null) quality = Loan.CreditQuality.CURRENT;
+                if (quality == null)
+                        quality = Loan.CreditQuality.CURRENT;
                 BigDecimal rate = switch (quality) {
                         case CURRENT -> provisionRateCurrent;
                         case WATCH -> provisionRateWatch;
