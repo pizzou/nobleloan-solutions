@@ -4,6 +4,10 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * Single authoritative payment allocation order for the lending platform.
@@ -87,6 +91,42 @@ public class PaymentAllocationService {
                 principal,
                 remaining.max(ZERO));
     }
+
+    public DueAllocation allocateDueInstallments(
+            BigDecimal paymentAmount, BigDecimal penaltyDue, BigDecimal extensionFeeDue,
+            BigDecimal principalDue, LocalDate paymentDate, List<InstallmentDue> installments) {
+
+        var due = installments.stream()
+                .filter(installment -> !installment.dueDate().isAfter(paymentDate))
+                .sorted(Comparator.comparing(InstallmentDue::dueDate).thenComparingLong(InstallmentDue::id))
+                .toList();
+        BigDecimal interestDue = due.stream()
+                .map(installment -> money(installment.interest()).max(ZERO))
+                .reduce(ZERO, BigDecimal::add);
+        BigDecimal managementDue = due.stream()
+                .map(installment -> money(installment.managementFee()).max(ZERO))
+                .reduce(ZERO, BigDecimal::add);
+        Allocation total = allocate(paymentAmount, penaltyDue, extensionFeeDue, interestDue,
+                managementDue, principalDue);
+
+        BigDecimal interestRemaining = total.interest();
+        BigDecimal managementRemaining = total.managementFee();
+        List<InstallmentAllocation> breakdown = new ArrayList<>();
+        for (InstallmentDue installment : due) {
+            BigDecimal interest = take(interestRemaining, installment.interest());
+            BigDecimal management = take(managementRemaining, installment.managementFee());
+            if (interest.signum() > 0 || management.signum() > 0) {
+                breakdown.add(new InstallmentAllocation(installment.id(), management, interest));
+            }
+            interestRemaining = interestRemaining.subtract(interest);
+            managementRemaining = managementRemaining.subtract(management);
+        }
+        return new DueAllocation(total, List.copyOf(breakdown));
+    }
+
+    public record InstallmentDue(long id, LocalDate dueDate, BigDecimal managementFee, BigDecimal interest) {}
+    public record InstallmentAllocation(long id, BigDecimal managementFee, BigDecimal interest) {}
+    public record DueAllocation(Allocation total, List<InstallmentAllocation> installments) {}
 
     private BigDecimal take(BigDecimal available, BigDecimal due) {
         BigDecimal safeAvailable = money(available).max(ZERO);
