@@ -51,6 +51,7 @@ public class AccountingService {
         // MONEY CONFIGURATION
         // ============================================================
 
+        static final LocalDate LEDGER_HISTORY_START = LocalDate.of(1900, 1, 1);
         private static final int MONEY_SCALE = 2;
 
         private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
@@ -5340,7 +5341,7 @@ public class AccountingService {
                 if (from != null && to.isBefore(from))
                         throw new IllegalArgumentException("End date cannot be before start date");
 
-                LocalDate start = from == null ? LocalDate.of(1900, 1, 1) : from;
+                LocalDate start = from == null ? LEDGER_HISTORY_START : from;
                 List<JournalEntry> entries = journalRepo
                                 .findVisibleByOrganizationIdAndEntryDateBetween(
                                                 orgId,

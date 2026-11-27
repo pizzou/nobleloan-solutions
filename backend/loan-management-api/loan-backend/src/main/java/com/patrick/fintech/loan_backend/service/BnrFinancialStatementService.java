@@ -37,7 +37,7 @@ public class BnrFinancialStatementService {
         private final JournalEntryRepository journalEntryRepository;
 
         private final LoanRepository loanRepository;
-        private static final int MONEY_SCALE = 6;
+        private static final int MONEY_SCALE = 2;
 
         private static final int REPORT_SCALE = 2;
 
@@ -53,14 +53,6 @@ public class BnrFinancialStatementService {
          * One cent is the materiality threshold used for balance checks.
          */
         private static final BigDecimal BALANCE_TOLERANCE = new BigDecimal("0.01");
-
-        /*
-         * Accounting history lower bound.
-         */
-        private static final LocalDate ACCOUNTING_EPOCH = LocalDate.of(
-                        1970,
-                        1,
-                        1);
 
         // ============================================================
         // MAIN FINANCIAL STATEMENT
@@ -123,7 +115,7 @@ public class BnrFinancialStatementService {
                 List<JournalEntry> historicalEntries = journalEntryRepository
                                 .findVisibleByOrganizationIdAndEntryDateBetween(
                                                 organizationId,
-                                                ACCOUNTING_EPOCH,
+                                                AccountingService.LEDGER_HISTORY_START,
                                                 to,
                                                 includeBusinessOwnerOnly);
 
@@ -139,8 +131,8 @@ public class BnrFinancialStatementService {
                 // doubling database I/O and entity hydration. Build the
                 // period view from the already-loaded ledger instead.
 
-                historicalEntries = activeEntries(
-                                historicalEntries);
+                // Keep original entries and their reversal journals on their respective posting dates.
+                historicalEntries = historicalEntries.stream().filter(Objects::nonNull).toList();
 
                 List<JournalEntry> periodEntries = historicalEntries.stream()
                                 .filter(Objects::nonNull)
@@ -162,12 +154,6 @@ public class BnrFinancialStatementService {
                 Map<Long, BigDecimal> periodCredits = createBalanceMap(
                                 accounts);
 
-                Map<Long, BigDecimal> historicalIncome = createBalanceMap(
-                                accounts);
-
-                Map<Long, BigDecimal> historicalExpenses = createBalanceMap(
-                                accounts);
-
                 // ========================================================
                 // PROCESS HISTORICAL ENTRIES
                 // ========================================================
@@ -179,11 +165,6 @@ public class BnrFinancialStatementService {
                                         endingBalances,
                                         organizationId);
 
-                        processIncomeExpenseEntry(
-                                        entry,
-                                        historicalIncome,
-                                        historicalExpenses,
-                                        organizationId);
                 }
 
                 // ========================================================
@@ -231,6 +212,8 @@ public class BnrFinancialStatementService {
                 BigDecimal historicalIncomeTotal = ZERO;
 
                 BigDecimal historicalExpenseTotal = ZERO;
+                BigDecimal trialBalanceDebit = ZERO;
+                BigDecimal trialBalanceCredit = ZERO;
 
                 // GL 4100 contains several fee streams. Only source-classified
                 // application fee lines are application-fee income. Use the
@@ -270,7 +253,7 @@ public class BnrFinancialStatementService {
                                 continue;
                         }
 
-                        if (account.getType() == null) {
+                        if (account.getType() == null || account.getNormalBalance() == null) {
                                 continue;
                         }
 
@@ -279,6 +262,11 @@ public class BnrFinancialStatementService {
                                                         accountId,
                                                         ZERO));
 
+                        BigDecimal debitNet = account.getNormalBalance() == ChartOfAccount.NormalBalance.DEBIT
+                                        ? endingBalance : endingBalance.negate();
+                        trialBalanceDebit = add(trialBalanceDebit, debitNet.max(ZERO));
+                        trialBalanceCredit = add(trialBalanceCredit, debitNet.negate().max(ZERO));
+
                         BigDecimal debit = normalizeMoney(
                                         periodDebits.getOrDefault(
                                                         accountId,
@@ -286,16 +274,6 @@ public class BnrFinancialStatementService {
 
                         BigDecimal credit = normalizeMoney(
                                         periodCredits.getOrDefault(
-                                                        accountId,
-                                                        ZERO));
-
-                        BigDecimal historicalIncomeAmount = normalizeMoney(
-                                        historicalIncome.getOrDefault(
-                                                        accountId,
-                                                        ZERO));
-
-                        BigDecimal historicalExpenseAmount = normalizeMoney(
-                                        historicalExpenses.getOrDefault(
                                                         accountId,
                                                         ZERO));
 
@@ -325,9 +303,7 @@ public class BnrFinancialStatementService {
                                                                 "CONTRA_ASSET");
 
                                                 BigDecimal deduction = normalizeMoney(
-                                                                endingBalance
-                                                                                .abs()
-                                                                                .negate());
+                                                                endingBalance.negate());
 
                                                 row.put(
                                                                 "deduction",
@@ -335,7 +311,7 @@ public class BnrFinancialStatementService {
 
                                                 totalAssets = subtract(
                                                                 totalAssets,
-                                                                endingBalance.abs());
+                                                                endingBalance);
 
                                         } else {
 
@@ -417,7 +393,7 @@ public class BnrFinancialStatementService {
 
                                         historicalIncomeTotal = add(
                                                         historicalIncomeTotal,
-                                                        historicalIncomeAmount);
+                                                        endingBalance);
 
                                         if (!isMaterial(periodIncome)) {
                                                 continue;
@@ -462,7 +438,7 @@ public class BnrFinancialStatementService {
 
                                         historicalExpenseTotal = add(
                                                         historicalExpenseTotal,
-                                                        historicalExpenseAmount);
+                                                        endingBalance);
 
                                         if (!isMaterial(periodExpense)) {
                                                 continue;
@@ -506,12 +482,11 @@ public class BnrFinancialStatementService {
                                 totalExpenses);
 
                 // ========================================================
-                // CURRENT PERIOD EQUITY
+                // EQUITY THROUGH THE REPORTING DATE
                 // ========================================================
 
-                BigDecimal totalEquityIncludingProfit = add(
-                                totalEquity,
-                                netIncome);
+                BigDecimal unclosedProfit = subtract(historicalIncomeTotal, historicalExpenseTotal);
+                BigDecimal totalEquityIncludingProfit = add(totalEquity, unclosedProfit);
 
                 // ========================================================
                 // LIABILITIES + EQUITY
@@ -535,48 +510,6 @@ public class BnrFinancialStatementService {
                 // ========================================================
                 // TRIAL BALANCE
                 // ========================================================
-
-                BigDecimal trialBalanceDebit = ZERO;
-
-                BigDecimal trialBalanceCredit = ZERO;
-
-                for (JournalEntry entry : periodEntries) {
-
-                        if (entry == null) {
-                                continue;
-                        }
-
-                        if (entry.getLines() == null) {
-                                continue;
-                        }
-
-                        validateJournalEntry(
-                                        entry,
-                                        organizationId);
-
-                        for (JournalLine line : entry.getLines()) {
-
-                                if (line == null) {
-                                        continue;
-                                }
-
-                                trialBalanceDebit = add(
-                                                trialBalanceDebit,
-                                                value(
-                                                                line.getDebit()));
-
-                                trialBalanceCredit = add(
-                                                trialBalanceCredit,
-                                                value(
-                                                                line.getCredit()));
-                        }
-                }
-
-                trialBalanceDebit = normalizeMoney(
-                                trialBalanceDebit);
-
-                trialBalanceCredit = normalizeMoney(
-                                trialBalanceCredit);
 
                 BigDecimal trialBalanceDifference = subtract(
                                 trialBalanceDebit,
@@ -616,6 +549,8 @@ public class BnrFinancialStatementService {
                 statementOfFinancialPosition.put(
                                 "currentPeriodNetIncome",
                                 netIncome);
+
+                statementOfFinancialPosition.put("unclosedProfit", unclosedProfit);
 
                 statementOfFinancialPosition.put(
                                 "totalAssets",
@@ -1367,32 +1302,6 @@ public class BnrFinancialStatementService {
         }
 
         // ============================================================
-        // ACTIVE ENTRIES
-        // ============================================================
-
-        private List<JournalEntry> activeEntries(
-                        List<JournalEntry> entries) {
-
-                if (entries == null
-                                || entries.isEmpty()) {
-
-                        return new ArrayList<>();
-                }
-
-                return entries.stream()
-                                .filter(Objects::nonNull)
-                                .filter(entry -> !Boolean.TRUE.equals(
-                                                entry.getReversed()))
-                                .sorted(
-                                                Comparator
-                                                                .comparing(
-                                                                                JournalEntry::getEntryDate,
-                                                                                Comparator.nullsLast(
-                                                                                                Comparator.naturalOrder())))
-                                .toList();
-        }
-
-        // ============================================================
         // CREATE BALANCE MAP
         // ============================================================
 
@@ -1436,11 +1345,6 @@ public class BnrFinancialStatementService {
                         return;
                 }
 
-                if (Boolean.TRUE.equals(
-                                entry.getReversed())) {
-                        return;
-                }
-
                 validateJournalEntry(
                                 entry,
                                 organizationId);
@@ -1465,11 +1369,9 @@ public class BnrFinancialStatementService {
                                 continue;
                         }
 
-                        BigDecimal debit = value(
-                                        line.getDebit());
+                        BigDecimal debit = normalizeMoney(line.getDebitDecimal());
 
-                        BigDecimal credit = value(
-                                        line.getCredit());
+                        BigDecimal credit = normalizeMoney(line.getCreditDecimal());
 
                         BigDecimal movement;
 
@@ -1509,11 +1411,6 @@ public class BnrFinancialStatementService {
                         return;
                 }
 
-                if (Boolean.TRUE.equals(
-                                entry.getReversed())) {
-                        return;
-                }
-
                 validateJournalEntry(
                                 entry,
                                 organizationId);
@@ -1538,11 +1435,9 @@ public class BnrFinancialStatementService {
                                 continue;
                         }
 
-                        BigDecimal debit = value(
-                                        line.getDebit());
+                        BigDecimal debit = normalizeMoney(line.getDebitDecimal());
 
-                        BigDecimal credit = value(
-                                        line.getCredit());
+                        BigDecimal credit = normalizeMoney(line.getCreditDecimal());
 
                         debits.merge(
                                         accountId,
@@ -1553,80 +1448,6 @@ public class BnrFinancialStatementService {
                                         accountId,
                                         credit,
                                         this::add);
-                }
-        }
-
-        // ============================================================
-        // PROCESS HISTORICAL INCOME / EXPENSE
-        // ============================================================
-
-        private void processIncomeExpenseEntry(
-                        JournalEntry entry,
-                        Map<Long, BigDecimal> historicalIncome,
-                        Map<Long, BigDecimal> historicalExpenses,
-                        Long organizationId) {
-
-                if (entry == null) {
-                        return;
-                }
-
-                if (Boolean.TRUE.equals(
-                                entry.getReversed())) {
-                        return;
-                }
-
-                validateJournalEntry(
-                                entry,
-                                organizationId);
-
-                if (entry.getLines() == null) {
-                        return;
-                }
-
-                for (JournalLine line : entry.getLines()) {
-
-                        if (line == null) {
-                                continue;
-                        }
-
-                        if (line.getAccount() == null) {
-                                continue;
-                        }
-
-                        ChartOfAccount account = line.getAccount();
-
-                        if (account.getId() == null) {
-                                continue;
-                        }
-
-                        BigDecimal debit = value(
-                                        line.getDebit());
-
-                        BigDecimal credit = value(
-                                        line.getCredit());
-
-                        if (account.getType() == ChartOfAccount.AccountType.INCOME) {
-
-                                BigDecimal amount = subtract(
-                                                credit,
-                                                debit);
-
-                                historicalIncome.merge(
-                                                account.getId(),
-                                                amount,
-                                                this::add);
-
-                        } else if (account.getType() == ChartOfAccount.AccountType.EXPENSE) {
-
-                                BigDecimal amount = subtract(
-                                                debit,
-                                                credit);
-
-                                historicalExpenses.merge(
-                                                account.getId(),
-                                                amount,
-                                                this::add);
-                        }
                 }
         }
 
@@ -1679,15 +1500,6 @@ public class BnrFinancialStatementService {
                         return false;
                 }
 
-                /*
-                 * 1200 is retained for compatibility with the existing
-                 * chart of accounts.
-                 */
-                if ("1200".equals(
-                                account.getCode())) {
-                        return true;
-                }
-
                 return account.getNormalBalance() == ChartOfAccount.NormalBalance.CREDIT;
         }
 
@@ -1705,88 +1517,6 @@ public class BnrFinancialStatementService {
 
                 return normalizeMoney(
                                 balance);
-        }
-
-        // ============================================================
-        // BIGDECIMAL VALUE
-        // ============================================================
-
-        private BigDecimal value(
-                        Number value) {
-
-                if (value == null) {
-                        return ZERO;
-                }
-
-                if (value instanceof BigDecimal) {
-
-                        return normalizeMoney(
-                                        (BigDecimal) value);
-                }
-
-                if (value instanceof Long) {
-
-                        return normalizeMoney(
-                                        BigDecimal.valueOf(
-                                                        value.longValue()));
-                }
-
-                if (value instanceof Integer) {
-
-                        return normalizeMoney(
-                                        BigDecimal.valueOf(
-                                                        value.intValue()));
-                }
-
-                if (value instanceof Short) {
-
-                        return normalizeMoney(
-                                        BigDecimal.valueOf(
-                                                        value.shortValue()));
-                }
-
-                if (value instanceof Byte) {
-
-                        return normalizeMoney(
-                                        BigDecimal.valueOf(
-                                                        value.byteValue()));
-                }
-
-                if (value instanceof Double) {
-
-                        double doubleValue = value.doubleValue();
-
-                        if (Double.isNaN(doubleValue)
-                                        || Double.isInfinite(doubleValue)) {
-
-                                throw new IllegalArgumentException(
-                                                "Financial value cannot be NaN or infinite.");
-                        }
-
-                        return normalizeMoney(
-                                        BigDecimal.valueOf(
-                                                        doubleValue));
-                }
-
-                if (value instanceof Float) {
-
-                        float floatValue = value.floatValue();
-
-                        if (Float.isNaN(floatValue)
-                                        || Float.isInfinite(floatValue)) {
-
-                                throw new IllegalArgumentException(
-                                                "Financial value cannot be NaN or infinite.");
-                        }
-
-                        return normalizeMoney(
-                                        BigDecimal.valueOf(
-                                                        floatValue));
-                }
-
-                throw new IllegalArgumentException(
-                                "Unsupported financial number type: "
-                                                + value.getClass().getName());
         }
 
         // ============================================================
@@ -1947,11 +1677,9 @@ public class BnrFinancialStatementService {
                                                                 + " contains a journal line without an account.");
                         }
 
-                        BigDecimal debit = value(
-                                        line.getDebit());
+                        BigDecimal debit = normalizeMoney(line.getDebitDecimal());
 
-                        BigDecimal credit = value(
-                                        line.getCredit());
+                        BigDecimal credit = normalizeMoney(line.getCreditDecimal());
 
                         if (debit.compareTo(ZERO) < 0) {
 
