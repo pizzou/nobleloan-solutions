@@ -15,6 +15,7 @@ docker/nginx/ssl/*.key
 **/node_modules/
 **/dist/
 **/.gradle/
+*.tsbuildinfo
 
 # Logs
 *.log

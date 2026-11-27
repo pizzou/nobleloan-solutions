@@ -1,3 +1,5 @@
+import { getApiBaseUrl } from "../lib/apiBase";
+
 interface StompMessage {
   body: string;
   headers?: Record<string, string>;
@@ -119,18 +121,6 @@ let connectionGeneration = 0;
  */
 
 function getWebSocketUrl(): string {
-  const rawApiUrl = (
-    process.env.NEXT_PUBLIC_API_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    ""
-  ).trim();
-
-  if (!rawApiUrl) {
-    throw new Error(
-      "NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL is not configured.",
-    );
-  }
-
   if (typeof window === "undefined") {
     throw new Error(
       "WebSocket connections can only be initialized in a browser.",
@@ -142,8 +132,12 @@ function getWebSocketUrl(): string {
    * reverse proxy as /api. A relative API URL cannot be passed directly to
    * new URL(), so resolve it against the browser origin.
    */
-  const url = new URL(rawApiUrl, window.location.origin);
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const apiUrl =
+    process.env.NEXT_PUBLIC_API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
+    getApiBaseUrl();
+  const url = new URL(apiUrl, window.location.origin);
+  const protocol = url.protocol === "https:" ? "wss:" : "ws:";
 
   return `${protocol}//${url.host}/ws`;
 }

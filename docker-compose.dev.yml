@@ -1,23 +1,30 @@
-version: '3.9'
+# Run from the repository root: docker compose -f docker-compose.dev.yml up --build
+name: nobleloan-dev
 
-# Local dev override — run with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 services:
-  postgres:
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_PASSWORD: devpassword
-      POSTGRES_USER: loansaas
-      POSTGRES_DB: loansaas
-
   backend:
+    build:
+      context: ./backend/loan-management-api/loan-backend
+      args:
+        MAVEN_PROFILE: dev
     environment:
-      SPRING_PROFILES_ACTIVE: default
-      DB_PASSWORD: devpassword
-      JWT_SECRET: dev-secret-key-at-least-32-characters-long
-    volumes:
-      - ./backend/loan-management-api/loan-backend/src:/app/src
+      SPRING_PROFILES_ACTIVE: dev
+      APP_ENVIRONMENT: development
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?Set a local bootstrap admin email}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?Set a local bootstrap admin password}
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+    ports:
+      - "127.0.0.1:8080:8080"
 
-  nginx:
-    profiles:
-      - disabled  # skip nginx in dev — access backend:8080 and frontend:3000 directly
+  frontend:
+    build:
+      context: ./frontend/loan-management-ui
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080/api
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
