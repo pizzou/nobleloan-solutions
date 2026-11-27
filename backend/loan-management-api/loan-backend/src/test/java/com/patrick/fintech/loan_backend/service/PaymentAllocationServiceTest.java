@@ -37,7 +37,7 @@ class PaymentAllocationServiceTest {
     }
 
     @Test
-    void partialPaymentSettlesPenaltyThenManagementFeeThenInterest() {
+    void partialPaymentSettlesPenaltyThenSplitsTheRemainderEqually() {
         PaymentAllocationService.Allocation result = service.allocate(
                 new BigDecimal("125.00"),
                 new BigDecimal("30.00"),
@@ -46,12 +46,31 @@ class PaymentAllocationServiceTest {
                 new BigDecimal("50.00"),
                 new BigDecimal("500.00"));
 
-        assertEquals(new BigDecimal("45.00"), result.interest());
-        assertEquals(new BigDecimal("50.00"), result.managementFee());
+        assertEquals(new BigDecimal("47.50"), result.interest());
+        assertEquals(new BigDecimal("47.50"), result.managementFee());
         assertEquals(new BigDecimal("0.00"), result.principal());
         assertEquals(new BigDecimal("0.00"), result.extensionFee());
         assertEquals(new BigDecimal("30.00"), result.penalty());
         assertEquals(new BigDecimal("0.00"), result.overpayment());
+    }
+
+    @Test
+    void redirectsAnUnusedShareToTheOtherChargeBeforePrincipal() {
+        var result = service.allocate(new BigDecimal("95.01"), null, null,
+                new BigDecimal("100.00"), new BigDecimal("20.00"), new BigDecimal("500.00"));
+        assertEquals(new BigDecimal("75.01"), result.interest());
+        assertEquals(new BigDecimal("20.00"), result.managementFee());
+        assertEquals(new BigDecimal("0.00"), result.principal());
+    }
+
+    @Test
+    void historicalCorrectionRetainsTheApprovedManagementFirstPolicy() {
+        var result = service.allocateHistoricalCorrection(new BigDecimal("12100000.00"),
+                new BigDecimal("5583333.33"), null, new BigDecimal("6300000.00"),
+                new BigDecimal("6300000.00"), new BigDecimal("33500000.00"));
+        assertEquals(new BigDecimal("6300000.00"), result.managementFee());
+        assertEquals(new BigDecimal("216666.67"), result.interest());
+        assertEquals(new BigDecimal("0.00"), result.principal());
     }
 
     @Test

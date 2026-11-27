@@ -739,7 +739,7 @@ public class PaymentService {
                 // ============================================================
                 // PAYMENT ALLOCATION — CANONICAL ORDER
                 // ============================================================
-                // Penalty -> management fee -> interest -> principal -> extension fee.
+                // Penalty -> interest and management fee equally -> principal -> extension fee.
                 // Fees and penalties stay separate and never increase principal.
 
                 // Imported opening assessments can exceed the contract-based replay.

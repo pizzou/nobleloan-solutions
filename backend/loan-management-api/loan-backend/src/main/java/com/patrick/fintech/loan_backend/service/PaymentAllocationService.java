@@ -9,7 +9,7 @@ import java.math.RoundingMode;
  * Single authoritative payment allocation order for the lending platform.
  *
  * Allocation is always:
- * penalty -> management fee -> interest -> principal -> extension fee -> overpayment.
+ * penalty -> interest and management fee equally -> principal -> extension fee -> overpayment.
  * Fees and penalties are separate receivables and never increase principal.
  *
  * This class is deliberately side-effect free. Persistence, accounting and
@@ -30,16 +30,48 @@ public class PaymentAllocationService {
             BigDecimal managementFeeDue,
             BigDecimal principalDue) {
 
+        return allocate(paymentAmount, penaltyDue, extensionFeeDue, interestDue,
+                managementFeeDue, principalDue, false);
+    }
+
+    /**
+     * Replays approved historical corrections under their original allocation rule.
+     */
+    Allocation allocateHistoricalCorrection(
+            BigDecimal paymentAmount,
+            BigDecimal penaltyDue,
+            BigDecimal extensionFeeDue,
+            BigDecimal interestDue,
+            BigDecimal managementFeeDue,
+            BigDecimal principalDue) {
+        return allocate(paymentAmount, penaltyDue, extensionFeeDue, interestDue,
+                managementFeeDue, principalDue, true);
+    }
+
+    private Allocation allocate(
+            BigDecimal paymentAmount,
+            BigDecimal penaltyDue,
+            BigDecimal extensionFeeDue,
+            BigDecimal interestDue,
+            BigDecimal managementFeeDue,
+            BigDecimal principalDue,
+            boolean historicalManagementFirst) {
         BigDecimal remaining = money(paymentAmount).max(ZERO);
 
         BigDecimal penalty = take(remaining, penaltyDue);
         remaining = money(remaining.subtract(penalty));
 
-        BigDecimal managementFee = take(remaining, managementFeeDue);
-        remaining = money(remaining.subtract(managementFee));
-
-        BigDecimal interest = take(remaining, interestDue);
-        remaining = money(remaining.subtract(interest));
+        BigDecimal interestBalance = money(interestDue).max(ZERO);
+        BigDecimal managementBalance = money(managementFeeDue).max(ZERO);
+        BigDecimal chargePayment = remaining.min(interestBalance.add(managementBalance));
+        BigDecimal managementShare = historicalManagementFirst
+                ? chargePayment
+                : chargePayment.divide(BigDecimal.TWO, SCALE, ROUNDING);
+        // Apply any unused share to the other charge before reducing principal.
+        BigDecimal managementFee = managementShare.max(chargePayment.subtract(interestBalance))
+                .min(managementBalance);
+        BigDecimal interest = chargePayment.subtract(managementFee);
+        remaining = remaining.subtract(chargePayment);
 
         BigDecimal principal = take(remaining, principalDue);
         remaining = money(remaining.subtract(principal));
