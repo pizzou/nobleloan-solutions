@@ -7,7 +7,6 @@ import {
   ComposedChart,
   Legend,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -15,17 +14,16 @@ import {
   YAxis,
 } from "recharts";
 
-type Numeric = number | string | null | undefined;
+import { reportAmount, type LedgerCashFlowData } from "./LedgerCashFlow";
 
 export interface MonthlyFinancialPoint {
   month: string;
   label: string;
   from: string;
   to: string;
-  revenue: number;
-  expenses: number;
-  profit: number;
-  available?: boolean;
+  revenue: number | null;
+  expenses: number | null;
+  profit: number | null;
 }
 
 export interface CreditQualityPoint {
@@ -34,46 +32,20 @@ export interface CreditQualityPoint {
   amount: number;
 }
 
-export interface CashFlowSummary {
-  cashUsedForLending?: Numeric;
-  operatingCashInflows?: Numeric;
-  cashFromCollections?: Numeric;
-  cashFromFees?: Numeric;
-  otherCashMovement?: Numeric;
-  netChangeInCash?: Numeric;
-}
-
 interface Props {
   monthly: MonthlyFinancialPoint[];
   creditQuality: CreditQualityPoint[];
-  cashFlow: CashFlowSummary | null;
+  cashFlow: LedgerCashFlowData | null;
+  currency: string;
   reportingFrom: string;
   reportingTo: string;
 }
 
-const numberValue = (value: Numeric): number => {
-  if (value === null || value === undefined || value === "") return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const formatRwf = (value: number): string =>
-  new Intl.NumberFormat("en-RW", {
-    style: "currency",
-    currency: "RWF",
-    maximumFractionDigits: 0,
-  }).format(Number.isFinite(value) ? value : 0);
-
-const formatCompactRwf = (value: number): string => {
-  const absolute = Math.abs(value);
-  if (absolute >= 1_000_000_000)
-    return `RF ${(value / 1_000_000_000).toFixed(1)}B`;
-  if (absolute >= 1_000_000) return `RF ${(value / 1_000_000).toFixed(1)}M`;
-  if (absolute >= 1_000) return `RF ${(value / 1_000).toFixed(0)}K`;
-  return `RF ${value.toFixed(0)}`;
-};
-
-const tooltipFormatter = (value: number | string) => formatRwf(Number(value));
+function amountOrNull(value: number | string | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
 
 const qualityColors: Record<string, string> = {
   NORMAL: "#15803d",
@@ -116,71 +88,45 @@ export default function FinancialPerformanceCharts({
   monthly,
   creditQuality,
   cashFlow,
+  currency,
   reportingFrom,
   reportingTo,
 }: Props) {
-  const trend = monthly.filter((row) => row.available !== false);
+  const trend = monthly;
   const quality = creditQuality
     .filter((row) => Number.isFinite(row.amount) && row.amount >= 0)
     .sort((a, b) => b.amount - a.amount);
 
-  const cashMovements = cashFlow
-    ? [
-        {
-          source: "Lending deployed",
-          amount: -Math.abs(numberValue(cashFlow.cashUsedForLending)),
-          color: "#dc2626",
-        },
-        {
-          source: "Operating cash inflows",
-          // AccountingService.getCashFlow currently exposes cashFromCollections
-          // as total operating inflows, which also includes application-fee
-          // receipts. Subtract the separately reported fee amount so the chart
-          // does not count the same fee cash twice. If a future API supplies a
-          // dedicated operatingCashInflows field, treat that field as the
-          // explicit value and do not subtract fees again.
-          amount:
-            cashFlow.operatingCashInflows !== null &&
-            cashFlow.operatingCashInflows !== undefined
-              ? numberValue(cashFlow.operatingCashInflows)
-              : numberValue(cashFlow.cashFromCollections) -
-                numberValue(cashFlow.cashFromFees),
-          color: "#15803d",
-        },
-        {
-          source: "Fees received",
-          amount: numberValue(cashFlow.cashFromFees),
-          color: "#0f766e",
-        },
-        {
-          source: "Other movements",
-          amount: numberValue(cashFlow.otherCashMovement),
-          color: "#64748b",
-        },
-      ]
-    : [];
+  const outflow = (value: number | string | null | undefined) => {
+    const amount = amountOrNull(value);
+    return amount == null ? null : -amount;
+  };
+  const cashMovements = [
+    { source: "Repayments", amount: amountOrNull(cashFlow?.cashFromRepayments), color: "#0f766e" },
+    { source: "Loan payouts", amount: outflow(cashFlow?.netCashDisbursed), color: "#b91c1c" },
+    { source: "Refunds", amount: outflow(cashFlow?.cashRefundedToBorrowers), color: "#b91c1c" },
+    { source: "Other cash, net", amount: amountOrNull(cashFlow?.otherCashFlowsNet), color: "#475569" },
+  ].filter((movement) => movement.amount != null);
 
-  const netCashChange = numberValue(cashFlow?.netChangeInCash);
+  const netCashChange = amountOrNull(cashFlow?.netChangeInCash);
   const trendFrom = trend[0]?.from || "—";
   const trendTo = trend[trend.length - 1]?.to || "—";
+  const compactAmount = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+  const formatAxis = (amount: number) => compactAmount.format(amount);
+  const tooltipFormatter = (amount: number | string) => reportAmount(amount, currency);
 
   return (
     <section className="mt-10" aria-labelledby="financial-performance-heading">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">
-            Management analytics
-          </p>
           <h2
             id="financial-performance-heading"
             className="mt-1 text-xl font-bold tracking-tight text-slate-950"
           >
-            Financial performance charts
+            Financial performance
           </h2>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-            Accounting-based trends and portfolio exposure for business review.
-            Values are drawn from the system&apos;s accounting reports and
-            current classified loan balances; they are not forecasts.
+            Ledger activity and current loan balances · {currency}
           </p>
         </div>
         <div className="text-xs font-medium text-slate-500 sm:text-right">
@@ -196,11 +142,11 @@ export default function FinancialPerformanceCharts({
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <ChartCard
           title="Income, expenses and net income"
-          description="Monthly financial results. A sustained gap between income and expenses indicates operating profitability; net income may be negative."
+          description="Compare income with expenses. The net income line shows the profit or loss for each month."
         >
           {trend.length ? (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
+              <ComposedChart
                 data={trend}
                 margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
               >
@@ -212,7 +158,7 @@ export default function FinancialPerformanceCharts({
                   axisLine={{ stroke: "#cbd5e1" }}
                 />
                 <YAxis
-                  tickFormatter={formatCompactRwf}
+                  tickFormatter={formatAxis}
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   tickLine={false}
                   axisLine={false}
@@ -229,37 +175,20 @@ export default function FinancialPerformanceCharts({
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <ReferenceLine y={0} stroke="#64748b" />
+                <Bar dataKey="revenue" name="Income" fill="#0B1F3A" isAnimationActive={false} />
+                <Bar dataKey="expenses" name="Expenses" fill="#C4851B" isAnimationActive={false} />
                 <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  name="Income"
-                  stroke="#2563eb"
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                  connectNulls={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="expenses"
-                  name="Expenses"
-                  stroke="#ea580c"
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                  connectNulls={false}
-                />
-                <Line
-                  type="monotone"
+                  type="linear"
                   dataKey="profit"
                   name="Net income"
-                  stroke="#15803d"
+                  stroke="#0f766e"
                   strokeWidth={2.5}
                   dot={{ r: 3 }}
                   activeDot={{ r: 5 }}
                   connectNulls={false}
+                  isAnimationActive={false}
                 />
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           ) : (
             <EmptyChart message="Monthly accounting results are not available for this period." />
@@ -267,8 +196,8 @@ export default function FinancialPerformanceCharts({
         </ChartCard>
 
         <ChartCard
-          title="Outstanding exposure by credit quality"
-          description="Current outstanding balance grouped by the loan's recorded credit-quality classification. This is exposure, not a delinquency ratio or regulatory provision calculation."
+          title="Outstanding loans by credit quality"
+          description="Current balances by recorded credit rating. Hover to see the amount and number of loans."
         >
           {quality.length ? (
             <ResponsiveContainer width="100%" height="100%">
@@ -284,7 +213,7 @@ export default function FinancialPerformanceCharts({
                 />
                 <XAxis
                   type="number"
-                  tickFormatter={formatCompactRwf}
+                  tickFormatter={formatAxis}
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   tickLine={false}
                   axisLine={{ stroke: "#cbd5e1" }}
@@ -303,8 +232,8 @@ export default function FinancialPerformanceCharts({
                     _name: string,
                     item: any,
                   ) => [
-                    formatRwf(Number(value)),
-                    `${item?.payload?.count ?? 0} facilities · outstanding`,
+                    reportAmount(value, currency),
+                    `${item?.payload?.count ?? 0} loans · outstanding`,
                   ]}
                   contentStyle={{
                     borderRadius: 8,
@@ -317,6 +246,7 @@ export default function FinancialPerformanceCharts({
                   name="Outstanding exposure"
                   radius={[0, 4, 4, 0]}
                   maxBarSize={28}
+                  isAnimationActive={false}
                 >
                   {quality.map((item) => (
                     <Cell
@@ -337,31 +267,30 @@ export default function FinancialPerformanceCharts({
 
         <ChartCard
           title="Cash movement by source"
-          description="Lending deployment is shown as an outflow. Collections are separated from application-fee receipts using the accounting API's current aggregate fields; other movements retain their reported sign. Net change is shown separately and is not added to the component bars."
+          description="GL 1000 for the selected dates. Positive bars show cash in. Negative bars show cash out."
         >
           {cashMovements.length ? (
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={cashMovements}
-                margin={{ top: 8, right: 12, left: 8, bottom: 34 }}
+                layout="vertical"
+                margin={{ top: 8, right: 18, left: 4, bottom: 4 }}
               >
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
                 <XAxis
-                  dataKey="source"
-                  interval={0}
-                  angle={-14}
-                  textAnchor="end"
-                  height={55}
-                  tick={{ fontSize: 10, fill: "#64748b" }}
-                  tickLine={false}
-                  axisLine={{ stroke: "#cbd5e1" }}
-                />
-                <YAxis
-                  tickFormatter={formatCompactRwf}
+                  type="number"
+                  tickFormatter={formatAxis}
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   tickLine={false}
                   axisLine={false}
-                  width={82}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="source"
+                  tick={{ fontSize: 11, fill: "#475569" }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={93}
                 />
                 <Tooltip
                   formatter={tooltipFormatter}
@@ -371,11 +300,12 @@ export default function FinancialPerformanceCharts({
                     fontSize: 12,
                   }}
                 />
-                <ReferenceLine y={0} stroke="#64748b" />
+                <ReferenceLine x={0} stroke="#64748b" />
                 <Bar
                   dataKey="amount"
                   name="Cash movement"
-                  radius={[4, 4, 0, 0]}
+                  isAnimationActive={false}
+                  maxBarSize={30}
                 >
                   {cashMovements.map((item) => (
                     <Cell key={item.source} fill={item.color} />
@@ -390,36 +320,30 @@ export default function FinancialPerformanceCharts({
 
         <section className="flex min-w-0 flex-col justify-between rounded-xl border border-slate-200 bg-slate-900 p-5 text-white sm:p-6">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-300">
-              Liquidity indicator
-            </p>
             <h3 className="mt-2 text-lg font-bold">Net change in cash</h3>
             <p className="mt-2 text-xs leading-5 text-slate-300">
-              Net movement reported by the cash-flow statement for the selected
-              statement period. This is not the same as the bank-account balance
-              or available cash unless those accounts are fully reconciled.
+              Total movement in GL 1000 during the selected dates.
+              See Cash Flow for the starting and ending balances.
             </p>
           </div>
           <div className="mt-8">
             <p
-              className={`text-3xl font-bold tracking-tight ${netCashChange < 0 ? "text-rose-300" : "text-emerald-300"}`}
+              className={`text-3xl font-bold tracking-tight ${netCashChange == null ? "text-slate-300" : netCashChange < 0 ? "text-rose-300" : "text-emerald-300"}`}
             >
-              {cashFlow ? formatRwf(netCashChange) : "Not available"}
+              {reportAmount(netCashChange, currency)}
             </p>
             <p className="mt-2 text-xs text-slate-300">
-              {cashFlow
+              {netCashChange != null
                 ? netCashChange < 0
                   ? "Cash decreased during the period"
                   : netCashChange > 0
                     ? "Cash increased during the period"
                     : "No net cash movement reported"
-                : "Cash-flow data could not be loaded."}
+                : "No net cash movement figure was returned."}
             </p>
           </div>
           <div className="mt-8 border-t border-slate-700 pt-4 text-[11px] leading-5 text-slate-300">
-            For external presentation, confirm the trial balance is balanced and
-            cash accounts reconcile to bank statements before relying on this
-            indicator.
+            Compare the recorded balance with your bank statement to confirm available cash.
           </div>
         </section>
       </div>

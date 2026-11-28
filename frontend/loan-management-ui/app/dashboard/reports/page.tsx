@@ -70,8 +70,6 @@ interface ProfitAndLossReport {
   netIncome?: Numeric;
 }
 
-interface MonthlyAccountingReport extends MonthlyFinancialPoint {}
-
 interface ReportAggregates {
   loanProducts: Array<{ type: string; count: number; amount: number }>;
   creditQuality: CreditQualityPoint[];
@@ -89,35 +87,6 @@ interface DashboardStatsLike {
   overdueLoans?: Numeric;
   completedLoans?: Numeric;
   totalBorrowers?: Numeric;
-}
-
-interface LoanLike {
-  id?: number | string;
-  referenceNumber?: string;
-  status?: string;
-
-  borrower?: {
-    firstName?: string;
-    lastName?: string;
-    nationalId?: string;
-    gender?: string;
-    sex?: string;
-  };
-
-  amount?: Numeric;
-  outstandingBalance?: Numeric;
-  creditQuality?: string;
-  daysOverdue?: Numeric;
-
-  loanType?: string;
-  productName?: string;
-  product?: {
-    name?: string;
-  };
-}
-
-interface PaymentLike {
-  penalty?: Numeric;
 }
 
 /* ==========================================================================
@@ -178,15 +147,6 @@ const toDateString = (date: Date): string => {
 
   return `${year}-${month}-${day}`;
 };
-
-const monthStart = (date: Date): Date =>
-  new Date(date.getFullYear(), date.getMonth(), 1);
-
-const monthEnd = (date: Date): Date =>
-  new Date(date.getFullYear(), date.getMonth() + 1, 0);
-
-const previousMonth = (date: Date, monthsBack: number): Date =>
-  new Date(date.getFullYear(), date.getMonth() - monthsBack, 1);
 
 const unwrap = <T,>(value: unknown): T => {
   if (value === null || value === undefined) {
@@ -252,51 +212,7 @@ const normalizeArray = <T,>(value: unknown): T[] => {
   return [];
 };
 
-const getAllReportLoans = async (): Promise<LoanLike[]> => {
-  const pageSize = 100;
-  const maxPages = 100;
-  const allLoans: LoanLike[] = [];
 
-  for (let page = 0; page < maxPages; page += 1) {
-    const response = await API.get("/loans", {
-      params: {
-        page,
-        size: pageSize,
-      },
-    });
-
-    const payload = unwrap<unknown>(response);
-
-    let content: LoanLike[] = [];
-    let last = false;
-
-    if (Array.isArray(payload)) {
-      content = payload as LoanLike[];
-      last = content.length < pageSize;
-    } else if (payload && typeof payload === "object") {
-      const pageData = payload as {
-        content?: unknown;
-        last?: unknown;
-        totalPages?: unknown;
-      };
-
-      content = normalizeArray<LoanLike>(pageData.content);
-      last =
-        pageData.last === true ||
-        (typeof pageData.totalPages === "number" &&
-          page + 1 >= pageData.totalPages) ||
-        content.length < pageSize;
-    }
-
-    allLoans.push(...content);
-
-    if (last || content.length === 0) {
-      break;
-    }
-  }
-
-  return allLoans;
-};
 
 const filenamePart = (value: string): string =>
   value
@@ -566,22 +482,14 @@ function ExportButtons({
    ========================================================================== */
 
 function SectionHeading({
-  eyebrow,
   title,
   description,
 }: {
-  eyebrow?: string;
   title: string;
   description?: string;
 }) {
   return (
     <div className="mb-5">
-      {eyebrow ? (
-        <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-          {eyebrow}
-        </p>
-      ) : null}
-
       <h2 className="text-base font-bold tracking-tight text-slate-900">
         {title}
       </h2>
@@ -752,12 +660,11 @@ function ReportDocument({
    ========================================================================== */
 
 export default function ReportsPage() {
-  const { currency } = useAuth();
+  const { currency, user } = useAuth();
+  const organizationId = user?.organizationId;
   const [stats, setStats] = useState<DashboardStatsLike | null>(null);
 
-  const [loans, setLoans] = useState<LoanLike[]>([]);
-
-  const [overdue, setOverdue] = useState<PaymentLike[]>([]);
+  const [overduePenalties, setOverduePenalties] = useState<Numeric>(null);
 
   const [trialBalance, setTrialBalance] = useState<TrialBalanceReport | null>(
     null,
@@ -774,7 +681,7 @@ export default function ReportsPage() {
   const [importedPortfolio, setImportedPortfolio] = useState<ImportedPortfolioData | null>(null);
 
   const [monthlyAccounting, setMonthlyAccounting] = useState<
-    MonthlyAccountingReport[]
+    MonthlyFinancialPoint[]
   >([]);
 
   const [reportAggregates, setReportAggregates] = useState<ReportAggregates>({
@@ -791,226 +698,99 @@ export default function ReportsPage() {
   );
 
   useEffect(() => {
+    if (!organizationId) return;
+    let active = true;
+
+    void Promise.allSettled([
+      getDashboardStats(),
+      API.get("/reports/operational-summary"),
+    ]).then(([dashboardResult, operationalResult]) => {
+      if (!active) return;
+
+      setStats(dashboardResult.status === "fulfilled"
+        ? unwrap<DashboardStatsLike>(dashboardResult.value)
+        : null);
+
+      const operational = operationalResult.status === "fulfilled"
+        ? unwrap<{ loanProducts?: unknown; creditQuality?: unknown; borrowerGender?: unknown; overduePenalties?: Numeric }>(operationalResult.value)
+        : null;
+
+      setReportAggregates({
+        loanProducts: normalizeArray<Numeric[]>(operational?.loanProducts).map(([product, count, amount]) => ({
+          type: String(product ?? "Unclassified"),
+          count: numberValue(count),
+          amount: numberValue(amount),
+        })),
+        creditQuality: normalizeArray<Numeric[]>(operational?.creditQuality).map(([quality, count, amount]) => ({
+          quality: String(quality ?? "Unclassified"),
+          count: numberValue(count),
+          amount: numberValue(amount),
+        })),
+        genderRows: normalizeArray<unknown[]>(operational?.borrowerGender),
+      });
+      setOverduePenalties(operational?.overduePenalties);
+    });
+
+    return () => { active = false; };
+  }, [organizationId]);
+
+  useEffect(() => {
     let mounted = true;
-
-    const loadOperationalReports = async (): Promise<void> => {
-      try {
-        const [dashboardStatsResult, operationalResult] =
-          await Promise.allSettled([
-            getDashboardStats(),
-            API.get("/reports/operational-summary"),
-          ]);
-
-        if (!mounted) return;
-
-        if (dashboardStatsResult.status === "fulfilled") {
-          setStats(
-            unwrap<DashboardStatsLike>(dashboardStatsResult.value) ?? null,
-          );
-        } else {
-          console.error(
-            "Dashboard statistics failed",
-            dashboardStatsResult.reason,
-          );
-          setStats(null);
-        }
-
-        if (operationalResult.status === "fulfilled") {
-          const operational = unwrap<any>(operationalResult.value) ?? {};
-
-          const loanProducts = normalizeArray<any>(
-            operational.loanProducts,
-          ).map((row) => ({
-            type: String(row?.[0] ?? "UNKNOWN"),
-            count: numberValue(row?.[1]),
-            amount: numberValue(row?.[2]),
-          }));
-
-          const creditQuality = normalizeArray<any>(
-            operational.creditQuality,
-          ).map((row) => ({
-            quality: String(row?.[0] ?? "Not Classified"),
-            count: numberValue(row?.[1]),
-            amount: numberValue(row?.[2]),
-          }));
-
-          const genderRows = normalizeArray<unknown[]>(
-            operational.borrowerGender,
-          );
-
-          // Keep server aggregates in React state. Avoid synthetic loan objects
-          // and window globals, which could otherwise confuse portfolio totals.
-          setReportAggregates({ loanProducts, creditQuality, genderRows });
-          setLoans([]);
-          setOverdue([{ penalty: numberValue(operational.overduePenalties) }]);
-        } else {
-          setLoans([]);
-          setOverdue([]);
-          setReportAggregates({
-            loanProducts: [],
-            creditQuality: [],
-            genderRows: [],
-          });
-        }
-      } catch (error) {
-        console.error("Operational reports failed", error);
-
-        if (mounted) {
-          setStats(null);
-          setOverdue([]);
-          setLoans([]);
-          setReportAggregates({
-            loanProducts: [],
-            creditQuality: [],
-            genderRows: [],
-          });
-        }
-      }
-    };
 
     const loadAccountingReports = async (): Promise<void> => {
       try {
-        const currentUser =
-          typeof window !== "undefined"
-            ? JSON.parse(localStorage.getItem("user") || "null")
-            : null;
-        const organizationId = Number(currentUser?.organizationId || 0);
-
         if (!organizationId) {
           throw new Error("Current organization could not be determined.");
         }
 
-        const results = await Promise.allSettled([
-          API.get(
-            `/reports/accounting/${organizationId}?from=${encodeURIComponent(financialPeriod.from)}&to=${encodeURIComponent(financialPeriod.to)}`,
-          ),
-        ]);
-
+        const response = await API.get(
+          `/reports/accounting/${organizationId}?from=${encodeURIComponent(financialPeriod.from)}&to=${encodeURIComponent(financialPeriod.to)}`,
+        );
         if (!mounted) return;
 
-        const accounting = results[0];
-        const accountingPayload =
-          accounting.status === "fulfilled"
-            ? (unwrap<any>(accounting.value) ?? {})
-            : {};
+        const accountingPayload = unwrap<{
+          trialBalance?: TrialBalanceReport;
+          balanceSheet?: BalanceSheetReport;
+          profitAndLoss?: ProfitAndLossReport;
+          cashFlow?: LedgerCashFlowData;
+          importedPortfolio?: ImportedPortfolioData;
+          monthlyProfitAndExpenses?: unknown;
+        }>(response);
+        if (!accountingPayload) throw new Error("The server returned no accounting report.");
+
+        setTrialBalance(accountingPayload.trialBalance ?? null);
+        setBalanceSheet(accountingPayload.balanceSheet ?? null);
+        setProfitAndLoss(accountingPayload.profitAndLoss ?? null);
+        setCashFlow(accountingPayload.cashFlow ?? null);
         setImportedPortfolio(accountingPayload.importedPortfolio ?? null);
-        const trial =
-          accounting.status === "fulfilled"
-            ? ({
-                status: "fulfilled",
-                value: accountingPayload.trialBalance,
-              } as const)
-            : accounting;
-        const balance =
-          accounting.status === "fulfilled"
-            ? ({
-                status: "fulfilled",
-                value: accountingPayload.balanceSheet,
-              } as const)
-            : accounting;
-        const pnl =
-          accounting.status === "fulfilled"
-            ? ({
-                status: "fulfilled",
-                value: accountingPayload.profitAndLoss,
-              } as const)
-            : accounting;
-        const cash =
-          accounting.status === "fulfilled"
-            ? ({
-                status: "fulfilled",
-                value: accountingPayload.cashFlow,
-              } as const)
-            : accounting;
+        setAccountingError(null);
 
-        if (trial.status === "fulfilled") {
-          setTrialBalance(unwrap<TrialBalanceReport>(trial.value));
-        } else {
-          console.error("Trial balance failed", trial.reason);
-          setTrialBalance(null);
-        }
-
-        if (balance.status === "fulfilled") {
-          setBalanceSheet(unwrap<BalanceSheetReport>(balance.value));
-        } else {
-          console.error("Balance sheet failed", balance.reason);
-          setBalanceSheet(null);
-        }
-
-        if (pnl.status === "fulfilled") {
-          setProfitAndLoss(unwrap<ProfitAndLossReport>(pnl.value));
-        } else {
-          console.error("Profit and loss failed", pnl.reason);
-          setProfitAndLoss(null);
-        }
-
-        if (cash.status === "fulfilled") {
-          setCashFlow(unwrap<LedgerCashFlowData>(cash.value));
-        } else {
-          console.error("Cash flow failed", cash.reason);
-          setCashFlow(null);
-          setImportedPortfolio(null);
-        }
-
-        const accountingSucceeded = results.some(
-          (result) => result.status === "fulfilled",
-        );
-
-        if (accountingSucceeded) {
-          setAccountingError(null);
-        } else {
-          setAccountingError("Accounting reports could not be loaded.");
-        }
-
-        // The unified accounting response already includes monthlyProfitAndExpenses.
-        // Reuse that server-calculated accounting data instead of issuing six more
-        // full P&L requests from the browser. Failed months are never represented as zero.
-        if (accounting.status === "fulfilled") {
-          const monthlyRows = normalizeArray<any>(
-            accountingPayload.monthlyProfitAndExpenses,
-          );
-          const normalizedMonthly = monthlyRows.map(
-            (row): MonthlyAccountingReport => {
-              const from = String(row?.from ?? "").slice(0, 10);
-              const to = String(row?.to ?? "").slice(0, 10);
-              const monthNumber = numberValue(row?.monthNumber);
-              const year =
-                numberValue(row?.year) ||
-                (from ? Number(from.slice(0, 4)) : new Date().getFullYear());
-              const monthDate =
-                monthNumber >= 1 && monthNumber <= 12
-                  ? new Date(year, monthNumber - 1, 1)
-                  : from
-                    ? new Date(`${from}T12:00:00`)
-                    : new Date();
-              const monthKey = from
-                ? from.slice(0, 7)
-                : `${year}-${String(monthNumber || monthDate.getMonth() + 1).padStart(2, "0")}`;
-              const label = new Intl.DateTimeFormat("en-RW", {
-                month: "short",
-                year: "2-digit",
-              }).format(monthDate);
-              return {
-                month: monthKey,
-                label,
-                from,
-                to,
-                revenue: numberValue(row?.revenue),
-                expenses: numberValue(row?.expenses),
-                profit: numberValue(row?.netIncome ?? row?.profit),
-                available: true,
-              };
-            },
-          );
-          setMonthlyAccounting(normalizedMonthly.slice(-6));
-        } else {
-          setMonthlyAccounting([]);
-        }
+        const monthlyRows = normalizeArray<{
+          from?: string; to?: string; revenue?: Numeric; expenses?: Numeric; netIncome?: Numeric; profit?: Numeric;
+        }>(accountingPayload.monthlyProfitAndExpenses);
+        const monthLabel = new Intl.DateTimeFormat("en-RW", { month: "short", year: "2-digit", timeZone: "UTC" });
+        const monthly = monthlyRows.flatMap((row): MonthlyFinancialPoint[] => {
+          if (!row.from || !row.to) return [];
+          const date = new Date(row.from);
+          if (!Number.isFinite(date.valueOf())) return [];
+          const toAmount = (value: Numeric) =>
+            value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value);
+          return [{
+            month: row.from.slice(0, 7),
+            label: monthLabel.format(date),
+            from: row.from,
+            to: row.to,
+            revenue: toAmount(row.revenue),
+            expenses: toAmount(row.expenses),
+            profit: toAmount(row.netIncome ?? row.profit),
+          }];
+        });
+        setMonthlyAccounting(monthly.slice(-6));
       } catch (error) {
         console.error("Accounting reports failed", error);
 
         if (mounted) {
-          setAccountingError("Accounting reports could not be loaded.");
+          setAccountingError(error instanceof Error ? error.message : "Accounting reports could not be loaded.");
 
           setTrialBalance(null);
           setBalanceSheet(null);
@@ -1026,7 +806,7 @@ export default function ReportsPage() {
       setLoading(true);
 
       try {
-        await Promise.all([loadOperationalReports(), loadAccountingReports()]);
+        await loadAccountingReports();
       } finally {
         if (mounted) {
           setLoading(false);
@@ -1039,7 +819,7 @@ export default function ReportsPage() {
     return () => {
       mounted = false;
     };
-  }, [financialPeriod.from, financialPeriod.to]);
+  }, [organizationId, financialPeriod.from, financialPeriod.to]);
 
   /* ==========================================================================
      DERIVED VALUES
@@ -1048,49 +828,6 @@ export default function ReportsPage() {
   const today = new Date();
 
   const asOfDate = toDateString(today);
-
-  const collectionRate = useMemo(() => {
-    const disbursed = numberValue(stats?.totalDisbursed);
-
-    const collected = numberValue(stats?.totalCollected);
-
-    if (disbursed <= 0) return 0;
-
-    return (collected / disbursed) * 100;
-  }, [stats]);
-
-  const totalReceivables = numberValue(stats?.totalReceivables);
-
-  const outstandingPortfolio = useMemo(() => {
-    /*
-     * Outstanding portfolio is an operational receivable balance, not
-     * "gross disbursements minus all collections". Collections can contain
-     * principal, interest, management fees, penalties and one-time fees, so
-     * subtracting the entire collection total from principal disbursements
-     * produces a false figure (for example RF 242,025,800 in the previous
-     * report).
-     *
-     * Use the authoritative DashboardStats outstandingBalance, which is now
-     * aligned with the Loan Portfolio, BNR portfolio population and GL 1100.
-     */
-    if (
-      stats?.outstandingBalance !== undefined &&
-      stats?.outstandingBalance !== null
-    ) {
-      return numberValue(stats.outstandingBalance);
-    }
-
-    return loans.reduce(
-      (sum, loan) => sum + numberValue(loan.outstandingBalance),
-      0,
-    );
-  }, [stats, loans]);
-
-  const penalties = useMemo(
-    () =>
-      overdue.reduce((sum, payment) => sum + numberValue(payment.penalty), 0),
-    [overdue],
-  );
 
   const totalIncome = numberValue(profitAndLoss?.totalIncome);
 
@@ -1116,51 +853,7 @@ export default function ReportsPage() {
 
   const totalCredit = numberValue(trialBalance?.totalCredit);
 
-  const rejectedCount = 0;
-
-  const portfolioCount =
-    stats?.totalLoans !== undefined && stats?.totalLoans !== null
-      ? numberValue(stats.totalLoans)
-      : loans.length;
-
-  const currentLoans = loans.filter(
-    (loan) => String(loan.status ?? "").toUpperCase() === "ACTIVE",
-  );
-
-  const qualityBreakdown = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        count: number;
-        amount: number;
-      }
-    >();
-
-    if (reportAggregates.creditQuality.length > 0) {
-      return reportAggregates.creditQuality;
-    }
-
-    currentLoans.forEach((loan) => {
-      const quality = loan.creditQuality?.trim() || "Not Classified";
-
-      const existing = groups.get(quality) ?? {
-        count: 0,
-        amount: 0,
-      };
-
-      existing.count += 1;
-      existing.amount += numberValue(loan.outstandingBalance ?? loan.amount);
-
-      groups.set(quality, existing);
-    });
-
-    return Array.from(groups.entries())
-      .map(([quality, value]) => ({
-        quality,
-        ...value,
-      }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [currentLoans, reportAggregates]);
+  const qualityBreakdown = reportAggregates.creditQuality;
 
   const borrowerGender = useMemo(() => {
     if (reportAggregates.genderRows.length > 0) {
@@ -1185,67 +878,14 @@ export default function ReportsPage() {
   }, [reportAggregates]);
 
   const loanProducts = useMemo(() => {
-    if (reportAggregates.loanProducts.length > 0) {
-      const total = reportAggregates.loanProducts.reduce(
-        (sum: number, item: any) => sum + numberValue(item.amount),
-        0,
-      );
-      return reportAggregates.loanProducts.map((item: any) => ({
-        name: item.type,
-        count: numberValue(item.count),
-        amount: numberValue(item.amount),
-        percentage: total > 0 ? (numberValue(item.amount) / total) * 100 : 0,
-      }));
-    }
-
-    const groups = new Map<
-      string,
-      {
-        count: number;
-        amount: number;
-      }
-    >();
-
-    loans.forEach((loan) => {
-      const product =
-        loan.productName ??
-        loan.loanType ??
-        loan.product?.name ??
-        "Unclassified";
-
-      const existing = groups.get(product) ?? {
-        count: 0,
-        amount: 0,
-      };
-
-      existing.count += 1;
-      existing.amount += numberValue(loan.amount);
-
-      groups.set(product, existing);
-    });
-
-    const total = Array.from(groups.values()).reduce(
-      (sum, item) => sum + item.amount,
-      0,
-    );
-
-    return Array.from(groups.entries())
-      .map(([name, value]) => ({
-        name,
-        ...value,
-        percentage: total > 0 ? (value.amount / total) * 100 : 0,
-      }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [loans, reportAggregates]);
-
-  const monthlyMax = Math.max(
-    1,
-    ...monthlyAccounting.flatMap((row) => [
-      Math.abs(row.revenue),
-      Math.abs(row.expenses),
-      Math.abs(row.profit),
-    ]),
-  );
+    const total = reportAggregates.loanProducts.reduce((sum, item) => sum + item.amount, 0);
+    return reportAggregates.loanProducts.map((item) => ({
+      name: item.type,
+      count: item.count,
+      amount: item.amount,
+      percentage: total > 0 ? item.amount / total * 100 : 0,
+    }));
+  }, [reportAggregates.loanProducts]);
 
   const reportingFrom = financialPeriod.from;
 
@@ -1363,44 +1003,43 @@ export default function ReportsPage() {
 
         <section className="mt-8">
           <SectionHeading
-            eyebrow="01 / Executive Summary"
             title="Portfolio at a glance"
-            description="Key indicators for management review."
+            description="Current portfolio totals, including historical activity where recorded."
           />
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-5 lg:divide-x">
               <ExecutiveMetric
-                label="Gross Disbursements"
-                value={fmt(stats?.totalDisbursed)}
-                detail={`${fmtNumber(portfolioCount)} recorded loans`}
+                label="Gross disbursements"
+                value={reportAmount(stats?.totalDisbursed, currency)}
+                detail={stats?.totalLoans != null ? `${fmtNumber(stats.totalLoans)} recorded loans` : undefined}
                 emphasis
               />
 
               <ExecutiveMetric
                 label="Collections"
-                value={fmt(stats?.totalCollected)}
-                detail={`${fmtPercent(collectionRate)} collection rate`}
+                value={reportAmount(stats?.totalCollected, currency)}
+                detail="Includes historical collections"
               />
 
               <ExecutiveMetric
-                label="Outstanding Principal"
-                value={fmt(outstandingPortfolio)}
-                detail="Principal balance in the current receivable population"
+                label="Outstanding principal"
+                value={reportAmount(stats?.outstandingBalance, currency)}
+                detail="Principal borrowers still owe"
                 emphasis
               />
 
               <ExecutiveMetric
-                label="Total Receivables"
-                value={fmt(totalReceivables)}
-                detail="Principal plus unpaid contractual charges"
+                label="Total receivables"
+                value={reportAmount(stats?.totalReceivables, currency)}
+                detail="Unpaid principal and charges"
                 emphasis
               />
 
               <ExecutiveMetric
-                label="Overdue Penalties"
-                value={fmt(penalties)}
-                detail={`${fmtNumber(stats?.overdueLoans)} overdue loans`}
+                label="Overdue penalties"
+                value={reportAmount(overduePenalties, currency)}
+                detail={stats?.overdueLoans != null ? `${fmtNumber(stats.overdueLoans)} overdue loans` : undefined}
               />
             </div>
           </div>
@@ -1409,32 +1048,33 @@ export default function ReportsPage() {
             <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
               <ExecutiveMetric
                 label="Borrowers"
-                value={fmtNumber(stats?.totalBorrowers ?? borrowerGender.total)}
+                value={stats?.totalBorrowers != null ? fmtNumber(stats.totalBorrowers) : reportAggregates.genderRows.length ? fmtNumber(borrowerGender.total) : "Unavailable"}
                 detail="Customer base"
               />
 
               <ExecutiveMetric
                 label="Active Loans"
-                value={fmtNumber(stats?.activeLoans)}
+                value={stats?.activeLoans == null ? "Unavailable" : fmtNumber(stats.activeLoans)}
                 detail="Currently performing"
               />
 
               <ExecutiveMetric
                 label="Overdue Loans"
-                value={fmtNumber(stats?.overdueLoans)}
+                value={stats?.overdueLoans == null ? "Unavailable" : fmtNumber(stats.overdueLoans)}
                 detail="Require collection attention"
               />
 
               <ExecutiveMetric
                 label="Closed Loans"
-                value={fmtNumber(stats?.completedLoans)}
-                detail="Completed facilities"
+                value={stats?.completedLoans == null ? "Unavailable" : fmtNumber(stats.completedLoans)}
+                detail="Completed loans"
               />
             </div>
           </div>
         </section>
 
         <FinancialPerformanceCharts
+          currency={currency}
           monthly={monthlyAccounting}
           creditQuality={qualityBreakdown}
           cashFlow={cashFlow}
@@ -1448,7 +1088,6 @@ export default function ReportsPage() {
 
         <section className="mt-10">
           <SectionHeading
-            eyebrow="02 / Portfolio Analysis"
             title="Portfolio composition"
             description="Distribution of loan exposure by product or loan type."
           />
@@ -1528,7 +1167,6 @@ export default function ReportsPage() {
           <div className="grid gap-6 lg:grid-cols-2">
             <div>
               <SectionHeading
-                eyebrow="03 / Borrower Profile"
                 title="Borrower composition"
                 description="Borrower distribution based on available customer records."
               />
@@ -1608,7 +1246,6 @@ export default function ReportsPage() {
 
             <div>
               <SectionHeading
-                eyebrow="04 / Credit Risk"
                 title="Portfolio quality"
                 description="Outstanding exposure by credit-quality classification."
               />
@@ -1677,7 +1314,6 @@ export default function ReportsPage() {
 
         <section className="mt-10">
           <SectionHeading
-            eyebrow="05 / Financial Performance"
             title="Income statement summary"
             description="Financial performance derived from the accounting records."
           />
@@ -1780,7 +1416,6 @@ export default function ReportsPage() {
 
         <section className="mt-10">
           <SectionHeading
-            eyebrow="06 / Financial Position"
             title="Statement of financial position"
             description="Assets, liabilities and equity at the reporting date."
           />
@@ -1835,148 +1470,36 @@ export default function ReportsPage() {
            MONTHLY PERFORMANCE
            ================================================================== */}
 
-        <section className="mt-10">
-          <SectionHeading
-            eyebrow="08 / Trend Analysis"
-            title="Six-month financial trend"
-            description="Monthly income, expenses and net income."
-          />
-
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="overflow-x-auto">
-              <div className="min-w-[900px]">
-                <div className="grid grid-cols-[130px_1fr_150px_150px_150px] border-b border-slate-200 bg-slate-50 px-5 py-3">
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Period
-                  </span>
-
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Relative trend
-                  </span>
-
-                  <span className="text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Income
-                  </span>
-
-                  <span className="text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Expenses
-                  </span>
-
-                  <span className="text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Net income
-                  </span>
-                </div>
-
-                {monthlyAccounting.length > 0 ? (
-                  monthlyAccounting.map((row) => {
-                    const revenueWidth = Math.min(
-                      100,
-                      (Math.abs(row.revenue) / monthlyMax) * 100,
-                    );
-
-                    const expenseWidth = Math.min(
-                      100,
-                      (Math.abs(row.expenses) / monthlyMax) * 100,
-                    );
-
-                    const profitWidth = Math.min(
-                      100,
-                      (Math.abs(row.profit) / monthlyMax) * 100,
-                    );
-
-                    return (
-                      <div
-                        key={`${row.month}-${row.from}`}
-                        className="grid grid-cols-[130px_1fr_150px_150px_150px] items-center border-b border-slate-100 px-5 py-4 last:border-0"
-                      >
-                        <div>
-                          <p className="text-xs font-bold text-slate-800">
-                            {row.label}
-                          </p>
-
-                          <p className="mt-0.5 text-[9px] text-slate-400">
-                            {row.from}
-                          </p>
-                        </div>
-
-                        <div className="space-y-2 pr-8">
-                          <div className="flex items-center gap-2">
-                            <span className="w-3 text-[8px] font-bold text-slate-400">
-                              I
-                            </span>
-
-                            <div className="h-1.5 flex-1 rounded-full bg-slate-100">
-                              <div
-                                className="h-full rounded-full bg-slate-700"
-                                style={{
-                                  width: `${revenueWidth}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="w-3 text-[8px] font-bold text-slate-400">
-                              E
-                            </span>
-
-                            <div className="h-1.5 flex-1 rounded-full bg-slate-100">
-                              <div
-                                className="h-full rounded-full bg-slate-400"
-                                style={{
-                                  width: `${expenseWidth}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="w-3 text-[8px] font-bold text-slate-400">
-                              P
-                            </span>
-
-                            <div className="h-1.5 flex-1 rounded-full bg-slate-100">
-                              <div
-                                className={`h-full rounded-full ${
-                                  row.profit >= 0
-                                    ? "bg-slate-950"
-                                    : "bg-red-600"
-                                }`}
-                                style={{
-                                  width: `${profitWidth}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <p className="text-right text-xs font-semibold text-slate-700">
-                          {fmt(row.revenue)}
-                        </p>
-
-                        <p className="text-right text-xs font-semibold text-slate-600">
-                          {fmt(row.expenses)}
-                        </p>
-
-                        <p
-                          className={`text-right text-xs font-bold ${
-                            row.profit >= 0 ? "text-slate-950" : "text-red-700"
-                          }`}
-                        >
-                          {fmt(row.profit)}
-                        </p>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="px-5 py-10 text-center text-xs text-slate-400">
-                    No monthly financial trend data available.
-                  </div>
+        <details className="mt-5 rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">Monthly income and expenses · exact amounts</summary>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-slate-700">
+              <thead className="border-y border-slate-200 bg-slate-50">
+                <tr>
+                  <th scope="col" className="px-5 py-3 text-left">Period</th>
+                  <th scope="col" className="px-5 py-3 text-right">Income</th>
+                  <th scope="col" className="px-5 py-3 text-right">Expenses</th>
+                  <th scope="col" className="px-5 py-3 text-right">Net income</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 tabular-nums">
+                {monthlyAccounting.map((row) => (
+                  <tr key={row.month}>
+                    <th scope="row" className="px-5 py-3 text-left font-medium">
+                      {row.label}<span className="block text-xs text-slate-500">{row.from} to {row.to}</span>
+                    </th>
+                    <td className="px-5 py-3 text-right">{reportAmount(row.revenue, currency)}</td>
+                    <td className="px-5 py-3 text-right">{reportAmount(row.expenses, currency)}</td>
+                    <td className="px-5 py-3 text-right">{reportAmount(row.profit, currency)}</td>
+                  </tr>
+                ))}
+                {monthlyAccounting.length === 0 && (
+                  <tr><td colSpan={4} className="px-5 py-4 text-slate-600">No monthly results available.</td></tr>
                 )}
-              </div>
-            </div>
+              </tbody>
+            </table>
           </div>
-        </section>
+        </details>
 
         {/* ==================================================================
            ACCOUNTING CONTROL
@@ -1985,7 +1508,6 @@ export default function ReportsPage() {
         {hasAccountingReports ? (
           <section className="mt-10">
             <SectionHeading
-              eyebrow="09 / Accounting Control"
               title="Accounting integrity"
               description="Internal control indicators for management and finance users."
             />
@@ -2067,7 +1589,6 @@ export default function ReportsPage() {
 
         <section className="mt-10">
           <SectionHeading
-            eyebrow="10 / Official Reports"
             title="Financial report centre"
             description="Download controlled accounting reports for management, finance and audit purposes."
           />
@@ -2113,7 +1634,6 @@ export default function ReportsPage() {
 
         <section className="mt-10">
           <SectionHeading
-            eyebrow="11 / Operational Reporting"
             title="Portfolio reports"
             description="Operational exports supporting lending, collections and customer management."
           />
