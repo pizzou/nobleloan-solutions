@@ -15,13 +15,7 @@ import { PageSpinner } from "@/components/ui/Skeleton";
 
 import {
   IconAlertTriangle,
-  IconCard,
-  IconCheckCircle,
-  IconClock,
-  IconCoins,
-  IconFileText,
   IconSearch,
-  IconSend,
 } from "@/components/ui/Icons";
 
 /* ============================================================
@@ -214,77 +208,18 @@ const getPageMeta = (response: unknown) => {
    METRIC CARD
    ============================================================ */
 
-function MetricCard({
-  label,
-  value,
-  description,
-  icon,
-  tone,
-}: {
+function PortfolioMetric({ label, value, description }: {
   label: string;
   value: string;
-  description: string;
-  icon: React.ReactNode;
-  tone: "blue" | "teal" | "amber" | "red" | "violet" | "slate";
+  description?: string;
 }) {
-  const tones = {
-    blue: "border-blue-100 bg-blue-50 text-blue-700",
-    teal: "border-teal-100 bg-teal-50 text-teal-700",
-    amber: "border-amber-100 bg-amber-50 text-amber-700",
-    red: "border-red-100 bg-red-50 text-red-700",
-    violet: "border-violet-100 bg-violet-50 text-violet-700",
-    slate: "border-slate-200 bg-slate-50 text-slate-700",
-  };
-
   return (
-    <div
-      className="
-        group
-        rounded-2xl
-        border
-        border-slate-200/80
-        bg-white
-        p-5
-        shadow-[0_2px_10px_rgba(15,23,42,0.03)]
-        transition-all
-        duration-200
-        hover:-translate-y-0.5
-        hover:border-slate-300
-        hover:shadow-[0_10px_30px_rgba(15,23,42,0.07)]
-      "
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-            {label}
-          </p>
-
-          <p className="mt-2 truncate text-2xl font-black tracking-tight text-slate-950">
-            {value}
-          </p>
-
-          <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
-        </div>
-
-        <div
-          className={`
-            flex
-            h-10
-            w-10
-            shrink-0
-            items-center
-            justify-center
-            rounded-xl
-            border
-            transition-transform
-            duration-200
-            group-hover:scale-105
-            ${tones[tone]}
-          `}
-        >
-          {icon}
-        </div>
-      </div>
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+      <dt className="text-sm font-medium text-slate-600">{label}</dt>
+      <dd data-portfolio-metric className="mt-2 text-xl font-semibold tabular-nums tracking-tight text-[#0B1F3A] [overflow-wrap:anywhere] sm:text-2xl">
+        {value}
+      </dd>
+      {description && <dd className="mt-2 text-xs leading-5 text-slate-600 [overflow-wrap:anywhere]">{description}</dd>}
     </div>
   );
 }
@@ -1015,233 +950,42 @@ export default function LoanListPage() {
   return (
     <div className="min-h-full bg-[#F7F9FC] pb-12">
       <div className="mx-auto max-w-[1680px] space-y-6">
-        {/* ====================================================
-            EXECUTIVE HEADER
-            ==================================================== */}
-
-        <section
-          className="
-            relative
-            overflow-hidden
-            rounded-[28px]
-            border
-            border-slate-800
-            bg-[#07152A]
-            text-white
-            shadow-[0_20px_60px_rgba(15,23,42,0.14)]
-          "
-        >
-          {/* Decorative background */}
-
-          <div className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-teal-500/10" />
-
-          <div className="pointer-events-none absolute -bottom-40 left-1/3 h-80 w-80 rounded-full bg-blue-500/5" />
-
-          <div className="relative p-6 sm:p-8 lg:p-9">
-            <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-4xl">
-                <div
-                  className="
-                    mb-4
-                    inline-flex
-                    items-center
-                    gap-2
-                    rounded-full
-                    border
-                    border-white/10
-                    bg-white/[0.06]
-                    px-3
-                    py-1.5
-                    text-[10px]
-                    font-bold
-                    uppercase
-                    tracking-[0.18em]
-                    text-teal-200
-                  "
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,0.8)]" />
-                  Lending Operations
-                </div>
-
-                <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-                  Loan Portfolio
-                </h1>
-                {isBusinessOwner ? (
-                  <Link
-                    href="/dashboard/loans/recycle-bin"
-                    className="mt-3 inline-flex rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
-                  >
-                    Recycle bin
-                  </Link>
-                ) : null}
-
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-                  {isBusinessOwner
-                    ? visibility === "NORMAL"
-                      ? "Normal portfolio: excludes loans classified Business Owner only."
-                      : visibility === "BUSINESS_OWNER_ONLY"
-                        ? "Confidential portfolio: only loans classified Business Owner only."
-                        : "All loans: normal and confidential portfolios combined."
-                    : "Normal portfolio: loans available to authorized staff."}
-                </p>
-
-                <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400">
-                  <span>
-                    Portfolio:{" "}
-                    <strong className="text-slate-200">
-                      {summary.totalLoans.toLocaleString()}
-                    </strong>{" "}
-                    loans
-                  </span>
-
-                  <span className="hidden sm:inline text-slate-700">•</span>
-
-                  <span>
-                    {online ? "Live connection" : "Offline / cached data"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Actions */}
-
-              <div className="flex shrink-0 flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleRefresh()}
-                  disabled={refreshing}
-                  className="
-                    rounded-xl
-                    border
-                    border-white/10
-                    bg-white/[0.06]
-                    px-4
-                    py-2.5
-                    text-xs
-                    font-bold
-                    text-white
-                    transition
-                    hover:bg-white/[0.11]
-                    disabled:cursor-not-allowed
-                    disabled:opacity-50
-                  "
-                >
-                  {refreshing ? "Refreshing…" : "Refresh portfolio"}
-                </button>
-
-                {isOfficer ? (
-                  <Link
-                    href="/dashboard/loans/new"
-                    className="
-                      rounded-xl
-                      bg-teal-500
-                      px-4
-                      py-2.5
-                      text-xs
-                      font-black
-                      text-slate-950
-                      shadow-[0_8px_20px_rgba(20,184,166,0.2)]
-                      transition
-                      hover:bg-teal-400
-                      hover:shadow-[0_10px_25px_rgba(20,184,166,0.3)]
-                    "
-                  >
-                    + New loan
-                  </Link>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Header financial summary */}
-
-            <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  Total loans
-                </div>
-
-                <div className="mt-2 text-2xl font-black">
-                  {summary.totalLoans.toLocaleString()}
-                </div>
-
-                <div className="mt-1 text-xs text-slate-500">
-                  {isScopedPageSummary
-                    ? "Selected register count"
-                    : "Current portfolio count"}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  Disbursed
-                </div>
-
-                <div className="mt-2 text-2xl font-black">
-                  {formatCurrency(summary.disbursed, currency, locale)}
-                </div>
-
-                <div className="mt-1 text-xs text-slate-500">
-                  {isScopedPageSummary
-                    ? "On this page only"
-                    : "Cash released to borrowers"}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  Collected
-                </div>
-
-                <div className="mt-2 text-2xl font-black">
-                  {formatCurrency(summary.collected, currency, locale)}
-                </div>
-
-                <div className="mt-1 text-xs text-slate-500">
-                  {isScopedPageSummary
-                    ? "On this page only. Includes "
-                    : "Includes "}{" "}
-                  {formatCurrency(
-                    summary.historicalCollected,
-                    currency,
-                    locale,
-                  )}{" "}
-                  legacy collections
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  Outstanding
-                </div>
-
-                <div className="mt-2 text-2xl font-black">
-                  {formatCurrency(summary.outstanding, currency, locale)}
-                </div>
-
-                <div className="mt-1 text-xs text-slate-500">
-                  Current system-calculated balance
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  Attention
-                </div>
-
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="text-2xl font-black">{summary.overdue}</span>
-
-                  <span className="text-sm font-semibold text-red-300">
-                    overdue
-                  </span>
-                </div>
-
-                <div className="mt-1 text-xs text-slate-500">
-                  {summary.active} active · {summary.pending} pending
-                </div>
-              </div>
-            </div>
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-[#0B1F3A] sm:text-3xl">
+              Loan Portfolio
+            </h1>
+            {isBusinessOwner && (
+              <p className="mt-1 text-sm text-slate-600">
+                {visibility === "NORMAL"
+                  ? "Normal portfolio · Excludes Business Owner-only loans"
+                  : visibility === "BUSINESS_OWNER_ONLY"
+                    ? "Confidential portfolio · Business Owner-only loans"
+                    : "All loans · Normal and confidential portfolios"}
+              </p>
+            )}
           </div>
-        </section>
+          <div className="flex flex-wrap items-center gap-2">
+            {isBusinessOwner && (
+              <Link href="/dashboard/loans/recycle-bin" className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                Recycle bin
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
+              className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {refreshing ? "Refreshing…" : "Refresh portfolio"}
+            </button>
+            {isOfficer && (
+              <Link href="/dashboard/loans/new" className="inline-flex min-h-10 items-center rounded-lg bg-[#0B1F3A] px-4 text-sm font-semibold text-white hover:bg-[#16365F]">
+                + New loan
+              </Link>
+            )}
+          </div>
+        </header>
 
         {/* ====================================================
             OFFLINE
@@ -1291,85 +1035,41 @@ export default function LoanListPage() {
           </div>
         ) : null}
 
-        {/* ====================================================
-            KPI GRID
-            ==================================================== */}
-
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-          <MetricCard
-            label="Active"
-            value={summary.active.toLocaleString()}
-            description={
-              isScopedPageSummary
-                ? "On this page only."
-                : "Loans currently performing."
-            }
-            icon={<IconCheckCircle className="h-5 w-5" />}
-            tone="teal"
-          />
-
-          <MetricCard
-            label="Overdue"
-            value={summary.overdue.toLocaleString()}
-            description={
-              isScopedPageSummary
-                ? "On this page only."
-                : "Loans requiring collections attention."
-            }
-            icon={<IconAlertTriangle className="h-5 w-5" />}
-            tone="red"
-          />
-
-          <MetricCard
-            label="Pending"
-            value={summary.pending.toLocaleString()}
-            description={
-              isScopedPageSummary
-                ? "On this page only."
-                : "Applications awaiting action."
-            }
-            icon={<IconClock className="h-5 w-5" />}
-            tone="amber"
-          />
-
-          <MetricCard
-            label="Disbursed"
-            value={formatCurrency(summary.disbursed, currency, locale)}
-            description={
-              isScopedPageSummary
-                ? "On this page only."
-                : "Total cash released."
-            }
-            icon={<IconSend className="h-5 w-5" />}
-            tone="blue"
-          />
-
-          <MetricCard
-            label="Outstanding"
-            value={formatCurrency(summary.outstanding, currency, locale)}
-            description={
-              isScopedPageSummary
-                ? "On this page only."
-                : "Current system-calculated balance."
-            }
-            icon={<IconCoins className="h-5 w-5" />}
-            tone="violet"
-          />
-
-          <MetricCard
-            label="Portfolio size"
-            value={summary.totalLoans.toLocaleString()}
-            description="Loans in the current portfolio."
-            icon={<IconFileText className="h-5 w-5" />}
-            tone="slate"
-          />
+        <section aria-labelledby="portfolio-summary" className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="portfolio-summary" className="text-sm font-semibold text-slate-900">
+              Portfolio summary
+            </h2>
+            {isScopedPageSummary && <span className="text-xs text-slate-600">Amounts and status counts cover this page</span>}
+          </div>
+          <dl className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
+            <PortfolioMetric label={isScopedPageSummary ? "Matching loans" : "Total loans"} value={summary.totalLoans.toLocaleString(locale)} />
+            <PortfolioMetric label="Disbursed" value={formatCurrency(summary.disbursed, currency, locale)} />
+            <PortfolioMetric
+              label="Collected"
+              value={formatCurrency(summary.collected, currency, locale)}
+              description={dashboard?.historicalCollected != null ? `Includes ${formatCurrency(summary.historicalCollected, currency, locale)} in legacy collections` : undefined}
+            />
+            <PortfolioMetric label="Outstanding" value={formatCurrency(summary.outstanding, currency, locale)} />
+          </dl>
+          <dl className="flex flex-wrap gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+            <div className="flex items-baseline gap-2">
+              <dt className="text-slate-600">Active</dt><dd className="font-semibold tabular-nums text-slate-900">{summary.active.toLocaleString(locale)}</dd>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <dt className="text-slate-600">Overdue</dt><dd className="font-semibold tabular-nums text-red-700">{summary.overdue.toLocaleString(locale)}</dd>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <dt className="text-slate-600">Pending</dt><dd className="font-semibold tabular-nums text-slate-900">{summary.pending.toLocaleString(locale)}</dd>
+            </div>
+          </dl>
         </section>
 
         {/* ====================================================
             SEARCH / FILTER PANEL
             ==================================================== */}
 
-        <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_3px_15px_rgba(15,23,42,0.04)]">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-100 p-5 sm:p-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div>
@@ -1416,7 +1116,7 @@ export default function LoanListPage() {
                 )}
                 {/* Search */}
 
-                <div className="relative min-w-[260px]">
+                <div className="relative min-w-0 sm:min-w-[230px]">
                   <IconSearch
                     className="
                       pointer-events-none
@@ -1433,6 +1133,7 @@ export default function LoanListPage() {
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
+                    aria-label="Search loans"
                     placeholder="Loan reference or borrower name…"
                     className="
                       h-10
@@ -1459,6 +1160,7 @@ export default function LoanListPage() {
                 {/* Status */}
 
                 <select
+                  aria-label="Loan status"
                   value={status}
                   onChange={(event) => {
                     setStatus(event.target.value as "" | LoanStatus);
@@ -1491,6 +1193,7 @@ export default function LoanListPage() {
                 {/* Loan type */}
 
                 <select
+                  aria-label="Loan type"
                   value={type}
                   onChange={(event) => {
                     setType(event.target.value as "" | LoanType);
@@ -1550,7 +1253,7 @@ export default function LoanListPage() {
               TABLE
               ================================================== */}
 
-          <div className="overflow-x-auto">
+          <div role="region" aria-label="Loan table" tabIndex={0} className="overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#0B1F3A]">
             <table className="min-w-[1280px] w-full text-sm">
               <thead className="border-b border-slate-100 bg-slate-50/80 text-left">
                 <tr>
@@ -1745,92 +1448,14 @@ export default function LoanListPage() {
           </div>
         ) : null}
 
-        {/* ====================================================
-            FINANCIAL DEFINITIONS
-            ==================================================== */}
-
-        <section>
-          <div className="mb-3">
-            <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-slate-700">
-              Portfolio definitions
-            </h2>
-
-            <p className="mt-1 text-xs text-slate-400">
-              These definitions keep operational figures clearly separated from
-              accounting and journal balances.
-            </p>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                  <IconCard className="h-5 w-5" />
-                </div>
-
-                <div>
-                  <div className="text-sm font-bold text-slate-900">
-                    Original principal
-                  </div>
-
-                  <div className="mt-0.5 text-xs leading-5 text-slate-400">
-                    The principal amount recorded for the loan.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
-                  <IconSend className="h-5 w-5" />
-                </div>
-
-                <div>
-                  <div className="text-sm font-bold text-slate-900">
-                    Disbursed
-                  </div>
-
-                  <div className="mt-0.5 text-xs leading-5 text-slate-400">
-                    The amount actually released to the borrower.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-                  <IconCoins className="h-5 w-5" />
-                </div>
-
-                <div>
-                  <div className="text-sm font-bold text-slate-900">
-                    Outstanding balance
-                  </div>
-
-                  <div className="mt-0.5 text-xs leading-5 text-slate-400">
-                    The current balance supplied by the lending system; interest
-                    and fees must follow the institution's configured financial
-                    rules.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ====================================================
-            FOOTER
-            ==================================================== */}
-
-        <footer className="flex flex-col gap-2 border-t border-slate-200 pt-5 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-          <span>Noble Loan Solutions · Loan Portfolio</span>
-
-          <span>
-            Operational portfolio figures are sourced from the lending system.
-          </span>
-        </footer>
+        <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+          <summary className="cursor-pointer font-medium text-slate-700">Portfolio definitions</summary>
+          <dl className="mt-3 grid gap-3 text-slate-600 sm:grid-cols-3">
+            <div><dt className="font-medium text-slate-900">Original principal</dt><dd>Principal recorded for the loan.</dd></div>
+            <div><dt className="font-medium text-slate-900">Disbursed</dt><dd>Cash released to the borrower.</dd></div>
+            <div><dt className="font-medium text-slate-900">Outstanding</dt><dd>Current balance calculated by the lending system.</dd></div>
+          </dl>
+        </details>
       </div>
     </div>
   );
