@@ -512,6 +512,14 @@ public class AccountingController {
         // TRIAL BALANCE
         // ============================================================
 
+        @GetMapping("/financial-report")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> financialReport(
+                        @RequestParam String from,
+                        @RequestParam String to) {
+                return ResponseEntity.ok(ApiResponse.safe(accountingService.getFinancialReport(
+                                requireOrganizationId(), parseDate(from, "from"), parseDate(to, "to"))));
+        }
+
         @GetMapping("/trial-balance")
         public ResponseEntity<ApiResponse<Map<String, Object>>> trialBalance(
                         @RequestParam(required = false) String asOf) {

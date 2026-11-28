@@ -1,5 +1,6 @@
 "use client";
 
+import LedgerCashFlow from "@/components/reports/LedgerCashFlow";
 import React, {
   useCallback,
   useEffect,
@@ -65,7 +66,8 @@ const percentageOf = (value: unknown, total: number): number => {
 };
 
 const formatMoney = (value: unknown, currency = "RWF"): string => {
-  const amount = safeNumber(value);
+  if (value == null || value === "" || !Number.isFinite(Number(value))) return "Unavailable";
+  const amount = Number(value);
 
   try {
     return new Intl.NumberFormat("en-RW", {
@@ -648,7 +650,7 @@ function FinancialStatement({
   return (
     <Section
       title="Financial Statement"
-      description="Accounting position generated for the selected regulatory reporting period."
+      description="Organization-wide ledger. Balance sheet at period end, earnings and cash movements for the selected dates."
     >
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
@@ -707,26 +709,8 @@ function FinancialStatement({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          label="Cash Used for Lending"
-          value={formatMoney(report.cashUsedForLending, currency)}
-        />
-
-        <Metric
-          label="Cash From Collections"
-          value={formatMoney(report.cashFromCollections, currency)}
-        />
-
-        <Metric
-          label="Cash From Fees"
-          value={formatMoney(report.cashFromFees, currency)}
-        />
-
-        <Metric
-          label="Net Change in Cash"
-          value={formatMoney(report.netChangeInCash, currency)}
-        />
+      <div className="mt-5">
+        <LedgerCashFlow data={report.cashFlow} currency={currency} />
       </div>
     </Section>
   );
@@ -794,6 +778,9 @@ export default function BnrReportPage() {
     return null;
   }, [period, from, to]);
 
+  const reportRequest = useRef(0);
+  const [statementStatus, setStatementStatus] = useState<"loading" | "ready" | "error">("loading");
+
   const loadReport = useCallback(
     async (options?: { initial?: boolean }) => {
       const validationError = validate();
@@ -802,6 +789,13 @@ export default function BnrReportPage() {
         setError(validationError);
         return;
       }
+
+      const request = ++reportRequest.current;
+      setFinancialStatement(null);
+      setStatementStatus("loading");
+      setLoanTypes([]);
+      setBranches([]);
+      setGenders([]);
 
       try {
         if (options?.initial) {
@@ -816,6 +810,7 @@ export default function BnrReportPage() {
         // instead of keeping the whole page behind the financial statement and
         // three portfolio-wide breakdown queries.
         const summaryResponse = await regulatoryApi.bnrSummary(params);
+        if (request !== reportRequest.current) return;
         setSummary(summaryResponse ?? null);
         setLoading(false);
         setRefreshing(false);
@@ -823,16 +818,21 @@ export default function BnrReportPage() {
         // Load the expensive sections in the background after the first paint.
         void regulatoryApi
           .bnrFinancialStatement(params)
-          .then((response) => setFinancialStatement(response ?? null))
-          .catch((error) =>
-            console.error("BNR financial statement failed", error),
-          );
+          .then((response) => {
+            if (request !== reportRequest.current) return;
+            setFinancialStatement(response ?? null);
+            setStatementStatus(response ? "ready" : "error");
+          })
+          .catch(() => {
+            if (request === reportRequest.current) setStatementStatus("error");
+          });
 
         void Promise.allSettled([
           regulatoryApi.bnrByLoanType(params),
           regulatoryApi.bnrByBranch(params),
           regulatoryApi.bnrByGender(params),
         ]).then(([loanType, branch, gender]) => {
+          if (request !== reportRequest.current) return;
           if (loanType.status === "fulfilled")
             setLoanTypes(unwrapRows(loanType.value));
           if (branch.status === "fulfilled")
@@ -841,6 +841,8 @@ export default function BnrReportPage() {
             setGenders(unwrapRows(gender.value));
         });
       } catch (err) {
+        if (request !== reportRequest.current) return;
+        setStatementStatus("error");
         console.error("BNR report error:", err);
 
         setError(
@@ -850,8 +852,10 @@ export default function BnrReportPage() {
           ),
         );
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (request === reportRequest.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [params, validate],
@@ -1395,7 +1399,15 @@ export default function BnrReportPage() {
         )}
 
         {/* Financial statement */}
-        <FinancialStatement report={financialStatement} currency={currency} />
+        {statementStatus === "ready" ? (
+          <FinancialStatement report={financialStatement} currency={currency} />
+        ) : (
+          <Section title="Financial Statement">
+            <p role="status" className="text-sm text-slate-600">
+              {statementStatus === "loading" ? "Loading ledger statements…" : "The ledger statements could not be loaded for these dates."}
+            </p>
+          </Section>
+        )}
 
         {/* Breakdowns */}
         <div className="grid gap-6 xl:grid-cols-2">

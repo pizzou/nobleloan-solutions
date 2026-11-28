@@ -5058,7 +5058,7 @@ public class AccountingService {
          * package for a reporting period: trial balance, P&L, balance sheet and
          * cash flow, plus reconciliation flags.
          */
-        @Transactional(readOnly = true)
+        @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
         public Map<String, Object> getFinancialReport(Long orgId, LocalDate from, LocalDate to) {
                 validateDateRange(from, to);
                 requireOrganizationId(orgId);
@@ -5124,6 +5124,10 @@ public class AccountingService {
                                 ReportingScopeService.includeBusinessOwnerOnly());
 
                 BigDecimal openingCash = ZERO;
+                BigDecimal repayments = ZERO;
+                BigDecimal refunds = ZERO;
+                BigDecimal netDisbursements = ZERO;
+                int unverifiedDisbursementBreakdowns = 0;
                 BigDecimal operatingInflows = ZERO;
                 BigDecimal applicationFeeCashInflows = ZERO;
                 BigDecimal operatingOutflows = ZERO;
@@ -5135,86 +5139,99 @@ public class AccountingService {
                 BigDecimal otherInflows = ZERO;
                 BigDecimal otherOutflows = ZERO;
 
+                // A disbursement may have more than one cash line. Classify its net movement once.
+                Map<JournalEntry, BigDecimal> cashByJournal = new LinkedHashMap<>();
                 if (cashLines != null) {
                         for (JournalLine line : cashLines) {
-                                if (line == null || line.getJournalEntry() == null)
-                                        continue;
-                                JournalEntry entry = line.getJournalEntry();
-                                BigDecimal movement = money(line.getDebitDecimal())
-                                                .subtract(money(line.getCreditDecimal()));
-
-                                if (entry.getEntryDate() != null && entry.getEntryDate().isBefore(from)) {
-                                        openingCash = openingCash.add(movement);
-                                        continue;
+                                if (line != null && line.getJournalEntry() != null) {
+                                        cashByJournal.merge(line.getJournalEntry(),
+                                                        money(line.getDebitDecimal()).subtract(money(line.getCreditDecimal())),
+                                                        BigDecimal::add);
                                 }
-                                if (entry.getEntryDate() == null || entry.getEntryDate().isAfter(to))
-                                        continue;
+                        }
+                }
+                for (var cashEntry : cashByJournal.entrySet()) {
+                        JournalEntry entry = cashEntry.getKey();
+                        BigDecimal movement = cashEntry.getValue();
 
-                                String source = entry.getSourceType() == null ? ""
-                                                : entry.getSourceType().trim().toUpperCase();
-                                if (movement.compareTo(ZERO) >= 0) {
-                                        switch (source) {
-                                                case "PAYMENT_RECEIVED" ->
-                                                        operatingInflows = operatingInflows.add(movement);
-                                                case "REFUND_PAYMENT" -> otherOutflows = otherOutflows.add(movement);
-                                                case "EQUITY_CONTRIBUTION", "OWNER_CONTRIBUTION", "CAPITAL_INJECTION",
-                                                                "DEPOSIT_RECEIVED" ->
-                                                        financingInflows = financingInflows.add(movement);
-                                                default -> otherInflows = otherInflows.add(movement);
+                        if (entry.getEntryDate() != null && entry.getEntryDate().isBefore(from)) {
+                                openingCash = openingCash.add(movement);
+                                continue;
+                        }
+                        if (entry.getEntryDate() == null || entry.getEntryDate().isAfter(to))
+                                continue;
+
+                        String source = entry.getSourceType() == null ? ""
+                                        : entry.getSourceType().trim().toUpperCase();
+                        if (movement.compareTo(ZERO) >= 0) {
+                                switch (source) {
+                                        case "PAYMENT_RECEIVED" -> {
+                                                repayments = repayments.add(movement);
+                                                operatingInflows = operatingInflows.add(movement);
                                         }
-                                } else {
-                                        BigDecimal outflow = movement.negate();
-                                        switch (source) {
-                                                case "LOAN_DISBURSEMENT" -> {
-                                                        /*
-                                                         * Present a loan disbursement on a gross basis and
-                                                         * show a separately collected application fee. The
-                                                         * actual cash movement remains net, so the statement
-                                                         * still reconciles to GL 1000.
-                                                         */
-                                                        BigDecimal grossPrincipal = ZERO;
-                                                        BigDecimal feeIncome = ZERO;
-                                                        if (entry.getLines() != null) {
-                                                                for (JournalLine journalLine : entry.getLines()) {
-                                                                        if (journalLine == null || journalLine
-                                                                                        .getAccount() == null)
-                                                                                continue;
-                                                                        if ("1100".equals(journalLine.getAccount()
-                                                                                        .getCode())) {
-                                                                                grossPrincipal = grossPrincipal.add(
-                                                                                                money(journalLine
-                                                                                                                .getDebitDecimal())
-                                                                                                                .subtract(money(journalLine
-                                                                                                                                .getCreditDecimal())));
-                                                                        } else if ("4100".equals(journalLine
-                                                                                        .getAccount().getCode())) {
-                                                                                feeIncome = feeIncome.add(
-                                                                                                money(journalLine
-                                                                                                                .getCreditDecimal())
-                                                                                                                .subtract(money(journalLine
-                                                                                                                                .getDebitDecimal())));
-                                                                        }
+                                        case "REFUND_PAYMENT" ->
+                                                otherInflows = otherInflows.add(movement);
+                                        case "EQUITY_CONTRIBUTION", "OWNER_CONTRIBUTION", "CAPITAL_INJECTION",
+                                                        "DEPOSIT_RECEIVED" ->
+                                                financingInflows = financingInflows.add(movement);
+                                        default -> otherInflows = otherInflows.add(movement);
+                                }
+                        } else {
+                                BigDecimal outflow = movement.negate();
+                                switch (source) {
+                                        case "LOAN_DISBURSEMENT" -> {
+                                                /*
+                                                 * Present a loan disbursement on a gross basis and
+                                                 * show a separately collected application fee. The
+                                                 * actual cash movement remains net, so the statement
+                                                 * still reconciles to GL 1000.
+                                                 */
+                                                BigDecimal grossPrincipal = ZERO;
+                                                BigDecimal feeIncome = ZERO;
+                                                if (entry.getLines() != null) {
+                                                        for (JournalLine journalLine : entry.getLines()) {
+                                                                if (journalLine == null || journalLine
+                                                                                .getAccount() == null)
+                                                                        continue;
+                                                                if ("1100".equals(journalLine.getAccount()
+                                                                                .getCode())) {
+                                                                        grossPrincipal = grossPrincipal.add(
+                                                                                        money(journalLine
+                                                                                                        .getDebitDecimal())
+                                                                                                        .subtract(money(journalLine
+                                                                                                                        .getCreditDecimal())));
+                                                                } else if ("4100".equals(journalLine.getAccount().getCode())
+                                                                                && "applicationFeeIncome".equals(feeIncomeType(entry, journalLine))) {
+                                                                        feeIncome = feeIncome.add(
+                                                                                        money(journalLine
+                                                                                                        .getCreditDecimal())
+                                                                                                        .subtract(money(journalLine
+                                                                                                                        .getDebitDecimal())));
                                                                 }
                                                         }
-                                                        BigDecimal presentedLendingOutflow = grossPrincipal
-                                                                        .compareTo(ZERO) > 0
-                                                                                        ? grossPrincipal
-                                                                                        : outflow;
-                                                        lendingOutflows = lendingOutflows.add(presentedLendingOutflow);
-                                                        BigDecimal collectedFee = feeIncome.max(ZERO);
-                                                        operatingInflows = operatingInflows.add(collectedFee);
-                                                        applicationFeeCashInflows = applicationFeeCashInflows
-                                                                        .add(collectedFee);
                                                 }
-                                                case "EXPENSE", "OPERATING_EXPENSE" ->
-                                                        operatingOutflows = operatingOutflows.add(outflow);
-                                                case "REFUND_PAYMENT" ->
-                                                        operatingOutflows = operatingOutflows.add(outflow);
-                                                case "OWNER_DRAW", "DIVIDEND", "EQUITY_DISTRIBUTION",
-                                                                "DEPOSIT_REPAYMENT" ->
-                                                        financingOutflows = financingOutflows.add(outflow);
-                                                default -> otherOutflows = otherOutflows.add(outflow);
+                                                netDisbursements = netDisbursements.add(outflow);
+                                                // Only gross up when the journal proves the withheld fee.
+                                                if (grossPrincipal.signum() > 0 && feeIncome.signum() >= 0
+                                                                && grossPrincipal.subtract(feeIncome).compareTo(outflow) == 0) {
+                                                        lendingOutflows = lendingOutflows.add(grossPrincipal);
+                                                        operatingInflows = operatingInflows.add(feeIncome);
+                                                        applicationFeeCashInflows = applicationFeeCashInflows.add(feeIncome);
+                                                } else {
+                                                        lendingOutflows = lendingOutflows.add(outflow);
+                                                        unverifiedDisbursementBreakdowns++;
+                                                }
                                         }
+                                        case "EXPENSE", "OPERATING_EXPENSE" ->
+                                                operatingOutflows = operatingOutflows.add(outflow);
+                                        case "REFUND_PAYMENT" -> {
+                                                refunds = refunds.add(outflow);
+                                                operatingOutflows = operatingOutflows.add(outflow);
+                                        }
+                                        case "OWNER_DRAW", "DIVIDEND", "EQUITY_DISTRIBUTION",
+                                                        "DEPOSIT_REPAYMENT" ->
+                                                financingOutflows = financingOutflows.add(outflow);
+                                        default -> otherOutflows = otherOutflows.add(outflow);
                                 }
                         }
                 }
@@ -5229,13 +5246,17 @@ public class AccountingService {
                 BigDecimal otherNet = otherInflows.subtract(otherOutflows);
                 BigDecimal netChange = operatingNet.add(investingNet).add(financingNet).add(otherNet);
                 BigDecimal closingCash = normalize(openingCash.add(netChange));
-                BigDecimal actualClosingCash = cashBalanceAsOf(cash, orgId, to);
+                BigDecimal actualClosingCash = cashBalanceAsOf(cashLines, to);
                 BigDecimal reconciliationDifference = normalize(closingCash.subtract(actualClosingCash));
 
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("from", from);
                 result.put("to", to);
                 result.put("openingCash", normalize(openingCash));
+                result.put("cashFromRepayments", normalize(repayments));
+                result.put("netCashDisbursed", normalize(netDisbursements));
+                result.put("otherCashFlowsNet", normalize(netChange.subtract(repayments).add(netDisbursements).add(refunds)));
+                result.put("unverifiedDisbursementBreakdowns", unverifiedDisbursementBreakdowns);
                 result.put("cashFromCollections", normalize(operatingInflows));
                 result.put("cashUsedForLending", normalize(lendingOutflows));
                 result.put("operatingCashOutflows", normalize(operatingOutflows));
@@ -5256,7 +5277,7 @@ public class AccountingService {
                 result.put("reconciles", reconciliationDifference.compareTo(ZERO) == 0);
                 // Backward-compatible keys.
                 result.put("cashFromFees", normalize(applicationFeeCashInflows));
-                result.put("cashRefundedToBorrowers", normalize(otherOutflows));
+                result.put("cashRefundedToBorrowers", normalize(refunds));
                 result.put("otherCashMovement", normalize(otherNet));
                 return result;
         }
@@ -5377,11 +5398,7 @@ public class AccountingService {
                                 : credit.subtract(debit));
         }
 
-        private BigDecimal cashBalanceAsOf(ChartOfAccount cash, Long orgId, LocalDate asOf) {
-                List<JournalLine> lines = lineRepo.findVisibleByAccount_IdAndOrganization_Id(
-                                cash.getId(),
-                                orgId,
-                                ReportingScopeService.includeBusinessOwnerOnly());
+        private BigDecimal cashBalanceAsOf(List<JournalLine> lines, LocalDate asOf) {
                 BigDecimal balance = ZERO;
                 if (lines != null) {
                         for (JournalLine line : lines) {
