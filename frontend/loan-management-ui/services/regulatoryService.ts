@@ -974,53 +974,13 @@ export const regulatoryApi = {
     return unwrapArray<CreditRecord>(response);
   },
 
-  /**
-   * ==========================================================
-   * CREDIT BUREAU EXPORT
-   * ==========================================================
-   *
-   * IMPORTANT:
-   *
-   * This uses the exact same `api` instance as BNR.
-   *
-   * Therefore:
-   *
-   * Authorization: Bearer <JWT>
-   *
-   * is attached by api.ts.
-   *
-   * ==========================================================
-   */
-
   async creditBureauExport(
     format: ExportFormat,
     params?: CreditBureauReportParams,
   ): Promise<void> {
     const queryParams = toCreditBureauQueryParams(params);
 
-    console.log("Credit Bureau export request:", {
-      url: "/regulatory/credit-bureau/download",
-
-      format,
-
-      queryParams,
-    });
-
     try {
-      /**
-       * ------------------------------------------------------
-       * IMPORTANT
-       * ------------------------------------------------------
-       *
-       * We deliberately do NOT manually set the Authorization
-       * header here.
-       *
-       * api.ts request interceptor does that consistently for
-       * both BNR and Credit Bureau.
-       *
-       * ------------------------------------------------------
-       */
-
       const response = await api.get("/regulatory/credit-bureau/download", {
         params: {
           ...queryParams,
@@ -1034,14 +994,6 @@ export const regulatoryApi = {
         },
       });
 
-      console.log("Credit Bureau export response:", {
-        status: response.status,
-
-        contentType: response.headers?.["content-type"],
-
-        contentDisposition: response.headers?.["content-disposition"],
-      });
-
       const blob =
         response.data instanceof Blob
           ? response.data
@@ -1051,18 +1003,6 @@ export const regulatoryApi = {
 
       triggerDownload(blob, `credit-bureau-export.${format}`);
     } catch (error) {
-      console.error("Credit Bureau export failed:", error);
-
-      /**
-       * IMPORTANT:
-       *
-       * Because api.ts now preserves AxiosError,
-       * this can inspect:
-       *
-       * error.response.status
-       * error.response.data
-       */
-
       const blobMessage = await getBlobErrorMessage(error);
 
       if (blobMessage) {

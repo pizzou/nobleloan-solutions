@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
@@ -669,6 +671,7 @@ function ApplyPageContent() {
         <p className="text-white/70">
           Complete the form below — takes less than 5 minutes
         </p>
+        <Link href="/help" className="mt-3 inline-block text-sm font-semibold text-white underline underline-offset-4">Get help with applying</Link>
       </section>
 
       <div className="max-w-5xl mx-auto px-4 py-8">

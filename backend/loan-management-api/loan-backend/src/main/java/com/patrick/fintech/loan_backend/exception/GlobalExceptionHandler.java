@@ -1,13 +1,12 @@
 package com.patrick.fintech.loan_backend.exception;
 
-import com.patrick.fintech.loan_backend.exception.DuplicateBorrowerException;
-
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 
 import org.springframework.security.access.AccessDeniedException;
@@ -15,9 +14,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.hibernate.LazyInitializationException;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
@@ -125,6 +126,23 @@ public class GlobalExceptionHandler {
         // ============================================================
         // INVALID PATH / QUERY PARAMETER TYPE
         // ============================================================
+
+        @ExceptionHandler(MissingServletRequestParameterException.class)
+        public ResponseEntity<Map<String, Object>> handleMissingParameter(MissingServletRequestParameterException ex) {
+                return json(HttpStatus.BAD_REQUEST, error("Required field is missing: " + ex.getParameterName(), null));
+        }
+
+        @ExceptionHandler(MissingServletRequestPartException.class)
+        public ResponseEntity<Map<String, Object>> handleMissingPart(MissingServletRequestPartException ex) {
+                return json(HttpStatus.BAD_REQUEST, error("Required upload or form field is missing: "
+                                + ex.getRequestPartName(), null));
+        }
+
+        @ExceptionHandler(HttpMessageNotReadableException.class)
+        public ResponseEntity<Map<String, Object>> handleUnreadableRequest(HttpMessageNotReadableException ex) {
+                return json(HttpStatus.BAD_REQUEST,
+                                error("The submitted data could not be read. Check the form and submit again.", null));
+        }
 
         @ExceptionHandler(MethodArgumentTypeMismatchException.class)
         public ResponseEntity<Map<String, Object>> handleArgumentTypeMismatch(

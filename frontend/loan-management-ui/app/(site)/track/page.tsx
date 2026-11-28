@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useState } from "react";
 import { useTenant } from "../layout";
 import { publicApi } from "@/services/api";
@@ -1170,6 +1172,7 @@ export default function TrackPage() {
                 documents current and access your loan records — all from one
                 secure place.
               </p>
+              <Link href="/help" className="mt-3 inline-block text-sm font-semibold text-white underline underline-offset-4">Get help with tracking or repayments</Link>
 
               <div className="mt-8 flex flex-wrap gap-3">
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-2 text-[10px] font-bold text-white/70">

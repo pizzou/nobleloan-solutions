@@ -197,11 +197,11 @@ API.interceptors.response.use(
       error.response?.headers?.["x-request-id"] || "",
     ).trim();
     const htmlError = isHtmlErrorPayload(responseData);
+    const reference = requestId ? ` Support reference ${requestId}.` : "";
     const message = htmlError
-      ? `The server or security proxy returned an HTML error page instead of JSON. Please retry.${requestId ? ` Reference: ${requestId}` : " If the problem continues, contact support with the time of the error."}`
-      : getAxiosErrorMessage(responseData) ||
-        error.message ||
-        `Request failed with status ${status ?? "unknown"}`;
+      ? `The server returned an unexpected page. Try again, then contact support if it continues.${reference}`
+      : getAxiosErrorMessage(responseData) ??
+        requestFailureMessage(status, error.code, reference);
 
     error.message = message;
     if (htmlError && error.response) {
@@ -223,6 +223,20 @@ API.interceptors.response.use(
     return Promise.reject(enhancedError);
   },
 );
+
+function requestFailureMessage(status: number | undefined, code: string | undefined, reference: string): string {
+  if (code === "ERR_CANCELED") return "Request canceled.";
+  if (code === "ECONNABORTED" || code === "ETIMEDOUT" || status === 408 || status === 504) {
+    return `The server took too long to respond. Refresh the record before retrying a submission.${reference}`;
+  }
+  if (status == null) return "Could not reach the server. Check your connection and try again.";
+  if (status === 401) return "Sign in again if your session has expired.";
+  if (status === 403) return `You do not have permission to complete this action.${reference}`;
+  if (status === 404) return `This item could not be found. Refresh the list and try again.${reference}`;
+  if (status === 429) return `Too many requests. Wait a moment and try again.${reference}`;
+  if (status >= 500) return `The server could not complete this request. Contact support if it continues.${reference}`;
+  return `The request could not be completed (HTTP ${status}).${reference}`;
+}
 
 function isHtmlErrorPayload(data: unknown): boolean {
   if (typeof data !== "string") return false;

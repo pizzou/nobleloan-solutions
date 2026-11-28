@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { expenseApi, bankAccountApi, branchApi } from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
@@ -152,42 +152,62 @@ export default function ExpensesPage() {
   const [totalRecords, setTotalRecords] = useState(0);
 
   const [showForm, setShowForm] = useState(false);
+  const [loadingPaymentOptions, setLoadingPaymentOptions] = useState(false);
+  const [paymentOptionsError, setPaymentOptionsError] = useState("");
+  const expenseRequest = useRef(0);
 
   const [filterCategory, setFilterCategory] = useState("");
   const [filterPaymentMethod, setFilterPaymentMethod] = useState("");
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
+    const request = ++expenseRequest.current;
     setLoading(true);
     setError("");
 
-    Promise.all([
-      expenseApi.list({
+    try {
+      const result: ExpensePageResult | ExpenseRow[] = await expenseApi.list({
         page,
         size: PAGE_SIZE,
         category: filterCategory || undefined,
-      }),
-      bankAccountApi.list(),
-      branchApi.list(),
-    ])
-      .then(([exp, ba, br]) => {
-        const result = exp as ExpensePageResult | ExpenseRow[];
-        setExpenses(Array.isArray(result) ? result : (result.content ?? []));
-        setTotalPages(Array.isArray(result) ? 1 : (result.totalPages ?? 0));
-        setTotalRecords(Array.isArray(result) ? result.length : (result.totalElements ?? 0));
-
-        setBankAccounts(ba as BankAccountRow[]);
-        setBranches(br as BranchRow[]);
-      })
-      .catch(() => {
-        setExpenses([]);
-        setTotalPages(0);
-        setTotalRecords(0);
-        setError("Expenses could not be loaded. Check your connection and try again.");
-      })
-      .finally(() => {
-        setLoading(false);
       });
+      if (request !== expenseRequest.current) return;
+      setExpenses(Array.isArray(result) ? result : (result.content ?? []));
+      setTotalPages(Array.isArray(result) ? 1 : (result.totalPages ?? 0));
+      setTotalRecords(Array.isArray(result) ? result.length : (result.totalElements ?? 0));
+    } catch (failure: unknown) {
+      if (request !== expenseRequest.current) return;
+      setExpenses([]);
+      setTotalPages(0);
+      setTotalRecords(0);
+      setError(failure instanceof Error ? failure.message : "Expenses could not be loaded.");
+    } finally {
+      if (request === expenseRequest.current) setLoading(false);
+    }
   }, [filterCategory, page]);
+
+  const openExpenseForm = async () => {
+    setLoadingPaymentOptions(true);
+    setPaymentOptionsError("");
+    try {
+      const [accountsResult, branchesResult] = await Promise.allSettled([
+        bankAccountApi.list(),
+        branchApi.list(),
+      ]);
+      if (accountsResult.status === "rejected" || branchesResult.status === "rejected") {
+        const failures = [
+          accountsResult.status === "rejected" ? "payment accounts" : null,
+          branchesResult.status === "rejected" ? "branches" : null,
+        ].filter(Boolean);
+        setPaymentOptionsError(`Could not load ${failures.join(" or ")}. Select Record Expense to retry.`);
+        return;
+      }
+      setBankAccounts(accountsResult.value as BankAccountRow[]);
+      setBranches(branchesResult.value as BranchRow[]);
+      setShowForm(true);
+    } finally {
+      setLoadingPaymentOptions(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -247,12 +267,20 @@ export default function ExpensesPage() {
         </div>
 
         <button
-          onClick={() => setShowForm(true)}
+          type="button"
+          disabled={loadingPaymentOptions}
+          onClick={() => void openExpenseForm()}
           className="inline-flex items-center justify-center px-5 py-2.5 bg-[#0B1F3A] hover:bg-[#16365F] text-white text-sm font-semibold rounded-xl shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
         >
-          + Record Expense
+          {loadingPaymentOptions ? "Loading payment options…" : "+ Record Expense"}
         </button>
       </div>
+
+      {paymentOptionsError && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {paymentOptionsError}
+        </p>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

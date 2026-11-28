@@ -33,7 +33,8 @@ interface Account {
 
 interface JournalLine {
   id: number;
-  account: Account;
+  accountCode: string;
+  accountName: string;
   debit: number;
   credit: number;
   description?: string;
@@ -48,7 +49,6 @@ interface JournalEntryRow {
   description: string;
   createdBy: string;
   reversed: boolean;
-  lines: JournalLine[];
   branchName?: string;
 }
 
@@ -180,7 +180,11 @@ export default function AccountingPage() {
   const [tab, setTab] = useState<Tab>("Trial Balance");
 
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [journal, setJournal] = useState<JournalEntryRow[]>([]);
+  const [journal, setJournal] = useState<JournalEntryRow[] | null>(null);
+  const [journalError, setJournalError] = useState("");
+  const [journalReload, setJournalReload] = useState(0);
+  const [journalLines, setJournalLines] = useState<JournalLine[] | null>(null);
+  const [journalLineError, setJournalLineError] = useState("");
   const [trial, setTrial] = useState<TrialBalance | null>(null);
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
   const [pnl, setPnl] = useState<ProfitAndLoss | null>(null);
@@ -242,7 +246,6 @@ export default function AccountingPage() {
     try {
       const [
         accountsResponse,
-        journalResponse,
         reportResponse,
         historicalResponse,
         branchSummaryResponse,
@@ -251,7 +254,6 @@ export default function AccountingPage() {
         dashboardResponse,
       ] = await Promise.all([
         accountingApi.chartOfAccounts().catch(() => []),
-        accountingApi.journal().catch(() => []),
         accountingApi.financialReport(financialPeriod.from, financialPeriod.to).catch(() => null),
         accountingApi.historicalPortfolioPerformance().catch(() => null),
         accountingApi
@@ -264,7 +266,6 @@ export default function AccountingPage() {
 
       if (request !== accountingRequest.current) return;
       setAccounts(accountsResponse as Account[]);
-      setJournal(journalResponse as JournalEntryRow[]);
       const financialReport = reportResponse as {
         trialBalance: TrialBalance;
         balanceSheet: BalanceSheet;
@@ -298,6 +299,34 @@ export default function AccountingPage() {
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (tab !== "Journal" || loading) return;
+    let active = true;
+    setJournal(null);
+    setJournalError("");
+    accountingApi.journal().then(
+      (entries: JournalEntryRow[]) => { if (active) setJournal(entries); },
+      (failure: unknown) => {
+        if (active) setJournalError(failure instanceof Error ? failure.message : "Could not load the journal.");
+      },
+    );
+    return () => { active = false; };
+  }, [tab, loading, journalReload]);
+
+  useEffect(() => {
+    if (tab !== "Journal" || expanded == null || loading) return;
+    let active = true;
+    setJournalLines(null);
+    setJournalLineError("");
+    accountingApi.journalEntry(expanded).then(
+      (lines: JournalLine[]) => { if (active) setJournalLines(lines); },
+      (failure: unknown) => {
+        if (active) setJournalLineError(failure instanceof Error ? failure.message : "Could not load the journal lines.");
+      },
+    );
+    return () => { active = false; };
+  }, [tab, expanded, loading]);
 
   /* =======================================================
      RECONCILE HISTORICAL LOAN ACCOUNTING
@@ -504,7 +533,19 @@ export default function AccountingPage() {
      LOADING
   ======================================================= */
 
-  const visibleJournal = journal.filter((entry) => {
+  const toggleJournalEntry = (id: number) => {
+    setJournalLines(null);
+    setJournalLineError("");
+    setExpanded(expanded === id ? null : id);
+  };
+
+  const correctedOpeningIds = new Set(
+    (journal ?? [])
+      .filter((entry) => entry.sourceType === "BANK_OPENING_CORRECTION")
+      .map((entry) => entry.sourceId),
+  );
+
+  const visibleJournal = (journal ?? []).filter((entry) => {
     const date = String(entry.entryDate ?? "").slice(0, 10);
     return date >= financialPeriod.from && date <= financialPeriod.to;
   });
@@ -1257,10 +1298,17 @@ export default function AccountingPage() {
 
       {tab === "Journal" && (
         <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-          {visibleJournal.length === 0 && (
-            <div className="px-5 py-8 text-center text-gray-400 text-sm">
-              No journal entries yet.
+          {journalError ? (
+            <div role="alert" className="space-y-2 px-5 py-4 text-sm text-red-800">
+              <p>Could not load journal entries. {journalError}</p>
+              <button type="button" className="font-semibold underline" onClick={() => setJournalReload((current) => current + 1)}>
+                Retry journal
+              </button>
             </div>
+          ) : journal == null ? (
+            <p role="status" className="px-5 py-4 text-sm text-slate-600">Loading journal entries…</p>
+          ) : visibleJournal.length === 0 && (
+            <p className="px-5 py-4 text-sm text-slate-600">No journal entries in the selected period.</p>
           )}
 
           {visibleJournal.map((entry) => (
@@ -1268,12 +1316,11 @@ export default function AccountingPage() {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() =>
-                  setExpanded(expanded === entry.id ? null : entry.id)
-                }
+                onClick={() => toggleJournalEntry(entry.id)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    setExpanded(expanded === entry.id ? null : entry.id);
+                  if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    toggleJournalEntry(entry.id);
                   }
                 }}
                 className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 text-left cursor-pointer"
@@ -1309,10 +1356,7 @@ export default function AccountingPage() {
 
                   {!entry.reversed &&
                     !["REVERSAL", "BANK_OPENING_CORRECTION"].includes(entry.sourceType) &&
-                    !journal.some((correction) =>
-                      correction.sourceType === "BANK_OPENING_CORRECTION" &&
-                      correction.sourceId === String(entry.id)
-                    ) && (
+                    !correctedOpeningIds.has(String(entry.id)) && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1331,37 +1375,47 @@ export default function AccountingPage() {
 
               {expanded === entry.id && (
                 <div className="px-5 pb-4">
-                  <table className="w-full text-xs bg-gray-50 rounded-lg overflow-hidden">
-                    <thead className="text-gray-500 uppercase">
-                      <tr>
-                        <th className="text-left px-3 py-2">Account</th>
+                  {journalLineError ? (
+                    <p role="alert" className="py-2 text-sm text-red-800">
+                      Could not load journal lines. {journalLineError} Close and reopen this entry to retry.
+                    </p>
+                  ) : journalLines == null ? (
+                    <p role="status" className="py-2 text-sm text-slate-600">Loading debits and credits…</p>
+                  ) : journalLines.length === 0 ? (
+                    <p className="py-2 text-sm text-slate-600">This entry has no journal lines.</p>
+                  ) : (
+                    <table className="w-full text-xs bg-gray-50 rounded-lg overflow-hidden">
+                      <thead className="text-gray-500 uppercase">
+                        <tr>
+                          <th className="text-left px-3 py-2">Account</th>
 
-                        <th className="text-right px-3 py-2">Debit</th>
+                          <th className="text-right px-3 py-2">Debit</th>
 
-                        <th className="text-right px-3 py-2">Credit</th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-gray-200">
-                      {entry.lines?.map((line) => (
-                        <tr key={line.id}>
-                          <td className="px-3 py-2">
-                            {line.account?.code}
-                            {" — "}
-                            {line.account?.name}
-                          </td>
-
-                          <td className="px-3 py-2 text-right font-mono">
-                            {line.debit ? fmt(line.debit) : ""}
-                          </td>
-
-                          <td className="px-3 py-2 text-right font-mono">
-                            {line.credit ? fmt(line.credit) : ""}
-                          </td>
+                          <th className="text-right px-3 py-2">Credit</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+
+                      <tbody className="divide-y divide-gray-200">
+                        {journalLines.map((line) => (
+                          <tr key={line.id}>
+                            <td className="px-3 py-2">
+                              {line.accountCode}
+                              {" — "}
+                              {line.accountName}
+                            </td>
+
+                            <td className="px-3 py-2 text-right font-mono">
+                              {line.debit ? fmt(line.debit) : ""}
+                            </td>
+
+                            <td className="px-3 py-2 text-right font-mono">
+                              {line.credit ? fmt(line.credit) : ""}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
             </div>

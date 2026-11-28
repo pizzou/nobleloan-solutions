@@ -42,11 +42,13 @@ export default function BorrowersPage() {
   }, [q]);
 
   const [loading, setLoading] = useState(true);
+  const [borrowerLoadError, setBorrowerLoadError] = useState("");
   const { currency, locale } = useAuth();
 
   const load = useCallback(async () => {
     const requestId = ++latestBorrowerRequest.current;
     setLoading(true);
+    setBorrowerLoadError("");
 
     try {
       const response: any = await borrowerApi.list(page, 20, debouncedQ);
@@ -61,7 +63,7 @@ export default function BorrowersPage() {
       setTotal(response?.totalElements ?? response?.total ?? content.length);
     } catch (error) {
       if (requestId !== latestBorrowerRequest.current) return;
-      console.error("Failed to load borrowers:", error);
+      setBorrowerLoadError(error instanceof Error ? error.message : "Could not load borrower records.");
 
       setBorrowers([]);
       setTotal(0);
@@ -280,6 +282,13 @@ export default function BorrowersPage() {
                 <p className="mt-1 text-xs text-slate-400">
                   Retrieving client information...
                 </p>
+              </div>
+            ) : borrowerLoadError ? (
+              <div role="alert" className="space-y-2 px-5 py-8 text-sm text-red-800">
+                <p>{borrowerLoadError}</p>
+                <button type="button" className="font-semibold underline" onClick={() => void load()}>
+                  Retry loading borrowers
+                </button>
               </div>
             ) : (
               <div className="overflow-x-auto">

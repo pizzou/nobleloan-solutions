@@ -281,7 +281,8 @@ export default function PaymentsPage() {
   const [loan, setLoan] = useState<Loan | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
-  const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [loadingTransactions, setLoadingTransactions] = useState(true);
+  const [transactionLoadError, setTransactionLoadError] = useState("");
 
   const [loadingLoan, setLoadingLoan] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -298,9 +299,11 @@ export default function PaymentsPage() {
     null,
   );
   const [confirming, setConfirming] = useState(false);
+  const [portfolioStatsError, setPortfolioStatsError] = useState("");
 
   const loadTransactions = useCallback(async () => {
     setLoadingTransactions(true);
+    setTransactionLoadError("");
 
     try {
       const result = await paymentApi.transactions();
@@ -308,7 +311,7 @@ export default function PaymentsPage() {
         Array.isArray(result) ? (result as PaymentTransaction[]) : [],
       );
     } catch (err) {
-      console.warn("Unable to load payment transaction ledger", err);
+      setTransactionLoadError(err instanceof Error ? err.message : "Could not load posted payments.");
       setTransactions([]);
     } finally {
       setLoadingTransactions(false);
@@ -327,8 +330,10 @@ export default function PaymentsPage() {
           setPortfolioStats(stats);
         }
       })
-      .catch((err) => {
-        console.warn("Unable to load portfolio collection controls", err);
+      .catch((failure: unknown) => {
+        if (mounted) {
+          setPortfolioStatsError(failure instanceof Error ? failure.message : "Could not load collection totals.");
+        }
       });
 
     return () => {
@@ -588,6 +593,15 @@ export default function PaymentsPage() {
                       Loading payment ledger…
                     </td>
                   </tr>
+                ) : transactionLoadError ? (
+                  <tr>
+                    <td colSpan={8} className="space-y-2 px-5 py-8 text-center text-sm text-red-800">
+                      <p role="alert">{transactionLoadError}</p>
+                      <button type="button" className="font-semibold underline" onClick={() => void loadTransactions()}>
+                        Retry loading payments
+                      </button>
+                    </td>
+                  </tr>
                 ) : transactions.length === 0 ? (
                   <tr>
                     <td
@@ -712,10 +726,14 @@ export default function PaymentsPage() {
           </div>
         </section>
 
+        {portfolioStatsError && (
+          <p role="alert" className="mb-4 text-sm text-red-800">{portfolioStatsError}</p>
+        )}
+
         <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             label="Portfolio collected"
-            value={money(portfolioStats?.totalCollected, currency)}
+            value={portfolioStats?.totalCollected == null ? "Unavailable" : money(portfolioStats.totalCollected, currency)}
             description="Cumulative collections, including legacy history"
             tone="teal"
             icon={<IconCoins className="h-5 w-5" />}
@@ -723,7 +741,7 @@ export default function PaymentsPage() {
 
           <MetricCard
             label="Legacy collections"
-            value={money(portfolioStats?.historicalCollected, currency)}
+            value={portfolioStats?.historicalCollected == null ? "Unavailable" : money(portfolioStats.historicalCollected, currency)}
             description="Historical collections brought forward"
             tone="blue"
             icon={<IconClock className="h-5 w-5" />}
@@ -731,7 +749,7 @@ export default function PaymentsPage() {
 
           <MetricCard
             label="Collected this month"
-            value={money(portfolioStats?.collectedThisMonth, currency)}
+            value={portfolioStats?.collectedThisMonth == null ? "Unavailable" : money(portfolioStats.collectedThisMonth, currency)}
             description="Posted payment transactions in the current month"
             tone="blue"
             icon={<IconCheckCircle className="h-5 w-5" />}
@@ -739,7 +757,7 @@ export default function PaymentsPage() {
 
           <MetricCard
             label="Application fees"
-            value={money(portfolioStats?.applicationFeesCollected, currency)}
+            value={portfolioStats?.applicationFeesCollected == null ? "Unavailable" : money(portfolioStats.applicationFeesCollected, currency)}
             description="One-time fees collected at disbursement"
             tone="amber"
             icon={<IconSend className="h-5 w-5" />}

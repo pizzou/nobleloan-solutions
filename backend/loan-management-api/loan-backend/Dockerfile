@@ -39,9 +39,7 @@ RUN addgroup -S loansaas \
 RUN mkdir -p /var/log/loansaas \
     && chown -R loansaas:loansaas /var/log/loansaas
 
-COPY --from=builder /app/target/*.jar app.jar
-
-RUN chown loansaas:loansaas /app/app.jar
+COPY --from=builder --chown=loansaas:loansaas /app/target/*.jar app.jar
 
 USER loansaas
 

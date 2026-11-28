@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Bell, Menu, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Bell, BookOpen, Menu, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 
 import Sidebar from "@/components/Sidebar";
 import { AuthContext, useAuthState } from "@/hooks/useAuth";
@@ -19,6 +19,7 @@ export default function DashboardLayout({
 }) {
   const auth = useAuthState();
   const router = useRouter();
+  const pathname = usePathname();
   const navigation = useRef<HTMLDialogElement>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
 
@@ -190,14 +191,24 @@ export default function DashboardLayout({
                   </span>
                 </Link>
               </div>
-              <Link
-                href="/dashboard/notifications"
-                aria-label="Notifications"
-                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#E6D6A0] bg-[#FFFBEC] px-3 text-sm font-semibold text-[#0B1F3A] hover:bg-[#FFF1C7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0B1F3A]"
-              >
-                <Bell size={18} aria-hidden="true" />
-                <span className="hidden sm:inline">Notifications</span>
-              </Link>
+              <div className="flex shrink-0 items-center gap-2">
+                <Link
+                  href={pathname === "/dashboard/help" ? "/dashboard/help" : `/dashboard/help?from=${encodeURIComponent(pathname.replace(/\/\d+(?=\/|$)/g, ""))}`}
+                  aria-label="Staff guide"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-2.5 text-sm font-semibold text-[#0B1F3A] hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0B1F3A]"
+                >
+                  <BookOpen size={18} aria-hidden="true" />
+                  <span className="hidden sm:inline">Help</span>
+                </Link>
+                <Link
+                  href="/dashboard/notifications"
+                  aria-label="Notifications"
+                  className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#E6D6A0] bg-[#FFFBEC] px-3 text-sm font-semibold text-[#0B1F3A] hover:bg-[#FFF1C7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0B1F3A]"
+                >
+                  <Bell size={18} aria-hidden="true" />
+                  <span className="hidden sm:inline">Notifications</span>
+                </Link>
+              </div>
             </div>
           </header>
 

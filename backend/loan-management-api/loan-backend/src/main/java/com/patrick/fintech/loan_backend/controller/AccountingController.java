@@ -356,6 +356,25 @@ public class AccountingController {
                                 ApiResponse.safe(entries));
         }
 
+        @GetMapping("/journal/{id}")
+        @org.springframework.transaction.annotation.Transactional(readOnly = true)
+        public ResponseEntity<ApiResponse<List<JournalLineView>>> journalLines(@PathVariable Long id) {
+                JournalEntry entry = journalRepo.findVisibleByIdAndOrganizationId(
+                                id, requireOrganizationId(),
+                                com.patrick.fintech.loan_backend.service.ReportingScopeService.includeBusinessOwnerOnly())
+                                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Journal entry is unavailable"));
+                List<JournalLineView> lines = entry.getLines().stream()
+                                .map(line -> new JournalLineView(
+                                                line.getId(), line.getAccount().getCode(), line.getAccount().getName(),
+                                                line.getDebitDecimal(), line.getCreditDecimal()))
+                                .toList();
+                return ResponseEntity.ok(ApiResponse.safe(lines));
+        }
+
+        public record JournalLineView(Long id, String accountCode, String accountName,
+                        java.math.BigDecimal debit, java.math.BigDecimal credit) {}
+
         // ============================================================
         // LEGACY LOAN ACCOUNTING RECONCILIATION
         // ============================================================

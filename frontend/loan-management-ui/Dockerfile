@@ -86,7 +86,7 @@ RUN addgroup -S loansaas \
 # NEXT.JS STANDALONE OUTPUT
 # ------------------------------------------------------------
 
-COPY --from=builder /app/public ./public
+COPY --from=builder --chown=loansaas:loansaas /app/public ./public
 
 COPY --from=builder \
     --chown=loansaas:loansaas \
@@ -95,9 +95,6 @@ COPY --from=builder \
 COPY --from=builder \
     --chown=loansaas:loansaas \
     /app/.next/static ./.next/static
-
-# Ensure application files belong to the runtime user
-RUN chown -R loansaas:loansaas /app
 
 USER loansaas
 
