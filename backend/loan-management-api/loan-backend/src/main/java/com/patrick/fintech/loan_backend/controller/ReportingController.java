@@ -645,38 +645,9 @@ public class ReportingController {
                                                 fromDate,
                                                 toDate));
 
-                /*
-                 * Balance sheet / trial balance are point-in-time reports.
-                 */
-                report.put(
-                                "trialBalance",
-                                accountingService.getTrialBalance(
-                                                organizationId, toDate));
+                report.putAll(accountingService.getFinancialReport(organizationId, fromDate, toDate));
 
-                report.put(
-                                "balanceSheet",
-                                accountingService.getBalanceSheet(
-                                                organizationId, toDate));
-
-                /*
-                 * Income statement / P&L is period based.
-                 */
-                report.put(
-                                "profitAndLoss",
-                                accountingService.getProfitAndLoss(
-                                                organizationId,
-                                                fromDate,
-                                                toDate));
-
-                /*
-                 * Cash flow is also period based.
-                 */
-                report.put(
-                                "cashFlow",
-                                accountingService.getCashFlow(
-                                                organizationId,
-                                                fromDate,
-                                                toDate));
+                report.put("importedPortfolio", accountingService.getHistoricalPortfolioPerformance(organizationId));
 
                 /*
                  * Journal is included so the frontend can drill down from

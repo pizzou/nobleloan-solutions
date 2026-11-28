@@ -1,5 +1,8 @@
 "use client";
 
+import { useAuth } from "@/hooks/useAuth";
+import LedgerCashFlow, { reportAmount, type LedgerCashFlowData } from "@/components/reports/LedgerCashFlow";
+import ImportedLoanCollections, { type ImportedPortfolioData } from "@/components/reports/ImportedLoanCollections";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
@@ -65,17 +68,6 @@ interface ProfitAndLossReport {
   totalExpense?: Numeric;
   totalExpenses?: Numeric;
   netIncome?: Numeric;
-}
-
-interface CashFlowReport {
-  from?: string;
-  to?: string;
-  cashUsedForLending?: Numeric;
-  operatingCashInflows?: Numeric;
-  cashFromCollections?: Numeric;
-  cashFromFees?: Numeric;
-  otherCashMovement?: Numeric;
-  netChangeInCash?: Numeric;
 }
 
 interface MonthlyAccountingReport extends MonthlyFinancialPoint {}
@@ -760,6 +752,7 @@ function ReportDocument({
    ========================================================================== */
 
 export default function ReportsPage() {
+  const { currency } = useAuth();
   const [stats, setStats] = useState<DashboardStatsLike | null>(null);
 
   const [loans, setLoans] = useState<LoanLike[]>([]);
@@ -777,7 +770,8 @@ export default function ReportsPage() {
   const [profitAndLoss, setProfitAndLoss] =
     useState<ProfitAndLossReport | null>(null);
 
-  const [cashFlow, setCashFlow] = useState<CashFlowReport | null>(null);
+  const [cashFlow, setCashFlow] = useState<LedgerCashFlowData | null>(null);
+  const [importedPortfolio, setImportedPortfolio] = useState<ImportedPortfolioData | null>(null);
 
   const [monthlyAccounting, setMonthlyAccounting] = useState<
     MonthlyAccountingReport[]
@@ -899,6 +893,7 @@ export default function ReportsPage() {
           accounting.status === "fulfilled"
             ? (unwrap<any>(accounting.value) ?? {})
             : {};
+        setImportedPortfolio(accountingPayload.importedPortfolio ?? null);
         const trial =
           accounting.status === "fulfilled"
             ? ({
@@ -950,10 +945,11 @@ export default function ReportsPage() {
         }
 
         if (cash.status === "fulfilled") {
-          setCashFlow(unwrap<CashFlowReport>(cash.value));
+          setCashFlow(unwrap<LedgerCashFlowData>(cash.value));
         } else {
           console.error("Cash flow failed", cash.reason);
           setCashFlow(null);
+          setImportedPortfolio(null);
         }
 
         const accountingSucceeded = results.some(
@@ -1020,6 +1016,7 @@ export default function ReportsPage() {
           setBalanceSheet(null);
           setProfitAndLoss(null);
           setCashFlow(null);
+          setImportedPortfolio(null);
           setMonthlyAccounting([]);
         }
       }
@@ -1109,7 +1106,7 @@ export default function ReportsPage() {
 
   const totalEquity = numberValue(balanceSheet?.totalEquity);
 
-  const netCashChange = numberValue(cashFlow?.netChangeInCash);
+  const netCashChange = cashFlow?.netChangeInCash;
 
   // The balance sheet is an as-of-date snapshot and does not always expose a
   // period income field. The selected-period P&L is the authoritative source.
@@ -1685,51 +1682,9 @@ export default function ReportsPage() {
             description="Financial performance derived from the accounting records."
           />
 
-          {Number(profitAndLoss?.importedLoanCount ?? 0) > 0 && (
-            <section
-              className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-5"
-              aria-label="Historical import collections"
-            >
-              <h3 className="text-sm font-bold text-slate-900">
-                Historical legacy-import totals (lifetime)
-              </h3>
-              <p className="mt-1 text-xs leading-5 text-slate-700">
-                These amounts came from imported loan records, not dated
-                accounting transactions. They must not be treated as income or
-                cash collected during the selected month.
-              </p>
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div>
-                  <span className="block text-xs text-slate-600">
-                    Application fees from Excel
-                  </span>
-                  <strong>
-                    {fmt(profitAndLoss?.historicalApplicationFees)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="block text-xs text-slate-600">
-                    Application fees marked paid in Excel
-                  </span>
-                  <strong>
-                    {fmt(profitAndLoss?.historicalApplicationFeesPaid)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="block text-xs text-slate-600">
-                    Historical loan repayments from Excel
-                  </span>
-                  <strong>{fmt(profitAndLoss?.historicalRepayments)}</strong>
-                </div>
-              </div>
-              <p className="mt-3 text-xs text-amber-900">
-                To report a specific month's historical collections or recognize
-                historical income, dated transaction-level records are required.
-                Importing aggregate lifetime totals cannot determine the
-                collection month.
-              </p>
-            </section>
-          )}
+          <div className="mb-5">
+            <ImportedLoanCollections data={importedPortfolio} currency={currency} />
+          </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="grid divide-y divide-slate-200 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
@@ -1872,73 +1827,9 @@ export default function ReportsPage() {
            CASH FLOW
            ================================================================== */}
 
-        <section className="mt-10">
-          <SectionHeading
-            eyebrow="07 / Liquidity"
-            title="Cash flow summary"
-            description="Summary of cash movements recorded by the accounting system."
-          />
-
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <table className="min-w-full">
-              <tbody className="divide-y divide-slate-100">
-                <tr>
-                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
-                    Cash used for lending
-                  </td>
-
-                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
-                    {fmt(cashFlow?.cashUsedForLending)}
-                  </td>
-                </tr>
-
-                <tr>
-                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
-                    Cash from collections
-                  </td>
-
-                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
-                    {fmt(cashFlow?.cashFromCollections)}
-                  </td>
-                </tr>
-
-                <tr>
-                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
-                    Of which: application fees at disbursement
-                  </td>
-
-                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
-                    {fmt(cashFlow?.cashFromFees)}
-                  </td>
-                </tr>
-
-                <tr>
-                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
-                    Other cash movements
-                  </td>
-
-                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
-                    {fmt(cashFlow?.otherCashMovement)}
-                  </td>
-                </tr>
-
-                <tr className="bg-slate-50">
-                  <td className="px-5 py-4 text-xs font-bold uppercase tracking-wide text-slate-700">
-                    Net change in cash
-                  </td>
-
-                  <td
-                    className={`px-5 py-4 text-right text-sm font-bold ${
-                      netCashChange >= 0 ? "text-slate-900" : "text-red-700"
-                    }`}
-                  >
-                    {fmt(netCashChange)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <div className="mt-10">
+          <LedgerCashFlow data={cashFlow} currency={currency} />
+        </div>
 
         {/* ==================================================================
            MONTHLY PERFORMANCE
@@ -2121,8 +2012,8 @@ export default function ReportsPage() {
 
                 <ExecutiveMetric
                   label="Net cash movement"
-                  value={fmtPrecise(netCashChange)}
-                  detail={netCashChange >= 0 ? "Increase" : "Decrease"}
+                  value={reportAmount(netCashChange, currency)}
+                  detail="Selected ledger period"
                 />
               </div>
 

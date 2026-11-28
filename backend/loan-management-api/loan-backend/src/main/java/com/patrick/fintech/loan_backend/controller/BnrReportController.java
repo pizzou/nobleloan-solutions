@@ -631,6 +631,11 @@ public class BnrReportController {
                         return rows;
                 }
 
+                addRow(rows, "REPORT BASIS", "Scope", "Organization-wide ledger");
+                addRow(rows, "REPORT BASIS", "From", report.getPeriodStart());
+                addRow(rows, "REPORT BASIS", "Through", report.getPeriodEnd());
+                addRow(rows, "REPORT BASIS", "Currency", report.getCurrency());
+
                 addSectionRows(
                                 rows,
                                 "ASSETS",

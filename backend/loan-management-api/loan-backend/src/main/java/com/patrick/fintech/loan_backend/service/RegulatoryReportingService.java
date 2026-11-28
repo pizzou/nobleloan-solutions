@@ -1465,6 +1465,7 @@ public class RegulatoryReportingService {
         // BNR FINANCIAL STATEMENT
         // ============================================================
 
+        @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
         public BnrFinancialStatementReport buildBnrFinancialStatement(
                         Long organizationId,
                         Long branchId,
@@ -1476,6 +1477,11 @@ public class RegulatoryReportingService {
 
                         throw new IllegalArgumentException(
                                         "organizationId is required.");
+                }
+
+                if (branchId != null) {
+                        throw new IllegalArgumentException(
+                                        "BNR financial statements use the organization-wide ledger. Select all branches.");
                 }
 
                 LocalDate[] window = resolvePeriod(
@@ -1629,14 +1635,6 @@ public class RegulatoryReportingService {
                                 .bnrInstitutionCode(
                                                 organization.getRegistrationNumber())
 
-                                .branchId(
-                                                branchId)
-
-                                .branchName(
-                                                resolveBranchNameForFinancialStatement(
-                                                                organizationId,
-                                                                branchId))
-
                                 .currency(
                                                 organization.getDefaultCurrency() != null
                                                                 ? organization.getDefaultCurrency()
@@ -1707,6 +1705,8 @@ public class RegulatoryReportingService {
 
                                 .netIncome(
                                                 netIncome)
+
+                                .cashFlow(cashFlow)
 
                                 .cashUsedForLending(
                                                 cashUsedForLending)
@@ -2292,50 +2292,6 @@ public class RegulatoryReportingService {
                                 ||
                                 loans == null) {
 
-                        return null;
-                }
-
-                return loans.stream()
-
-                                .filter(
-                                                loan -> loan != null
-                                                                &&
-                                                                loan.getBranch() != null
-                                                                &&
-                                                                branchId.equals(
-                                                                                loan.getBranch().getId()))
-
-                                .map(
-                                                loan -> loan.getBranch().getName())
-
-                                .filter(
-                                                name -> name != null
-                                                                &&
-                                                                !name.isBlank())
-
-                                .findFirst()
-
-                                .orElse(null);
-        }
-
-        // ============================================================
-        // FINANCIAL STATEMENT BRANCH
-        // ============================================================
-
-        private String resolveBranchNameForFinancialStatement(
-                        Long organizationId,
-                        Long branchId) {
-
-                if (branchId == null) {
-                        return null;
-                }
-
-                List<Loan> loans = fetchPortfolio(
-                                organizationId,
-                                branchId,
-                                LocalDate.now());
-
-                if (loans == null) {
                         return null;
                 }
 

@@ -996,6 +996,9 @@ export const accountingApi = {
 
   ledger: (accountId: number) => get(`/accounting/ledger/${accountId}`),
 
+  financialReport: (from: string, to: string) =>
+    get(`/accounting/financial-report?${new URLSearchParams({ from, to })}`),
+
   trialBalance: (asOf?: string) =>
     get(
       `/accounting/trial-balance${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`,

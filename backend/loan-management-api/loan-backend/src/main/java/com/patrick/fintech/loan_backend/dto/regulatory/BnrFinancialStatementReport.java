@@ -39,6 +39,8 @@ public class BnrFinancialStatementReport {
 
     private String reportPeriod;
 
+    private Map<String, Object> cashFlow;
+
     private LocalDate periodStart;
 
     private LocalDate periodEnd;

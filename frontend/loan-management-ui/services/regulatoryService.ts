@@ -1,3 +1,4 @@
+import type { LedgerCashFlowData } from "@/components/reports/LedgerCashFlow";
 import api from "@/services/api";
 
 export type RegulatoryPeriod =
@@ -252,6 +253,7 @@ export interface BnrFinancialStatementReport {
 
   netIncome?: number;
 
+  cashFlow?: LedgerCashFlowData;
   cashUsedForLending?: number;
   cashFromCollections?: number;
   cashFromFees?: number;
