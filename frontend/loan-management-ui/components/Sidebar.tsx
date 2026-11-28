@@ -226,7 +226,7 @@ const REGULATORY_ITEMS: NavItem[] = [
    SIDEBAR
    ============================================================ */
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   const { user, logout, currency } = useAuth();
@@ -382,19 +382,13 @@ export default function Sidebar() {
 
   const isActive = (href: string): boolean => {
     return (
-      pathname === href || (href !== "/dashboard" && pathname.startsWith(href))
+      pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`))
     );
   };
 
   /* ==========================================================
      LOGOUT
      ========================================================== */
-
-  const handleLogout = () => {
-    logout();
-
-    window.location.href = "/login";
-  };
 
   /* ==========================================================
      RENDER
@@ -403,14 +397,10 @@ export default function Sidebar() {
   return (
     <aside
       className="
-        fixed
-        left-0
-        top-0
-        bottom-0
-        z-40
         flex
-        min-h-screen
-        w-64
+        h-full
+        min-h-0
+        w-full
         flex-col
         border-r
         border-white/10
@@ -595,6 +585,7 @@ export default function Sidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
+                    onNavigate={onNavigate}
                     aria-current={active ? "page" : undefined}
                     className={`
                           mb-0.5
@@ -804,6 +795,7 @@ export default function Sidebar() {
                         <Link
                           key={item.href}
                           href={item.href}
+                          onNavigate={onNavigate}
                           aria-current={active ? "page" : undefined}
                           className={`
                                   group
@@ -892,7 +884,7 @@ export default function Sidebar() {
       >
         <button
           type="button"
-          onClick={handleLogout}
+          onClick={() => void logout()}
           className="
             flex
             w-full

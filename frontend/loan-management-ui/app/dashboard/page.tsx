@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ArrowUpRight, RefreshCw } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -666,57 +668,47 @@ export default function DashboardPage() {
      ========================================================== */
 
   return (
-    <main className="min-h-screen bg-[#F4F7FB] text-[#172E49]">
-      <div className="mx-auto max-w-[1600px] space-y-4 px-4 py-6 lg:px-7 lg:py-8">
-        {/* ================= HEADER ================= */}
-
-        <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#AB8438]">
-              Executive Financial Intelligence
-            </p>
-
-            <h1 className="text-[28px] font-black tracking-[-0.04em] text-[#102A46] md:text-[34px]">
-              Finance Command Center
-            </h1>
-
-            <p className="mt-2 text-[12px] leading-6 text-[#74849B]">
-              Financial performance, portfolio quality, collections, and the
-              priorities that matter today.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-lg border border-[#DFE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#435B76]">
-              {consolidatedView
-                ? "Business Owner · Consolidated"
-                : authenticatedOwner
-                  ? "Business Owner · Authorized view"
-                  : "Normal Portfolio"}
-            </span>
-
-            <span className="rounded-lg border border-[#DFE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#435B76]">
-              {snapshotDate}
-            </span>
-
+    <section className="text-[#172E49]">
+      <div className="mx-auto max-w-[1600px] space-y-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-[#0B1F3A] sm:text-3xl">
+                Financial overview
+              </h1>
+              <p className="mt-1 text-sm text-slate-600">
+                Portfolio, collections, and operating performance
+              </p>
+              <p className="mt-2 text-xs font-medium text-slate-600">
+                {consolidatedView
+                  ? "Consolidated owner portfolio"
+                  : authenticatedOwner
+                    ? "Authorized owner portfolio"
+                    : "Staff portfolio"} · {snapshotDate}
+              </p>
+            </div>
             <button
               type="button"
               disabled={refreshing}
               onClick={() => void load(true)}
-              className="rounded-lg bg-[#102A46] px-4 py-2.5 text-[11px] font-extrabold text-white hover:bg-[#204263] disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-[#0B1F3A] hover:bg-slate-50 disabled:opacity-50"
             >
-              {refreshing ? "Refreshing…" : "↻ Refresh"}
+              <RefreshCw size={16} aria-hidden="true" className={refreshing ? "animate-spin" : undefined} />
+              {refreshing ? "Refreshing…" : "Refresh"}
             </button>
           </div>
-        </header>
-
-        <div className="flex flex-wrap justify-between gap-3 text-[10px] font-semibold text-[#8897AA]">
-          <span>
-            <span className="mr-1 text-emerald-600">●</span>
-            Authenticated financial reporting
-          </span>
-
-          <span>RWF financial reporting · Backend-controlled scope</span>
+          <nav aria-label="Common tasks" className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+            {[
+              { href: "/dashboard/loans", label: "Loan portfolio" },
+              { href: "/dashboard/payments", label: "Payments" },
+              { href: "/dashboard/collections", label: "Collections" },
+            ].map((item) => (
+              <Link key={item.href} href={item.href} className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-200">
+                {item.label}
+                <ArrowUpRight size={15} aria-hidden="true" />
+              </Link>
+            ))}
+          </nav>
         </div>
 
         {error && (
@@ -1335,6 +1327,6 @@ export default function DashboardPage() {
           </span>
         </footer>
       </div>
-    </main>
+    </section>
   );
 }

@@ -10,7 +10,7 @@ interface AuthCtx {
   user: AuthResponse | null;
   token: string | null;
   login: (user: AuthResponse) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   loading: boolean;
   isAdmin: boolean;
   isBusinessOwner: boolean;
@@ -24,7 +24,7 @@ export const AuthContext = createContext<AuthCtx>({
   user: null,
   token: null,
   login: () => {},
-  logout: () => {},
+  logout: async () => {},
   loading: true,
   isAdmin: false,
   isBusinessOwner: false,
@@ -41,6 +41,14 @@ export function useAuth() {
 export function useAuthState() {
   const [user, setUser] = useState<AuthResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState(false);
+  const [sessionAttempt, setSessionAttempt] = useState(0);
+
+  const retrySession = () => {
+    setSessionError(false);
+    setLoading(true);
+    setSessionAttempt((attempt) => attempt + 1);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -55,6 +63,8 @@ export function useAuthState() {
         if (mounted && me && typeof me.userId === "number") {
           setUser(me);
           localStorage.setItem("user", JSON.stringify(me));
+        } else if (mounted) {
+          setSessionError(true);
         }
       } catch (error: any) {
         if (!mounted) return;
@@ -66,6 +76,8 @@ export function useAuthState() {
         if (status === 401) {
           await clearSensitiveClientState();
           if (mounted) setUser(null);
+        } else {
+          setSessionError(true);
         }
       } finally {
         if (mounted) setLoading(false);
@@ -75,7 +87,7 @@ export function useAuthState() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [sessionAttempt]);
 
   const login = (userData: AuthResponse) => {
     if (
@@ -106,6 +118,8 @@ export function useAuthState() {
     user,
     token: null,
     loading,
+    sessionError,
+    retrySession,
     login,
     logout,
     isAdmin: user?.role === "ADMIN",
