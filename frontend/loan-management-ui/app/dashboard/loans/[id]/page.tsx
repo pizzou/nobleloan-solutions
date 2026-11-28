@@ -1012,6 +1012,7 @@ export default function LoanDetailPage() {
   const router = useRouter();
 
   const { currency, locale, isOfficer, user } = useAuth();
+  const canSubmitPayment = ["ADMIN", "MANAGER", "ACCOUNTANT", "TELLER", "LOAN_OFFICER"].includes(user?.role ?? "");
 
   const fc = (n?: number) => formatCurrency(n, currency, locale);
 
@@ -1612,6 +1613,11 @@ export default function LoanDetailPage() {
       return;
     }
 
+    if (!payForm.transactionId.trim()) {
+      setMsg({ type: "error", text: "Enter the bank transaction or receipt reference." });
+      return;
+    }
+
     setPaying(true);
     setMsg(null);
 
@@ -1631,7 +1637,7 @@ export default function LoanDetailPage() {
 
       setMsg({
         type: "success",
-        text: "Payment recorded successfully!",
+        text: "Payment request submitted for Business Owner review.",
       });
 
       setPayOpen(false);
@@ -1640,7 +1646,7 @@ export default function LoanDetailPage() {
       setMsg({
         type: "error",
         text: isRetryableRequestError(err)
-          ? `The server could not confirm whether this payment was recorded. Do not submit again until you refresh and verify the loan's payment history. Reference: ${idempotencyKey}`
+          ? `The server could not confirm whether this request was submitted. Check My payment requests on the Payments page before retrying. Reference: ${idempotencyKey}`
           : (err?.message ?? "Unable to record payment."),
       });
     } finally {
@@ -2546,7 +2552,7 @@ export default function LoanDetailPage() {
                     </button>
                   )}
 
-                {loan.status === "ACTIVE" && (
+                {canSubmitPayment && (loan.status === "ACTIVE" || loan.status === "OVERDUE") && (
                   <button
                     type="button"
                     onClick={() => {
@@ -3870,7 +3876,7 @@ export default function LoanDetailPage() {
         <Modal
           open={payOpen}
           onClose={() => setPayOpen(false)}
-          title="Record Payment"
+          title="Submit Payment for Review"
 
           footer={
             <>
@@ -3881,9 +3887,9 @@ export default function LoanDetailPage() {
               <Button
                 loading={paying}
                 onClick={handlePay as any}
-                aria-label="Confirm payment"
+                aria-label="Submit for approval"
               >
-                Confirm Payment
+                Submit for approval
               </Button>
             </>
           }
@@ -3948,9 +3954,10 @@ export default function LoanDetailPage() {
                 </Select>
               </FormGroup>
 
-              <FormGroup label="Transaction ID">
+              <FormGroup label="Bank transaction or receipt reference" required>
                 <Input
-                  placeholder="e.g. MPesa code"
+                  required
+                  placeholder="Reference from the payment record"
                   value={payForm.transactionId}
                   onChange={(e) =>
                     setPayForm((f) => ({

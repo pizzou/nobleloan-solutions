@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, Long> {
+    boolean existsByOrganization_IdAndTransactionReferenceIgnoreCase(Long organizationId, String reference);
     Optional<PaymentTransaction> findByOrganization_IdAndTransactionReference(Long organizationId, String reference);
     Optional<PaymentTransaction> findByOrganization_IdAndId(Long organizationId, Long id);
     @EntityGraph(attributePaths = { "loan", "loan.borrower", "organization", "recordedBy", "installment" })

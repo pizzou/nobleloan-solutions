@@ -16,6 +16,7 @@ import java.util.Optional;
 
 public interface PaymentRepository
                 extends JpaRepository<Payment, Long> {
+        boolean existsByOrganization_IdAndTransactionIdIgnoreCase(Long organizationId, String reference);
 
         // ============================================================
         // BASIC QUERIES
