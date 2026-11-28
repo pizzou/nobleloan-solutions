@@ -3,10 +3,9 @@ name: Noble Loan Consolidated Verification
 on:
   push:
     branches:
+      - main
       - security/nextjs-15.5.28
   pull_request:
-    branches:
-      - security/nextjs-15.5.28
   workflow_dispatch:
 
 permissions:
@@ -63,6 +62,9 @@ jobs:
       - name: Typescript
         working-directory: frontend/loan-management-ui
         run: npm run typecheck
+      - name: Lint
+        working-directory: frontend/loan-management-ui
+        run: npm run lint:ci
       - name: Production build
         working-directory: frontend/loan-management-ui
         run: npm run build

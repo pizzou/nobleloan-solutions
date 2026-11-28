@@ -56,6 +56,34 @@ class PostgreSqlMigrationIntegrationTest {
                 assertThat(result.getLong(1)).isEqualTo(1L);
             }
             verifyHistoricalReallocationConstraints(postgres);
+            verifyPaymentReviewEvidence(postgres);
+        }
+    }
+
+    private void verifyPaymentReviewEvidence(PostgreSQLContainer<?> postgres) throws Exception {
+        try (var connection = postgres.createConnection(""); var statement = connection.createStatement()) {
+            String insert = """
+                    INSERT INTO payment_reviews
+                        (organization_id, loan_id, request_key, amount, method, reference,
+                         submitted_by, submitted_by_name, submitted_at, status)
+                    SELECT id, 50, 'review-key', 100, 'BANK_TRANSFER', 'BANK-50',
+                           10, 'Test staff', CURRENT_TIMESTAMP, 'PENDING'
+                    FROM organizations WHERE name = 'Payment evidence fixture'
+                    """;
+            statement.executeUpdate("INSERT INTO organizations (name, slug) VALUES ('Payment evidence fixture', 'payment-evidence-fixture')");
+            assertThat(statement.executeUpdate(insert)).isEqualTo(1);
+            assertThatThrownBy(() -> statement.executeUpdate("UPDATE payment_reviews SET amount = 200"))
+                    .isInstanceOf(SQLException.class).hasMessageContaining("Only the first decision");
+            assertThatThrownBy(() -> statement.executeUpdate("""
+                    UPDATE payment_reviews SET status = 'REJECTED', decided_by = 11, decided_at = CURRENT_TIMESTAMP
+                    """)).isInstanceOf(SQLException.class).hasMessageContaining("requires a reason");
+            assertThat(statement.executeUpdate("""
+                    UPDATE payment_reviews SET status = 'APPROVED', decided_by = 11, decided_at = CURRENT_TIMESTAMP
+                    """)).isEqualTo(1);
+            assertThatThrownBy(() -> statement.executeUpdate("UPDATE payment_reviews SET decision_reason = 'edited'"))
+                    .isInstanceOf(SQLException.class).hasMessageContaining("Only the first decision");
+            assertThatThrownBy(() -> statement.executeUpdate("DELETE FROM payment_reviews"))
+                    .isInstanceOf(SQLException.class).hasMessageContaining("cannot be deleted");
         }
     }
 
