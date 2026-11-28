@@ -38,7 +38,7 @@ query() {
     'exec psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d loansaas_nobleloansolutions -c "$1"' sh "$1" </dev/null
 }
 
-owners=$(query "SELECT count(*) FROM users u JOIN roles r ON r.id = u.role_id
+owners=$(query "SELECT count(*) FROM public.app_users u JOIN public.roles r ON r.id = u.role_id
   WHERE r.name = 'BUSINESS_OWNER' AND u.status = 'ACTIVE'
     AND u.deleted_at IS NULL AND NULLIF(BTRIM(u.email), '') IS NOT NULL;")
 [[ "$owners" =~ ^[0-9]+$ && "$owners" -gt 0 ]] ||
