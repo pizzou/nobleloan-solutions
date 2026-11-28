@@ -3,6 +3,7 @@ package com.patrick.fintech.loan_backend.service;
 import com.patrick.fintech.loan_backend.model.ChartOfAccount;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.model.JournalLine;
+import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
@@ -17,7 +18,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AccountingCashFlowTest {
@@ -62,6 +66,45 @@ class AccountingCashFlowTest {
                 .containsEntry("actualClosingCash", new BigDecimal("-2.00"))
                 .containsEntry("unverifiedDisbursementBreakdowns", 1)
                 .containsEntry("reconciles", true);
+    }
+
+    @Test
+    void openingBalanceCorrectionOffsetsTheOriginalAndCanOnlyBePostedOnce() {
+        var journals = mock(JournalEntryRepository.class);
+        var journalLines = mock(JournalLineRepository.class);
+        var accounting = new AccountingService(mock(ChartOfAccountRepository.class), journals, journalLines,
+                mock(LoanRepository.class), mock(PaymentRepository.class), mock(AccountingPeriodService.class));
+        var organization = Organization.builder().id(1L).build();
+        var cash = account(1L, "100001");
+        cash.setOrganization(organization);
+        var equity = account(2L, "3000");
+        equity.setOrganization(organization);
+        var opening = entry(LocalDate.now().minusDays(1), "BANK_ACCOUNT_OPENING",
+                line(cash, "50000000", "0", ""), line(equity, "0", "50000000", ""));
+        opening.setId(42L);
+        opening.setOrganization(organization);
+        opening.setReversed(false);
+        when(journals.findVisibleByIdAndOrganizationId(42L, 1L, true)).thenReturn(Optional.of(opening));
+        when(journals.save(any(JournalEntry.class))).thenAnswer(call -> call.getArgument(0));
+
+        var correction = accounting.reverseEntry(1L, 42L, "Accountant", "Example balance");
+        assertThat(opening.getReversed()).isFalse();
+        assertThat(correction.getSourceType()).isEqualTo("BANK_OPENING_CORRECTION");
+        assertThat(correction.getSourceId()).isEqualTo("42");
+        var lines = org.mockito.ArgumentCaptor.forClass(JournalLine.class);
+        verify(journalLines, times(2)).save(lines.capture());
+        assertThat(lines.getAllValues()).anySatisfy(line -> {
+            assertThat(line.getAccount()).isSameAs(cash);
+            assertThat(line.getCreditDecimal()).isEqualByComparingTo("50000000");
+        }).anySatisfy(line -> {
+            assertThat(line.getAccount()).isSameAs(equity);
+            assertThat(line.getDebitDecimal()).isEqualByComparingTo("50000000");
+        });
+
+        when(journals.findFirstByOrganization_IdAndSourceTypeAndSourceId(1L, "BANK_OPENING_CORRECTION", "42"))
+                .thenReturn(Optional.of(correction));
+        assertThat(accounting.reverseEntry(1L, 42L, "Accountant", "Example balance")).isSameAs(correction);
+        verify(journals).save(any(JournalEntry.class));
     }
 
     private ChartOfAccount account(long id, String code) {

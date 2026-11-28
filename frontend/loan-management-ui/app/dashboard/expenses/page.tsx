@@ -77,6 +77,7 @@ interface BankAccountRow {
   id: number;
   name: string;
   accountType: string;
+  glAccountCode?: string;
   active: boolean;
 }
 
@@ -539,6 +540,11 @@ function AddExpenseModal({
 
   const [error, setError] = useState("");
 
+  const activePaymentAccounts = bankAccounts.filter((account) => account.active);
+  const selectedPaymentAccount = activePaymentAccounts.find(
+    (account) => String(account.id) === paymentAccountId,
+  );
+
   const selectedPaymentMethod = PAYMENT_METHODS.find(
     (method) => method.value === paymentMethod,
   );
@@ -576,7 +582,7 @@ function AddExpenseModal({
 
     setError("");
 
-    if (!paymentAccountId) {
+    if (!selectedPaymentAccount) {
       setError("Select the account from which this expense was paid.");
       return;
     }
@@ -826,9 +832,11 @@ function AddExpenseModal({
 
             <div className="space-y-4">
               <div>
-                <label className={labelClass}>Paid From Account <span className="text-red-700" aria-hidden="true">*</span></label>
+                <label htmlFor="expense-payment-account" className={labelClass}>Account that actually paid <span className="text-red-700" aria-hidden="true">*</span></label>
 
                 <select
+                  id="expense-payment-account"
+                  aria-describedby="expense-payment-account-help"
                   required
                   value={paymentAccountId}
                   onChange={(e) => setPaymentAccountId(e.target.value)}
@@ -838,19 +846,22 @@ function AddExpenseModal({
                     Select bank, cash or wallet account...
                   </option>
 
-                  {bankAccounts
-                    .filter((account) => account.active)
-                    .map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name} — {account.accountType}
-                      </option>
-                    ))}
+                  {activePaymentAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} — {account.accountType}
+                      {account.glAccountCode ? ` · GL ${account.glAccountCode}` : ""}
+                    </option>
+                  ))}
                 </select>
 
-                {bankAccounts.length === 0 && (
-                  <p className="text-xs text-amber-600 mt-2">
-                    No active payment accounts are configured. Create one under
-                    Accounting → Bank Accounts.
+                <p id="expense-payment-account-help" className="mt-2 text-xs text-gray-600">
+                  Reuse the company bank or cash account that paid. The expense category
+                  tracks what the money was spent on.
+                </p>
+                {activePaymentAccounts.length === 0 && (
+                  <p className="mt-2 text-xs text-amber-800">
+                    Ask your accountant to verify and configure the actual payment account
+                    under Accounting → Bank Accounts.
                   </p>
                 )}
               </div>
@@ -1256,9 +1267,7 @@ function AddExpenseModal({
               <span className="text-gray-500">Paid From</span>
 
               <span className="font-medium text-right">
-                {bankAccounts.find(
-                  (account) => String(account.id) === paymentAccountId,
-                )?.name ?? "Not selected"}
+                {selectedPaymentAccount?.name ?? "Not selected"}
               </span>
 
               {paymentTransactionReference && (

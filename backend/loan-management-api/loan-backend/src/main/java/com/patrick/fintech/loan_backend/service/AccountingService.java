@@ -4399,13 +4399,22 @@ public class AccountingService {
                         }
                 }
 
+                boolean openingBalance = "BANK_ACCOUNT_OPENING".equals(original.getSourceType());
+                String reversalType = openingBalance ? "BANK_OPENING_CORRECTION" : "REVERSAL";
+                if ("BANK_OPENING_CORRECTION".equals(original.getSourceType())) {
+                        throw new IllegalStateException("An opening-balance correction cannot be reversed here");
+                }
+                if (openingBalance && (reason == null || reason.isBlank())) {
+                        throw new IllegalArgumentException("A reason is required to correct an opening balance");
+                }
+
                 String reversalSourceId = String.valueOf(
                                 entryId);
 
                 JournalEntry existingReversal = journalRepo
                                 .findFirstByOrganization_IdAndSourceTypeAndSourceId(
                                                 orgId,
-                                                "REVERSAL",
+                                                reversalType,
                                                 reversalSourceId)
                                 .orElse(null);
 
@@ -4527,6 +4536,18 @@ public class AccountingService {
 
                         reversalDescription += " — "
                                         + original.getDescription();
+                }
+
+                if (openingBalance) {
+                        // Keep the opening entry in the ledger so the two dated entries offset.
+                        return post(
+                                        original.getOrganization(),
+                                        original.getBranch(),
+                                        reversalType,
+                                        reversalSourceId,
+                                        "REV-" + entryId,
+                                        reversalDescription,
+                                        reversedLines);
                 }
 
                 JournalEntry reversal = JournalEntry.builder()

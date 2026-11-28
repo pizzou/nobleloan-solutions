@@ -44,6 +44,7 @@ interface JournalEntryRow {
   entryDate: string;
   reference: string;
   sourceType: string;
+  sourceId?: string;
   description: string;
   createdBy: string;
   reversed: boolean;
@@ -412,13 +413,21 @@ export default function AccountingPage() {
   ======================================================= */
 
   const handleReverse = async (id: number) => {
-    const reason =
-      window.prompt("Reason for reversing this entry (optional):") ?? "";
+    const reason = window.prompt("Reason for correcting this journal entry:")?.trim();
+    if (!reason) return;
+    const approvalId = window.prompt(
+      `Enter the approved JOURNAL_REVERSAL request ID for journal #${id}:`,
+    )?.trim();
+    if (!approvalId) return;
+    if (!/^[1-9]\d*$/.test(approvalId)) {
+      setError("Enter a valid financial approval ID.");
+      return;
+    }
 
     try {
       setError("");
 
-      await accountingApi.reverseEntry(id, reason || undefined);
+      await accountingApi.reverseEntry(id, approvalId, reason);
 
       await loadAll();
     } catch (err: unknown) {
@@ -1298,7 +1307,12 @@ export default function AccountingPage() {
                 <div className="flex items-center gap-3 text-xs text-gray-400">
                   <code>{entry.reference}</code>
 
-                  {!entry.reversed && entry.sourceType !== "REVERSAL" && (
+                  {!entry.reversed &&
+                    !["REVERSAL", "BANK_OPENING_CORRECTION"].includes(entry.sourceType) &&
+                    !journal.some((correction) =>
+                      correction.sourceType === "BANK_OPENING_CORRECTION" &&
+                      correction.sourceId === String(entry.id)
+                    ) && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1307,7 +1321,7 @@ export default function AccountingPage() {
                       }}
                       className="text-red-500 hover:text-red-700 font-semibold border border-red-100 bg-white hover:bg-red-50 px-2 py-1 rounded"
                     >
-                      Reverse
+                      {entry.sourceType === "BANK_ACCOUNT_OPENING" ? "Correct opening balance" : "Reverse"}
                     </button>
                   )}
 
@@ -1961,8 +1975,9 @@ function AddBankAccountModal({
           </div>
 
           <p className="text-xs text-gray-400 mt-1">
-            Enter zero if the account has no opening balance. You can fund it
-            later using Deposit.
+            Enter the documented balance when this real bank or cash account
+            starts in the system. Enter zero if it starts empty. Track spending
+            using expense categories.
           </p>
         </div>
 

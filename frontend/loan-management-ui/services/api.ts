@@ -995,8 +995,9 @@ export const accountingApi = {
 
   journalEntry: (id: number) => get(`/accounting/journal/${id}`),
 
-  reverseEntry: (id: number, reason?: string) =>
+  reverseEntry: (id: number, approvalId: string, reason: string) =>
     post(`/accounting/journal/${id}/reverse`, {
+      approvalId,
       reason,
     }),
 
