@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { Bell, Menu, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import Sidebar from "@/components/Sidebar";
@@ -9,22 +11,6 @@ import { ToastContainer } from "@/components/ui/ToastContainer";
 import ForcedPasswordChange from "@/components/ForcedPasswordChange";
 import { useSessionActivity } from "@/hooks/useSessionActivity";
 
-/* ============================================================
-   NOBLE LOAN SOLUTIONS BRAND
-   ============================================================ */
-
-const NAVY = "#0B1F3A";
-const NAVY_LIGHT = "#16365F";
-const NAVY_DARK = "#07152A";
-
-const YELLOW = "#F4C430";
-const YELLOW_LIGHT = "#FFF9DB";
-const YELLOW_DARK = "#C99A00";
-
-/* ============================================================
-   DASHBOARD LAYOUT
-   ============================================================ */
-
 export default function DashboardLayout({
   children,
 }: {
@@ -32,6 +18,22 @@ export default function DashboardLayout({
 }) {
   const auth = useAuthState();
   const router = useRouter();
+  const navigation = useRef<HTMLDialogElement>(null);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    function closeOnDesktop() {
+      if (desktop.matches) navigation.current?.close();
+    }
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
+  useEffect(() => {
+    const dialog = navigation.current;
+    if (navigationOpen && dialog && !dialog.open) dialog.showModal();
+  }, [navigationOpen]);
+
   useSessionActivity(!auth.loading && Boolean(auth.user), () => {
     void auth.logout();
   });
@@ -41,10 +43,10 @@ export default function DashboardLayout({
      ========================================================== */
 
   useEffect(() => {
-    if (!auth.loading && !auth.user) {
+    if (!auth.loading && !auth.sessionError && !auth.user) {
       router.replace("/login");
     }
-  }, [auth.loading, auth.user, router]);
+  }, [auth.loading, auth.sessionError, auth.user, router]);
 
   /* ==========================================================
      LOADING SCREEN
@@ -126,6 +128,20 @@ export default function DashboardLayout({
      USER NOT AUTHENTICATED
      ========================================================== */
 
+  if (auth.sessionError) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-slate-50 p-5">
+        <section className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-900">Workspace unavailable</h1>
+          <p role="alert" className="mt-2 text-sm text-slate-600">We couldn’t verify your session. Check your connection and try again.</p>
+          <button type="button" onClick={auth.retrySession} className="mt-5 rounded-lg bg-[#0B1F3A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#16365F]">
+            Try again
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   if (!auth.user) {
     return null;
   }
@@ -146,323 +162,78 @@ export default function DashboardLayout({
     );
   }
 
-  /* ==========================================================
-     MAIN DASHBOARD
-     ========================================================== */
-
   return (
     <AuthContext.Provider value={auth}>
-      <div className="min-h-screen bg-[#F4F7FB] text-gray-900">
-        <div className="flex min-h-screen">
-          {/* ==================================================
-              SIDEBAR
-              ================================================== */}
-
-          <aside className="fixed left-0 top-0 bottom-0 z-40 w-64">
-            <Sidebar />
-          </aside>
-
-          {/* ==================================================
-              RIGHT APPLICATION AREA
-              ================================================== */}
-
-          <div className="flex min-h-screen flex-1 flex-col pl-64">
-            {/* =================================================
-                TOP NAVIGATION
-                ================================================= */}
-
-            <header
-              className="
-                sticky
-                top-0
-                z-30
-                h-[72px]
-                border-b
-                border-[#DCE4EF]
-                bg-white/90
-                shadow-[0_1px_0_rgba(255,255,255,0.65),0_8px_30px_rgba(11,31,58,0.035)]
-                backdrop-blur-xl
-              "
-            >
-              <div className="flex h-full items-center justify-between px-5 sm:px-7">
-                {/* =================================================
-                    LEFT SIDE
-                    ================================================= */}
-
-                <div className="flex items-center gap-4">
-                  {/* Noble Loan Solutions Logo */}
-
-                  <div
-                    className="
-                      flex
-                      h-10
-                      w-10
-                      items-center
-                      justify-center
-                      rounded-xl
-                      bg-[#0B1F3A]
-                      shadow-sm
-                    "
-                  >
-                    <span className="text-base font-extrabold text-[#F4C430]">
-                      N
-                    </span>
-                  </div>
-
-                  <div>
-                    <p
-                      className="
-                        text-[11px]
-                        font-extrabold
-                        uppercase
-                        tracking-[0.18em]
-                        text-[#C99A00]
-                      "
-                    >
-                      Noble Loan Solutions
-                    </p>
-
-                    <h2 className="text-sm font-bold text-[#0B1F3A]">
-                      Loan Management Platform
-                    </h2>
-                  </div>
-                </div>
-
-                {/* =================================================
-                    RIGHT SIDE
-                    ================================================= */}
-
-                <div className="flex items-center gap-3">
-                  {/* =================================================
-                      SYSTEM STATUS
-                      ================================================= */}
-
-                  <div
-                    className="
-                      hidden
-                      items-center
-                      gap-2
-                      rounded-full
-                      border
-                      border-[#E8D98A]
-                      bg-[#FFF9DB]
-                      px-3
-                      py-1.5
-                      sm:flex
-                    "
-                  >
-                    <span className="relative flex h-2 w-2">
-                      <span
-                        className="
-                          absolute
-                          inline-flex
-                          h-full
-                          w-full
-                          animate-ping
-                          rounded-full
-                          bg-[#F4C430]
-                          opacity-75
-                        "
-                      />
-
-                      <span
-                        className="
-                          relative
-                          inline-flex
-                          h-2
-                          w-2
-                          rounded-full
-                          bg-[#C99A00]
-                        "
-                      />
-                    </span>
-
-                    <span className="text-xs font-semibold text-[#806200]">
-                      System Online
-                    </span>
-                  </div>
-
-                  {/* =================================================
-                      NOTIFICATIONS
-                      ================================================= */}
-
-                  <button
-                    type="button"
-                    aria-label="Notifications"
-                    className="
-                      relative
-                      flex
-                      h-10
-                      w-10
-                      items-center
-                      justify-center
-                      rounded-xl
-                      border
-                      border-[#DCE4EF]
-                      bg-[#F8FAFC]
-                      text-gray-500
-                      shadow-sm
-                      transition
-                      hover:border-[#C7D5E5]
-                      hover:bg-[#EEF3F9]
-                      hover:text-[#0B1F3A]
-                    "
-                  >
-                    <span className="text-lg">🔔</span>
-
-                    <span
-                      className="
-                        absolute
-                        right-2
-                        top-2
-                        h-2
-                        w-2
-                        rounded-full
-                        border-2
-                        border-white
-                        bg-[#F4C430]
-                      "
-                    />
-                  </button>
-
-                  {/* =================================================
-                      ORGANIZATION PROFILE
-                      ================================================= */}
-
-                  <div
-                    className="
-                      flex
-                      items-center
-                      gap-3
-                      border-l
-                      border-[#DCE4EF]
-                      pl-4
-                    "
-                  >
-                    {/* Organization name */}
-
-                    <div className="hidden text-right sm:block">
-                      <p className="text-sm font-bold text-[#0B1F3A]">
-                        {auth.user.organizationName || "Noble Loan Solutions"}
-                      </p>
-
-                      <p className="text-[11px] font-medium text-gray-500">
-                        Financial Management Workspace
-                      </p>
-                    </div>
-
-                    {/* =================================================
-                        NOBLE LOAN SOLUTIONS AVATAR
-                        
-                        OLD:
-                        GF
-
-                        NEW:
-                        NL
-                        ================================================= */}
-
-                    <div
-                      className="
-                        relative
-                        flex
-                        h-10
-                        w-10
-                        items-center
-                        justify-center
-                        rounded-xl
-                        bg-[#0B1F3A]
-                        text-xs
-                        font-extrabold
-                        text-[#F4C430]
-                        shadow-sm
-                      "
-                    >
-                      NL
-                      {/* Online indicator */}
-                      <span
-                        className="
-                          absolute
-                          -bottom-0.5
-                          -right-0.5
-                          h-3
-                          w-3
-                          rounded-full
-                          border-2
-                          border-white
-                          bg-[#F4C430]
-                        "
-                      />
-                    </div>
-                  </div>
-                </div>
+      <div className="min-h-screen bg-slate-50 text-slate-950">
+        <a href="#workspace-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-3">
+          Skip to content
+        </a>
+        <div className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">
+          <Sidebar />
+        </div>
+        <dialog
+          id="workspace-navigation"
+          ref={navigation}
+          aria-labelledby="workspace-navigation-title"
+          onClose={() => setNavigationOpen(false)}
+          className="fixed inset-y-0 left-0 right-auto m-0 h-dvh max-h-none w-72 max-w-[90vw] overflow-hidden border-0 bg-[#0B1F3A] p-0 text-white backdrop:bg-slate-950/55"
+        >
+          {navigationOpen && (
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+                <h2 id="workspace-navigation-title" className="text-sm font-semibold">Navigation</h2>
+                <button type="button" aria-label="Close navigation" onClick={() => navigation.current?.close()} className="grid h-10 w-10 place-items-center rounded-lg hover:bg-white/10">
+                  <X size={20} aria-hidden="true" />
+                </button>
               </div>
-            </header>
+              <div className="min-h-0 flex-1">
+                <Sidebar onNavigate={() => navigation.current?.close()} />
+              </div>
+            </div>
+          )}
+        </dialog>
 
-            {/* =================================================
-                MAIN CONTENT
-                ================================================= */}
-
-            <main className="flex-1">
-              <div
-                className="
-                  mx-auto
-                  w-full
-                  max-w-[1800px]
-                  px-4
-                  py-5
-                  sm:px-6
-                  lg:px-8
-                  lg:py-7
-                "
+        <div className="flex min-h-screen min-w-0 flex-col lg:pl-64">
+          <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+            <div className="mx-auto flex min-h-16 max-w-[1800px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+              <div className="flex min-w-0 items-center gap-3">
+                <button
+                  type="button"
+                  aria-label="Open navigation"
+                  aria-haspopup="dialog"
+                  aria-controls="workspace-navigation"
+                  aria-expanded={navigationOpen}
+                  onClick={() => setNavigationOpen(true)}
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 lg:hidden"
+                >
+                  <Menu size={20} aria-hidden="true" />
+                </button>
+                <Link href="/dashboard" className="min-w-0 truncate text-sm font-semibold text-[#0B1F3A] hover:underline">
+                  {auth.user.organizationName || "Noble Loan Solutions"}
+                </Link>
+              </div>
+              <Link
+                href="/dashboard/notifications"
+                aria-label="Notifications"
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
-                {children}
-              </div>
-            </main>
+                <Bell size={18} aria-hidden="true" />
+                <span className="hidden sm:inline">Notifications</span>
+              </Link>
+            </div>
+          </header>
 
-            {/* =================================================
-                FOOTER
-                ================================================= */}
+          <main id="workspace-content" tabIndex={-1} className="w-full min-w-0 flex-1">
+            <div className="mx-auto w-full max-w-[1800px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+              {children}
+            </div>
+          </main>
 
-            <footer
-              className="
-                border-t
-                border-[#DCE4EF]
-                bg-white/85
-                shadow-[0_-4px_20px_rgba(11,31,58,0.02)]
-                px-7
-                py-4
-              "
-            >
-              <div
-                className="
-                  flex
-                  flex-col
-                  items-center
-                  justify-between
-                  gap-2
-                  text-[11px]
-                  text-gray-400
-                  sm:flex-row
-                "
-              >
-                <p>
-                  © {new Date().getFullYear()} Noble Loan Solutions. All rights
-                  reserved.
-                </p>
-
-                <div className="flex items-center gap-2">
-                  <span>Secure Financial Platform</span>
-
-                  <span className="h-1 w-1 rounded-full bg-[#F4C430]" />
-
-                  <span>Loan Management System</span>
-                </div>
-              </div>
-            </footer>
-          </div>
+          <footer className="border-t border-slate-200 bg-white px-4 py-4 text-xs text-slate-500 sm:px-6 lg:px-8">
+            <p>© {new Date().getFullYear()} Noble Loan Solutions</p>
+          </footer>
         </div>
       </div>
-
       <ToastContainer />
     </AuthContext.Provider>
   );

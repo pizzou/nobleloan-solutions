@@ -1752,7 +1752,7 @@ function ApplyPageContent() {
                   I authorize {tenant.name} to verify my information and contact
                   me regarding this application. I agree to the{" "}
                   <a
-                    href="#"
+                    href="/terms" target="_blank" rel="noopener noreferrer"
                     className="font-semibold underline ml-1"
                     style={{
                       color: primary,
