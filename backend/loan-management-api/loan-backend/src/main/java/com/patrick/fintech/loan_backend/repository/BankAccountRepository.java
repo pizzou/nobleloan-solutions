@@ -19,6 +19,8 @@ public interface BankAccountRepository
             Long orgId
     );
 
+    boolean existsByOrganization_IdAndGlAccount_Id(Long organizationId, Long glAccountId);
+
     Optional<BankAccount> findByIdAndOrganization_Id(
             Long id,
             Long orgId

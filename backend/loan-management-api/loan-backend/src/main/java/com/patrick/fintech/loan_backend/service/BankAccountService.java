@@ -270,6 +270,15 @@ public class BankAccountService {
             BigDecimal openingBalance,
             String openedBy
     ) {
+        return create(organization, branch, name, accountType, bankName, accountNumber,
+                openingBalance, openedBy, false);
+    }
+
+    @Transactional
+    public BankAccount create(
+            Organization organization, Branch branch, String name, String accountType,
+            String bankName, String accountNumber, BigDecimal openingBalance,
+            String openedBy, boolean mainLoanBankAccount) {
 
         requireOrganization(
                 organization
@@ -302,28 +311,28 @@ public class BankAccountService {
                 );
 
         String normalizedBankName =
-                optionalText(
-                        bankName
-                );
+                mainLoanBankAccount ? null : optionalText(bankName);
 
         String normalizedAccountNumber =
-                optionalText(
-                        accountNumber
-                );
+                mainLoanBankAccount ? null : optionalText(accountNumber);
 
-        String glCode =
-                generateUniqueGlCode(
-                        organization.getId()
-                );
-
-        ChartOfAccount glAccount =
-                accountingService.createAccount(
-                        organization,
-                        glCode,
-                        normalizedName,
-                        ChartOfAccount.AccountType.ASSET,
-                        ChartOfAccount.NormalBalance.DEBIT
-                );
+        ChartOfAccount glAccount;
+        if (mainLoanBankAccount) {
+            if (!"BANK".equals(normalizedType) || branch != null || opening.signum() != 0) {
+                throw new IllegalArgumentException(
+                        "The main loan bank account must be organization-wide and use the existing ledger balance");
+            }
+            accountingService.ensureChartOfAccounts(organization);
+            glAccount = coaRepo.lockMainBankLedger(organization.getId())
+                    .orElseThrow(() -> new IllegalStateException("Main loan cash ledger GL 1000 was not found"));
+            if (bankAccountRepo.existsByOrganization_IdAndGlAccount_Id(organization.getId(), glAccount.getId())) {
+                throw new IllegalStateException("A bank account is already linked to the main loan cash ledger");
+            }
+        } else {
+            glAccount = accountingService.createAccount(
+                    organization, generateUniqueGlCode(organization.getId()), normalizedName,
+                    ChartOfAccount.AccountType.ASSET, ChartOfAccount.NormalBalance.DEBIT);
+        }
 
         if (glAccount == null
                 || glAccount.getId() == null) {

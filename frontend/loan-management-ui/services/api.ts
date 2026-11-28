@@ -1079,6 +1079,7 @@ export const bankAccountApi = {
     bankName?: string;
     accountNumber?: string;
     openingBalance?: number;
+    mainLoanBankAccount?: boolean;
     branchId?: number;
   }) => post("/bank-accounts", data),
 

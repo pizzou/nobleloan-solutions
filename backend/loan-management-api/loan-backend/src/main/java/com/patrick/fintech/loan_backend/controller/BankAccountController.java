@@ -139,7 +139,8 @@ public class BankAccountController {
                                 openingBalance,
                                 currentUserUtil
                                                 .getCurrentUser()
-                                                .getName());
+                                                .getName(),
+                                Boolean.TRUE.equals(body.get("mainLoanBankAccount")));
 
                 auditService.log(
                                 org,

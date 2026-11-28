@@ -1407,14 +1407,12 @@ export default function AccountingPage() {
 
               <div>
                 <p className="text-sm font-semibold text-blue-900">
-                  Bank accounts are now transaction-enabled
+                  How bank balances are calculated
                 </p>
 
                 <p className="text-xs text-blue-700 mt-1 leading-5">
-                  An account can be created with a zero opening balance and
-                  funded later using Deposit. Withdrawals and transfers are also
-                  recorded through the general ledger. The displayed balance
-                  comes from posted journal entries.
+                  Balances come from posted journal entries. To track loan cash movements
+                  in your main bank account, link it to GL 1000 when you add it.
                 </p>
               </div>
             </div>
@@ -1736,6 +1734,8 @@ function AddBankAccountModal({
   const [accountNumber, setAccountNumber] = useState("");
   const [branchId, setBranchId] = useState("");
   const [openingBalance, setOpeningBalance] = useState("");
+  const [linkMainLedger, setLinkMainLedger] = useState(false);
+  const mainLoanBankAccount = accountType === "BANK" && linkMainLedger;
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1756,12 +1756,12 @@ function AddBankAccountModal({
       return;
     }
 
-    if (accountType === "BANK" && !bankName.trim()) {
+    if (accountType === "BANK" && !mainLoanBankAccount && !bankName.trim()) {
       setError("Enter the bank name for this bank account.");
       return;
     }
 
-    const opening = openingBalance.trim() === "" ? 0 : Number(openingBalance);
+    const opening = mainLoanBankAccount || openingBalance.trim() === "" ? 0 : Number(openingBalance);
 
     if (!Number.isFinite(opening) || opening < 0) {
       setError("Opening balance must be zero or a positive amount.");
@@ -1774,13 +1774,14 @@ function AddBankAccountModal({
       await bankAccountApi.create({
         name: trimmedName,
         accountType,
-        bankName: accountType === "BANK" ? bankName.trim() : undefined,
+        bankName: accountType === "BANK" && !mainLoanBankAccount ? bankName.trim() : undefined,
         accountNumber:
-          accountType === "BANK"
+          accountType === "BANK" && !mainLoanBankAccount
             ? accountNumber.trim() || undefined
             : undefined,
         openingBalance: opening,
-        branchId: branchId ? Number(branchId) : undefined,
+        mainLoanBankAccount,
+        branchId: !mainLoanBankAccount && branchId ? Number(branchId) : undefined,
       });
 
       await onSaved();
@@ -1890,9 +1891,22 @@ function AddBankAccountModal({
           />
         </div>
 
+        {accountType === "BANK" && (
+          <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-4 text-sm text-slate-800">
+            <input type="checkbox" checked={linkMainLedger} onChange={(event) => setLinkMainLedger(event.target.checked)} />
+            <span>
+              <strong className="block">Link the main loan bank account to GL 1000</strong>
+              <span className="mt-1 block text-xs text-slate-600">
+                Select this if this bank account sends loan disbursements and receives repayments.
+                Use an internal name such as Main Loan Bank. The link uses the existing GL 1000 history.
+              </span>
+            </span>
+          </label>
+        )}
+
         {/* BANK FIELDS */}
 
-        {accountType === "BANK" && (
+        {accountType === "BANK" && !mainLoanBankAccount && (
           <>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">
@@ -1937,7 +1951,8 @@ function AddBankAccountModal({
           </label>
 
           <select
-            value={branchId}
+            disabled={accountType === "BANK" && linkMainLedger}
+            value={accountType === "BANK" && linkMainLedger ? "" : branchId}
             onChange={(e) => setBranchId(e.target.value)}
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0D6B3E]"
           >
@@ -1965,9 +1980,10 @@ function AddBankAccountModal({
 
             <input
               type="number"
+              disabled={accountType === "BANK" && linkMainLedger}
               min="0"
               step="0.01"
-              value={openingBalance}
+              value={accountType === "BANK" && linkMainLedger ? "" : openingBalance}
               onChange={(e) => setOpeningBalance(e.target.value)}
               placeholder="0.00"
               className="w-full pl-14 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0D6B3E]"
@@ -1989,9 +2005,9 @@ function AddBankAccountModal({
           </div>
 
           <p className="text-xs text-gray-500 mt-1 leading-5">
-            The system creates a dedicated asset GL account. A positive opening
-            balance creates an opening journal entry. A zero opening balance
-            creates the account at zero and does not create a journal entry.
+            {accountType === "BANK" && linkMainLedger
+              ? "The linked bank account displays existing GL 1000 entries and starts with the current recorded balance."
+              : "A separate bank or cash account gets its own ledger. A positive opening balance posts an opening journal entry."}
           </p>
         </div>
 
