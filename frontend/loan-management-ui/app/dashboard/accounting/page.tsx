@@ -576,7 +576,7 @@ export default function AccountingPage() {
 
       <section aria-label="General ledger control overview" className="nls-accounting-ledger-overview">
         <div><span>Trial balance</span><strong>{trial ? (trial.balanced ? "Debits = credits" : "Out of balance") : "Unavailable"}</strong></div>
-        <div><span>Cash ledger · GL 1000</span><strong>{cashLedgerBalance == null ? "Unavailable" : `${fmt(Math.abs(cashLedgerBalance))} ${cashLedgerBalance < 0 ? "CR" : "DR"}`}</strong><small>Compare with bank statements</small></div>
+        <div><span>Recorded cash balance · GL 1000</span><strong>{cashLedgerBalance == null ? "Unavailable" : `${fmt(Math.abs(cashLedgerBalance))} ${cashLedgerBalance < 0 ? "CR" : "DR"}`}</strong><small>Compare with bank statements</small></div>
         <div><span>Statement date</span><strong>{financialPeriod.to}</strong></div>
       </section>
 
@@ -895,6 +895,10 @@ export default function AccountingPage() {
           TRIAL BALANCE
       =================================================== */}
 
+      {tab === "Trial Balance" && (
+        <LedgerCashFlow data={cashFlow} currency={currency} />
+      )}
+
       {tab === "Trial Balance" && trial && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -902,7 +906,7 @@ export default function AccountingPage() {
               <div className="font-bold text-gray-900">Trial Balance</div>
 
               <p className="text-xs text-gray-500 mt-1">
-                Verification that total debits equal total credits. Balanced does not guarantee completeness.
+                This table shows the recorded balance of each account at the statement date. Balanced means total debits equal total credits.
               </p>
             </div>
 

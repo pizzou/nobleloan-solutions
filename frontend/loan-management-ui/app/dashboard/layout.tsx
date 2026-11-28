@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Bell, Menu, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -56,40 +57,14 @@ export default function DashboardLayout({
     return (
       <div className="min-h-screen bg-[#F4F7FB] flex items-center justify-center bg-[radial-gradient(circle_at_top_right,rgba(244,196,48,0.08),transparent_28rem)]">
         <div className="flex flex-col items-center gap-4">
-          {/* Noble logo */}
-
-          <div className="relative">
-            <div
-              className="
-                flex
-                h-14
-                w-14
-                items-center
-                justify-center
-                rounded-2xl
-                bg-[#0B1F3A]
-                shadow-[0_12px_30px_rgba(11,31,58,0.18)]
-                ring-1
-                ring-white/10
-              "
-            >
-              <span className="text-xl font-extrabold text-[#F4C430]">N</span>
-            </div>
-
-            <span
-              className="
-                absolute
-                -bottom-1
-                -right-1
-                h-4
-                w-4
-                rounded-full
-                border-2
-                border-white
-                bg-[#F4C430]
-              "
-            />
-          </div>
+          <Image
+            src="/favIcon.png"
+            alt=""
+            width={64}
+            height={64}
+            priority
+            className="rounded-2xl border border-[#F4C430] bg-white shadow-sm"
+          />
 
           {/* Loading spinner */}
 
@@ -164,7 +139,7 @@ export default function DashboardLayout({
 
   return (
     <AuthContext.Provider value={auth}>
-      <div className="min-h-screen bg-slate-50 text-slate-950">
+      <div className="min-h-screen bg-[#F4F7FB] text-slate-950">
         <a href="#workspace-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-3">
           Skip to content
         </a>
@@ -194,7 +169,7 @@ export default function DashboardLayout({
         </dialog>
 
         <div className="flex min-h-screen min-w-0 flex-col lg:pl-64">
-          <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+          <header className="sticky top-0 z-30 border-b border-slate-200 border-t-[3px] border-t-[#F4C430] bg-white/95 backdrop-blur">
             <div className="mx-auto flex min-h-16 max-w-[1800px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
               <div className="flex min-w-0 items-center gap-3">
                 <button
@@ -208,14 +183,17 @@ export default function DashboardLayout({
                 >
                   <Menu size={20} aria-hidden="true" />
                 </button>
-                <Link href="/dashboard" className="min-w-0 truncate text-sm font-semibold text-[#0B1F3A] hover:underline">
-                  {auth.user.organizationName || "Noble Loan Solutions"}
+                <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 rounded-md text-[#0B1F3A] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0B1F3A]">
+                  <Image src="/favIcon.png" alt="" width={36} height={36} className="shrink-0 rounded-lg border border-[#E6D6A0] lg:hidden" />
+                  <span className="truncate text-sm font-semibold sm:text-base">
+                    {auth.user.organizationName || "Noble Loan Solutions"}
+                  </span>
                 </Link>
               </div>
               <Link
                 href="/dashboard/notifications"
                 aria-label="Notifications"
-                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#E6D6A0] bg-[#FFFBEC] px-3 text-sm font-semibold text-[#0B1F3A] hover:bg-[#FFF1C7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0B1F3A]"
               >
                 <Bell size={18} aria-hidden="true" />
                 <span className="hidden sm:inline">Notifications</span>

@@ -670,16 +670,16 @@ export default function DashboardPage() {
   return (
     <section className="text-[#172E49]">
       <div className="mx-auto max-w-[1600px] space-y-5">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
+        <div className="rounded-2xl border border-[#173455] border-t-[3px] border-t-[#F4C430] bg-[#0B1F3A] p-5 text-white shadow-sm sm:p-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-[#0B1F3A] sm:text-3xl">
+              <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
                 Financial overview
               </h1>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-slate-200">
                 Portfolio, collections, and operating performance
               </p>
-              <p className="mt-2 text-xs font-medium text-slate-600">
+              <p className="mt-2 text-xs font-medium text-[#F9DA75]">
                 {consolidatedView
                   ? "Consolidated owner portfolio"
                   : authenticatedOwner
@@ -691,19 +691,19 @@ export default function DashboardPage() {
               type="button"
               disabled={refreshing}
               onClick={() => void load(true)}
-              className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-[#0B1F3A] hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-[#F4C430] px-3 py-2 text-sm font-semibold text-[#0B1F3A] hover:bg-[#F9DA75] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
             >
               <RefreshCw size={16} aria-hidden="true" className={refreshing ? "animate-spin" : undefined} />
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
           </div>
-          <nav aria-label="Common tasks" className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+          <nav aria-label="Common tasks" className="mt-5 flex flex-wrap gap-2 border-t border-white/20 pt-4">
             {[
               { href: "/dashboard/loans", label: "Loan portfolio" },
               { href: "/dashboard/payments", label: "Payments" },
               { href: "/dashboard/collections", label: "Collections" },
             ].map((item) => (
-              <Link key={item.href} href={item.href} className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-200">
+              <Link key={item.href} href={item.href} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-3 py-2 text-sm font-medium text-white hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#F4C430]">
                 {item.label}
                 <ArrowUpRight size={15} aria-hidden="true" />
               </Link>
