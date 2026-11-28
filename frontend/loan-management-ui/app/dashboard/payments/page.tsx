@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import PaymentReviewQueue from "@/components/PaymentReviewQueue";
+import { useAuth } from "@/hooks/useAuth";
 import { paymentApi, loanApi } from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
 import type { DashboardStats } from "@/types";
@@ -231,14 +233,17 @@ function Field({
   placeholder?: string;
   required?: boolean;
 }) {
+  const inputId = useId();
   return (
     <div>
-      <label className="mb-2 block text-xs font-bold text-slate-700">
+      <label htmlFor={inputId} className="mb-2 block text-xs font-bold text-slate-700">
         {label}
         {required ? <span className="ml-1 text-red-500">*</span> : null}
       </label>
 
       <input
+        id={inputId}
+        required={required}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -269,6 +274,9 @@ function EmptySchedule() {
 }
 
 export default function PaymentsPage() {
+  const { user, isBusinessOwner } = useAuth();
+  const canSubmit = ["ADMIN", "MANAGER", "ACCOUNTANT", "TELLER", "LOAN_OFFICER"].includes(user?.role ?? "");
+  const [reviewRefresh, setReviewRefresh] = useState(0);
   const [loanIdInput, setLoanIdInput] = useState("");
   const [loan, setLoan] = useState<Loan | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -410,6 +418,12 @@ export default function PaymentsPage() {
       return;
     }
 
+    if (!transactionId.trim()) {
+      setConfirming(false);
+      setError("Enter the bank transaction or receipt reference.");
+      return;
+    }
+
     setConfirming(false);
     setSaving(true);
     setError("");
@@ -429,15 +443,14 @@ export default function PaymentsPage() {
       );
 
       setSuccess(
-        `Payment of ${money(paymentAmount, loan.currency || "RWF")} was recorded successfully.`,
+        `Payment request for ${money(paymentAmount, loan.currency || "RWF")} submitted for Business Owner review.`,
       );
 
       setAmount("");
       setTransactionId("");
       setNotes("");
 
-      await loadLoan(loan.id);
-      await loadTransactions();
+      setReviewRefresh((value) => value + 1);
     } catch (err: any) {
       setError(err?.message || "Payment could not be recorded.");
     } finally {
@@ -488,6 +501,15 @@ export default function PaymentsPage() {
             ) : null}
           </div>
         </section>
+
+        {(canSubmit || isBusinessOwner) && (
+          <PaymentReviewQueue owner={isBusinessOwner} refresh={reviewRefresh}
+            onPosted={() => {
+              if (loan) void loadLoan(loan.id);
+              void loadTransactions();
+            }}
+          />
+        )}
 
         {/* Alerts */}
         {error ? (
@@ -786,9 +808,8 @@ export default function PaymentsPage() {
             </section>
 
             {/* Main workspace */}
-            <div className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
-              {/* Posting panel */}
-              <section className="rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+            <div className={`grid gap-6 ${canSubmit ? "xl:grid-cols-[390px_minmax(0,1fr)]" : ""}`}>
+              {canSubmit && <section className="rounded-3xl border border-slate-200/80 bg-white shadow-sm">
                 <div className="border-b border-slate-100 p-6">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -807,8 +828,7 @@ export default function PaymentsPage() {
                   </div>
 
                   <p className="mt-3 text-xs leading-5 text-slate-500">
-                    Enter the amount received from the borrower. Allocation is
-                    determined by the backend loan-payment rules.
+                    Enter the amount and reference for Business Owner verification. Approval posts the payment.
                   </p>
                 </div>
 
@@ -852,7 +872,8 @@ export default function PaymentsPage() {
                   </div>
 
                   <Field
-                    label="Transaction reference"
+                    label="Bank transaction or receipt reference"
+                    required
                     value={transactionId}
                     onChange={setTransactionId}
                     placeholder="External transaction reference"
@@ -905,13 +926,13 @@ export default function PaymentsPage() {
                   <button
                     type="button"
                     onClick={() => setConfirming(true)}
-                    disabled={saving || !amount}
+                    disabled={saving || !amount || !transactionId.trim()}
                     className="w-full rounded-xl bg-[#0D6B3E] px-5 py-3.5 text-sm font-black text-white shadow-sm transition hover:bg-[#095832] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {saving ? "Posting payment…" : "Review & record payment"}
+                    {saving ? "Submitting…" : "Review request"}
                   </button>
                 </div>
-              </section>
+              </section>}
 
               {/* Schedule */}
               <section className="min-w-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
@@ -1106,7 +1127,7 @@ export default function PaymentsPage() {
               </h2>
 
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                You are about to record a payment against{" "}
+                You are submitting a payment request for{" "}
                 <span className="font-bold text-slate-900">
                   {loan.referenceNumber || `Loan #${loan.id}`}
                 </span>
@@ -1153,7 +1174,7 @@ export default function PaymentsPage() {
                   onClick={() => void recordPayment()}
                   className="rounded-xl bg-[#0D6B3E] px-5 py-2.5 text-sm font-black text-white transition hover:bg-[#095832]"
                 >
-                  Confirm & post payment
+                  Submit for approval
                 </button>
               </div>
             </div>

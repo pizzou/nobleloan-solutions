@@ -775,6 +775,12 @@ export const paymentApi = {
     }).then((response) => unwrap(response.data));
   },
 
+  reviews: (pendingOnly: boolean, page: number) =>
+    get(`/payment-reviews?pendingOnly=${pendingOnly}&page=${page}`),
+
+  decideReview: (id: number, approve: boolean, reason: string) =>
+    post(`/payment-reviews/${id}/${approve ? "approve" : "reject"}`, { reason }),
+
   createIdempotencyKey,
 
   schedule: (loanId: number) => get(`/loans/${loanId}/payments`),

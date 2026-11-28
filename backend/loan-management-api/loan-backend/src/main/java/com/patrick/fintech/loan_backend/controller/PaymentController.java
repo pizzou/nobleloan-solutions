@@ -1,12 +1,11 @@
 package com.patrick.fintech.loan_backend.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
 import com.patrick.fintech.loan_backend.dto.PaymentGatewayResponse;
 import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.dto.PaymentResponse;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
-import com.patrick.fintech.loan_backend.service.IdempotencyService;
+import com.patrick.fintech.loan_backend.service.PaymentReviewService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.PaymentService;
 import com.patrick.fintech.loan_backend.service.LoanService;
@@ -28,207 +27,21 @@ public class PaymentController {
         private final PaymentService paymentService;
         private final LoanService loanService;
         private final CurrentUserUtil currentUserUtil;
-        private final IdempotencyService idempotencyService;
+        private final PaymentReviewService paymentReviews;
         private final MtnMobileMoneyService mtnMobileMoneyService;
-        private final ObjectMapper objectMapper;
 
         // ============================================================
         // RECORD MANUAL PAYMENT
         // ============================================================
 
-        /**
-         * Records a normal/manual payment.
-         *
-         * Supports Idempotency-Key for retry protection.
-         *
-         * Financial allocation is performed by PaymentService:
-         *
-         * 1. Penalty
-         * 2. Interest
-         * 3. Principal
-         * 4. Overpayment
-         */
         @PostMapping
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','TELLER')")
-        public ResponseEntity<ApiResponse<PaymentResponse>> recordPayment(
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','TELLER','LOAN_OFFICER')")
+        public ResponseEntity<ApiResponse<PaymentReviewService.Review>> recordPayment(
                         @PathVariable Long loanId,
-                        @RequestBody Map<String, Object> body,
-                        @RequestHeader(value = "Idempotency-Key", required = true) String idempotencyKey)
-                        throws Exception {
-
-                var currentUser = currentUserUtil.getCurrentUser();
-
-                if (currentUser == null) {
-                        throw new RuntimeException(
-                                        "Authenticated user could not be determined.");
-                }
-
-                var org = currentUser.getOrganization();
-
-                if (org == null) {
-                        throw new RuntimeException(
-                                        "User is not associated with an organization.");
-                }
-
-                // Enforce the same visibility boundary used by the loan
-                // detail/reporting APIs. System/webhook processing remains
-                // separate and does not use this controller.
-                loanService.getLoanForOrg(
-                                loanId,
-                                org.getId());
-
-                // ========================================================
-                // IDEMPOTENCY
-                // ========================================================
-
-                var outcome = idempotencyService.checkOrReserve(
-                                idempotencyKey,
-                                org,
-                                "POST /loans/" + loanId + "/payments",
-                                objectMapper.writeValueAsString(new java.util.TreeMap<>(body)));
-
-                /*
-                 * Retry of an already completed request.
-                 *
-                 * We do not call PaymentService again.
-                 */
-                if (outcome.isReplay()) {
-                        try {
-                                PaymentResponse cached = outcome.cachedResponseBody() == null
-                                                ? null
-                                                : objectMapper.readValue(outcome.cachedResponseBody(),
-                                                                PaymentResponse.class);
-                                return ResponseEntity
-                                                .status(outcome.cachedStatusCode() == null ? 200
-                                                                : outcome.cachedStatusCode())
-                                                .body(ApiResponse.ok("Payment already recorded", cached));
-                        } catch (Exception ex) {
-                                throw new IllegalStateException("Stored idempotent payment response is invalid", ex);
-                        }
-                }
-
-                try {
-
-                        // ====================================================
-                        // AMOUNT
-                        // ====================================================
-
-                        Object amountValue = body.get("amount");
-
-                        if (amountValue == null) {
-
-                                throw new RuntimeException(
-                                                "Payment amount is required.");
-                        }
-
-                        BigDecimal amount;
-
-                        try {
-
-                                amount = new BigDecimal(
-                                                amountValue
-                                                                .toString()
-                                                                .trim());
-
-                        } catch (NumberFormatException e) {
-
-                                throw new RuntimeException(
-                                                "Payment amount must be a valid number.");
-                        }
-
-                        if (amount.compareTo(
-                                        BigDecimal.ZERO) <= 0) {
-
-                                throw new RuntimeException(
-                                                "Payment amount must be greater than zero.");
-                        }
-
-                        if (amount.stripTrailingZeros().scale() > 2) {
-
-                                throw new RuntimeException(
-                                                "Payment amount cannot contain more than two decimal places.");
-                        }
-
-                        // ====================================================
-                        // PAYMENT DETAILS
-                        // ====================================================
-
-                        String method = body.getOrDefault(
-                                        "paymentMethod",
-                                        "BANK_TRANSFER")
-                                        .toString()
-                                        .trim();
-
-                        if (method.isBlank()) {
-                                method = "BANK_TRANSFER";
-                        }
-
-                        String txnId = body.getOrDefault(
-                                        "transactionId",
-                                        "")
-                                        .toString()
-                                        .trim();
-
-                        if (txnId.isBlank()) {
-                                txnId = null;
-                        }
-
-                        String channel = body.getOrDefault(
-                                        "channel",
-                                        "")
-                                        .toString()
-                                        .trim();
-
-                        if (channel.isBlank()) {
-                                channel = null;
-                        }
-
-                        String notes = body.getOrDefault(
-                                        "notes",
-                                        "")
-                                        .toString()
-                                        .trim();
-
-                        if (notes.isBlank()) {
-                                notes = null;
-                        }
-
-                        // ====================================================
-                        // RECORD PAYMENT
-                        // ====================================================
-
-                        Payment payment = paymentService.recordPayment(
-                                        loanId,
-                                        amount,
-                                        method,
-                                        txnId,
-                                        channel,
-                                        notes,
-                                        currentUser);
-
-                        // ====================================================
-                        // RECORD IDEMPOTENCY SUCCESS
-                        // ====================================================
-
-                        idempotencyService.recordSuccess(
-                                        idempotencyKey,
-                                        org,
-                                        ResponseDtoMapper.payment(payment),
-                                        200);
-
-                        return ResponseEntity.ok(
-                                        ApiResponse.ok(
-                                                        "Payment recorded",
-                                                        ResponseDtoMapper.payment(payment)));
-
-                } catch (Exception e) {
-
-                        idempotencyService.recordFailure(
-                                        idempotencyKey,
-                                        org);
-
-                        throw e;
-                }
+                        @RequestBody PaymentReviewService.Request body,
+                        @RequestHeader("Idempotency-Key") String idempotencyKey) {
+                var review = paymentReviews.submit(loanId, currentUserUtil.getCurrentUser(), idempotencyKey, body);
+                return ResponseEntity.accepted().body(ApiResponse.ok("Payment submitted for Business Owner review", review));
         }
 
         // ============================================================
@@ -276,6 +89,10 @@ public class PaymentController {
         public ResponseEntity<ApiResponse<PaymentResponse>> confirmMtnSandboxPayment(
                         @PathVariable Long loanId,
                         @RequestBody Map<String, Object> body) {
+
+                if (!mtnMobileMoneyService.isAvailable()) {
+                        throw new IllegalStateException("MTN sandbox confirmation is unavailable");
+                }
 
                 // ========================================================
                 // VALIDATE LOAN ID
